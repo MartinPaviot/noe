@@ -1,0 +1,22 @@
+[package]
+name = "noe-desktop"
+version = "0.0.0"
+edition = "2021"
+description = "Coquille desktop de Noe."
+license = "AGPL-3.0-only"
+rust-version = "1.77"
+
+[lib]
+name = "noe_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true

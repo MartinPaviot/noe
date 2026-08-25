@@ -1,0 +1,20 @@
+# Configuration gitleaks pour Noe.
+# Regle du depot : aucun secret dans un fichier suivi. .env est ignore par git,
+# .env.example ne contient que des noms de cles et des valeurs factices.
+title = "noe"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Valeurs factices documentaires"
+paths = [
+  '''\.env\.example$''',
+  '''docs/setup-checklist\.md$''',
+]
+regexTarget = "match"
+regexes = [
+  '''REMPLACER_[A-Z_]+''',
+  '''sk_test_XXXX''',
+  '''pk_test_XXXX''',
+]

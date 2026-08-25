@@ -1,0 +1,26 @@
+{
+  "name": "noe",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Noe — l'esprit qui comprend le travail avant de le faire.",
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@10.15.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "vitest run",
+    "secrets": "gitleaks detect --no-banner --redact -c .gitleaks.toml",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test",
+    "supabase": "supabase"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "supabase": "^2.0.0"
+  }
+}

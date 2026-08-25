@@ -1,0 +1,13 @@
+{
+  "name": "@noe/episode-spec",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Schemas Zod du format d'episode Noe. Publiable, licence permissive.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

@@ -1,0 +1,10 @@
+# Normalisation des fins de ligne : LF dans le depot, quel que soit l'OS.
+* text=auto eol=lf
+
+# Binaires : jamais de conversion.
+*.png binary
+*.ico binary
+*.icns binary
+
+# Fichiers generes : exclus des diffs et des stats de langage.
+pnpm-lock.yaml -diff linguist-generated
