@@ -294,7 +294,10 @@ Compte détecté : `acct_1SSP…NA2P` (tronqué) — *« Environnement de test N
 
 ### E.2 — Supabase ⏳
 
-- [ ] 👤 `pnpm supabase login` (~2 min)
+- [ ] 👤 **Jeton d'accès personnel.** `supabase login` refuse de tourner hors TTY
+      (`LegacyLoginMissingTokenError`). Générer un jeton sur
+      <https://supabase.com/dashboard/account/tokens> puis :
+      `setx SUPABASE_ACCESS_TOKEN "<jeton>"` — jamais dans un fichier suivi. (~2 min)
 - [ ] ⏳ **GATE coût** — `supabase projects create noe-prod` dans l'org existante.
       **~10 $/mois de marginal** sur le plan payant. Projet **neuf**, jamais celui
       d'Elevay. Transférable vers une autre org plus tard.
