@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Noe</title>
+    <meta
+      name="description"
+      content="Noe observe le travail réel, le rejoue, et ne propose d'agir que lorsqu'un juge mécanique l'a prouvé. Aucun contenu utilisateur ne quitte le poste."
+    />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' font-family='Georgia,serif'>N</text></svg>" />
+    <style>
+      :root {
+        --fond: #fbfbfa;
+        --encre: #18181b;
+        --doux: #6b6b76;
+        --trait: #e4e4e2;
+        --accent: #1c4f3f;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fond: #131315;
+          --encre: #f4f4f2;
+          --doux: #9a9aa4;
+          --trait: #2a2a2e;
+          --accent: #7fc8ad;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--fond);
+        color: var(--encre);
+        font: 16px/1.65 ui-serif, Georgia, "Times New Roman", serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      main { max-width: 34rem; margin: 0 auto; padding: 18vh 1.5rem 6rem; }
+      h1 {
+        font-size: clamp(2.6rem, 9vw, 3.6rem);
+        margin: 0 0 0.15em;
+        letter-spacing: -0.02em;
+        font-weight: 400;
+      }
+      .etym { color: var(--doux); font-style: italic; margin: 0 0 2.5rem; }
+      .promesse { font-size: 1.2rem; margin: 0 0 1.5rem; }
+      .garantie {
+        border-left: 2px solid var(--accent);
+        padding-left: 1rem;
+        margin: 0 0 2.5rem;
+        color: var(--doux);
+      }
+      .garantie strong { color: var(--encre); font-weight: 600; }
+      .etat {
+        border-top: 1px solid var(--trait);
+        padding-top: 1.25rem;
+        font-size: 0.9rem;
+        color: var(--doux);
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Noe</h1>
+      <p class="etym">du grec <em>noûs</em> — l'esprit qui comprend</p>
+
+      <p class="promesse">
+        Noe observe le travail réel sur votre poste, le rejoue, et ne propose
+        d'agir que lorsqu'un juge mécanique l'a prouvé.
+      </p>
+
+      <p class="garantie">
+        <strong>Aucun contenu utilisateur ne quitte jamais votre poste.</strong>
+        Ce n'est pas une option de configuration : c'est la contrainte dont
+        découle toute l'architecture.
+      </p>
+
+      <p class="etat">
+        En construction. Le code est public dès le premier jour —
+        <a href="https://github.com/MartinPaviot/noe">github.com/MartinPaviot/noe</a>
+      </p>
+    </main>
+  </body>
+</html>

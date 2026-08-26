@@ -12,3 +12,5 @@ coverage/
 .vitest/
 .turbo/
 *.log
+
+.vercel

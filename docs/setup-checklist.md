@@ -463,17 +463,23 @@ ces tests a d'ailleurs révélé un trou à l'écriture : les `alter table … a
 column` échappaient au contrôle, ce qui est précisément le cas où du contenu se
 glisserait après coup.
 
-### E.3 — Vercel ⏳
+### ✅ E.3 — Vercel (fait le 2026-08-26)
 
-✅ **Authentifié le 2026-08-26** — compte `martinpaviot`, une seule team :
-**Martin's projects** (`martins-projects-02d07974`). Pas de team Elevay distincte.
-
-- [x] 👤 ~~`vercel login`~~ — fait
-- [ ] ⏳ `vercel link` → projet **`noe`**. **Volontairement différé :** la landing
-      est F12, et la session 0 s'interdit tout code métier. Créer un projet vide
-      qui échouerait au build n'apporte rien. À faire à l'ouverture de F12.
-- [ ] ⏳ Landing + page de téléchargement + docs + **page trust**
+- [x] `vercel login` — compte `martinpaviot`, team `martins-projects-02d07974`
+- [x] `vercel link` → projet **`noe`** (`prj_sBFp8z060APHVpopSswl15z0zCZP`)
+- [x] Landing squelette déployée en production :
+      <https://noe-martins-projects-02d07974.vercel.app>
+- [x] **Deployment Protection désactivée** — active par défaut, elle rendait la
+      page invisible (302 vers l'authentification Vercel). Retirée via
+      `PATCH /v9/projects/{id}` avec `{"ssoProtection": null}`.
+- [ ] Page trust, docs, page de téléchargement → **F12**
 - [ ] Le proxy edge attend que la cascade le justifie — pas maintenant
+
+> ⚠️ **`noe.vercel.app` appartient à quelqu'un d'autre** — un site Gridsome sans
+> rapport. Le nom court est pris. Prévoir un domaine propre avant Product Hunt.
+
+> Vercel a **connecté automatiquement le dépôt GitHub** au moment du `link`, sans
+> que ce soit demandé. Chaque push sur `main` redéploiera donc la landing.
 
 ### E.4 — Resend · Sentry · PostHog ⏳
 
