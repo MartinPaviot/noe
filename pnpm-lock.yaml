@@ -11,6 +11,9 @@ importers:
       '@biomejs/biome':
         specifier: ^2.2.0
         version: 2.5.10
+      '@noe/harness':
+        specifier: workspace:*
+        version: link:packages/harness
       supabase:
         specifier: ^2.0.0
         version: 2.115.0

@@ -17,12 +17,14 @@
     "verify": "pnpm build && pnpm lint && pnpm lint:sql && pnpm typecheck && pnpm test",
     "supabase": "supabase",
     "lint:sql": "node scripts/lint-anti-contenu-cli.mjs",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build",
+    "replay": "noe replay packages/harness/golden"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0",
-    "supabase": "^2.0.0"
+    "supabase": "^2.0.0",
+    "@noe/harness": "workspace:*"
   }
 }
