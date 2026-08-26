@@ -96,57 +96,58 @@ critères de décision.
 
 ### Livré
 
-Les **15 tâches** de  sont vertes.
+Les **15 tâches** de `specs/001-socle-de-preuve/tasks.md` sont vertes.
 
-- ** (MIT)** — schémas Zod du format d'épisode, invariants
-  au parse, règles de grade A/B/C avec motif, clôture gelante en profondeur,
-  , registre de migrateurs avec fixture v0.
-- ** (AGPL)** — normalisation, classement en cinq classes,
-  verdict, interface  sans I/O possible par construction, boucle de
-  rejeu déterministe, rapports texte et JSON, CLI .
-- **Corpus doré** — 5 épisodes écrits à la main, , fixture legacy.
+- **`@noe/episode-spec` (MIT)** — schémas Zod du format d'épisode, invariants au
+  parse, règles de grade A/B/C avec motif, clôture gelante en profondeur,
+  `supersedes`, registre de migrateurs avec fixture v0.
+- **`@noe/harness` (AGPL)** — normalisation, classement en cinq classes, verdict,
+  interface `Policy` sans I/O possible par construction, boucle de rejeu
+  déterministe, rapports texte et JSON, CLI `noe replay | judge`.
+- **Corpus doré** — 5 épisodes écrits à la main, `canaris.json`, fixture legacy.
 
 ### Verdict mécanique
 
-\
-Gate de sortie vérifié sur un **clone frais** : Scope: all 6 workspace projects
-Lockfile is up to date, resolution step is skipped
-Already up to date
+```
+politique parfaite   4/4 grades A en accord   100 %   exit 0
+politique nulle      0/4                        0 %   exit 1, 11 « manqué »
+50 épisodes synthétiques                              1,5 s  (seuil 60 s)
+99 tests
+```
 
-packages/episode-spec prepare$ tsc -p tsconfig.build.json
-packages/episode-spec prepare: Done
-packages/harness prepare$ tsc -p tsconfig.build.json
-packages/harness prepare: Done
-Done in 6.3s using pnpm v10.15.1 produit
-le rapport attendu sans aucune autre commande.
+Gate de sortie vérifié sur un **clone frais** du dépôt public :
+`pnpm i && noe replay packages/harness/golden` produit le rapport attendu sans
+aucune autre commande.
 
 ### Deux décisions de conception qui méritaient d'être prises
 
-** ne contient pas .** La politique parfaite doit
-rejouer le diff observé, mais lui donner la réponse par le contexte ouvrirait
-le même chemin à une vraie politique. Elle reçoit donc le corpus **à la
+**`ReplayContext` ne contient pas `state_after`.** La politique parfaite doit
+rejouer le diff observé, mais lui donner la réponse par le contexte ouvrirait le
+même chemin à une vraie politique. Elle reçoit donc le corpus **à la
 construction**. L'absence d'I/O est garantie par le type, pas par la discipline.
 
 **Les rapports n'émettent jamais de valeur en clair.** Les chaînes sortent en
-empreinte . L'égalité reste visible — ce qu'un diff exige — sans que le
+empreinte `sha256`. L'égalité reste visible — ce qu'un diff exige — sans que le
 contenu quitte le processus. Sans cela, le canary sweep aurait échoué à juste
-titre sur l'épisode (e).
+titre sur l'épisode (e), et il aurait eu raison.
 
 ### Ce que les tests ont attrapé
 
-Le lint anti-contenu ratait les . Le corpus
-synthétique produisait des ULID de 25 caractères. Le binaire  n'existait
-pas sur un clone frais. Trois trous trouvés par des tests écrits avant de les
-constater.
+Le lint anti-contenu ratait les `alter table … add column`. Le corpus synthétique
+produisait des ULID de 25 caractères, donc 50 épisodes tous illisibles. Le
+binaire `noe` n'existait pas sur un clone frais — pnpm ne lie pas le bin d'un
+package du workspace tant qu'il n'est la dépendance de personne.
+
+Trois trous réels, trouvés par des tests écrits avant de les constater.
 
 ### État des features
 
-**F02, F03, F04 passent à ** — les premiers du projet, et ils viennent
-d'un verdict mécanique reproductible. F01 est réordonné après le socle : le
-spike est une mesure, pas une feature.
+**F02, F03, F04 passent à `true`** — les premiers du projet, et ils viennent d'un
+verdict mécanique reproductible, pas d'une impression. F01 est réordonné après le
+socle : le spike est une mesure, pas une feature, et le harness ne l'attend pas.
 
 ### Prochaine session
 
-, nourrie du verdict du spike.
+`specs/002-capture/requirements.md`, nourrie du verdict du spike.
 
 ---
