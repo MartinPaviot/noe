@@ -15,7 +15,9 @@
         "title": "Noe",
         "width": 1000,
         "height": 700,
-        "resizable": true
+        "resizable": true,
+        "visible": false,
+        "skipTaskbar": true
       }
     ],
     "security": {

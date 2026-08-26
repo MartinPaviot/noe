@@ -1,0 +1,108 @@
+name: desktop
+
+# Le job Windows vit dans son propre workflow plutot que dans `ci.yml` : la
+# compilation Rust dure des minutes la ou la chaine TypeScript dure des
+# secondes, et les melanger ferait attendre chaque relecture de texte derriere
+# un `cargo build`.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - 'scripts/generer-icones-tray.mjs'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - 'scripts/generer-icones-tray.mjs'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: apps/desktop/src-tauri
+
+jobs:
+  windows:
+    name: coquille Tauri · Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Format (rustfmt)
+        run: cargo fmt --check
+
+      # `-D warnings` : un avertissement ignore devient un avertissement
+      # permanent, et la coquille est justement l endroit ou les futures taches
+      # vont brancher la capture.
+      - name: Lint (clippy)
+        run: cargo clippy --all-targets -- -D warnings
+
+      # La logique de bornage (R1.1, R1.2, R5.1) se teste ici, sans ecran :
+      # c est tout l interet de l avoir sortie du cablage Tauri.
+      - name: Tests (cargo)
+        run: cargo test --lib
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # Compare les PIXELS decodes, pas les octets du fichier : `deflate` ne
+      # rend pas la meme sortie d une version de zlib a l autre, et un controle
+      # qui vire au rouge sur un changement de runtime finit desactive.
+      - name: Verifier que les icones de tray sont reproductibles
+        working-directory: .
+        run: node scripts/generer-icones-tray.mjs --verifier
+
+  # Le binaire complet se lie a WebView2 et prend plusieurs minutes : on le
+  # verifie sur main et a la demande, pas a chaque poussee de branche.
+  binaire:
+    name: liaison du binaire
+    runs-on: windows-latest
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.15.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Installer les dependances
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      # `generate_context!` lit tauri.conf.json et exige que `frontendDist`
+      # existe : sans ce build, la compilation du binaire echoue sur un dossier
+      # absent, ce qui n a rien a voir avec le code Rust.
+      - name: Construire le front
+        working-directory: apps/desktop
+        run: pnpm build
+
+      - name: Compiler le binaire
+        run: cargo build --bin noe-desktop
