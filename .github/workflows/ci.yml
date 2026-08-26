@@ -35,6 +35,9 @@ jobs:
       - name: Lint (Biome)
         run: pnpm lint
 
+      - name: Lint anti-contenu (INVARIANT I)
+        run: pnpm lint:sql
+
       - name: Typecheck (TypeScript strict)
         run: pnpm typecheck
 

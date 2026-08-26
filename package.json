@@ -14,8 +14,9 @@
     "typecheck": "pnpm -r --parallel typecheck",
     "test": "vitest run",
     "secrets": "gitleaks detect --no-banner --redact -c .gitleaks.toml",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test",
-    "supabase": "supabase"
+    "verify": "pnpm lint && pnpm lint:sql && pnpm typecheck && pnpm test",
+    "supabase": "supabase",
+    "lint:sql": "node scripts/lint-anti-contenu-cli.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.0",

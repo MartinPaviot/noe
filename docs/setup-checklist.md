@@ -411,21 +411,57 @@ Seul le test subsiste. Un `stripe login` la réinstallera le jour du gate live.
 - [ ] 👤 **GATE — passage en live.** Le compte est celui d'Elevay en production :
       l'agent ne bascule jamais sans ta confirmation explicite
 
-### E.2 — Supabase ⏳
+### ✅ E.2 — Supabase (fait le 2026-08-26)
 
-- [ ] 👤 **Jeton d'accès personnel.** `supabase login` refuse de tourner hors TTY
-      (`LegacyLoginMissingTokenError`). Générer un jeton sur
-      <https://supabase.com/dashboard/account/tokens> puis :
-      `setx SUPABASE_ACCESS_TOKEN "<jeton>"` — jamais dans un fichier suivi. (~2 min)
-- [ ] ⏳ **GATE coût** — `supabase projects create noe-prod` dans l'org existante.
-      **~10 $/mois de marginal** sur le plan payant. Projet **neuf**, jamais celui
-      d'Elevay. Transférable vers une autre org plus tard.
-- [ ] ⏳ Migrations initiales : `licences`, `compteurs`, `telemetrie_optin`
-- [ ] ⏳ **RLS activée dès la première migration**, sur chaque table
-- [ ] ⏳ **Lint anti-contenu en CI** dès la première migration : refuse toute
-      colonne serveur capable d'accueillir du contenu utilisateur
-- [ ] ⏳ Auth : email + Google
-- [ ] ⏳ `supabase link --project-ref <ref>`
+```
+projet   : noe-prod
+ref      : tbkwagmviekohzdnstbg
+org      : LeadSens (plan pro)          <- gate coût confirmé, ~10 $/mois
+région   : eu-west-3 (Paris)
+taille   : micro
+statut   : ACTIVE_HEALTHY, lié
+```
+
+Le choix de l'org était un gate : `MartinPaviot's Org` est en plan **free**
+(pause après 7 jours d'inactivité, aucune sauvegarde — disqualifiant pour des
+clés de licence), `LeadSens` en **pro**. Projet neuf, donc base totalement
+isolée des projets `leadsens-*`, conformément à l'invariant VII.
+
+- [x] Jeton d'accès personnel (`SUPABASE_ACCESS_TOKEN` dans `.env.local`)
+- [x] **GATE coût** confirmé par l'utilisateur avant création
+- [x] Migration `20260826110000_socle_licences.sql` appliquée :
+      `licences`, `compteurs`, `telemetrie_optin`
+- [x] **RLS activée ET forcée** sur les trois tables, **zéro politique** —
+      donc tout refusé pour `anon` et `authenticated`. Vérifié en interrogeant
+      `pg_class` sur la base distante, pas seulement affirmé.
+- [x] **Lint anti-contenu** (`pnpm lint:sql`) dans `pnpm verify` et dans la CI
+- [x] `supabase link --project-ref tbkwagmviekohzdnstbg`
+- [ ] ⏳ Auth : email + Google — le fournisseur Google exige l'app OAuth de la
+      section C, elle-même en attente du verdict de terrain (F01)
+
+**Le mot de passe Postgres** est dans `.env.local` (`SUPABASE_DB_PASSWORD`).
+Il n'est **récupérable nulle part ailleurs** : Supabase ne le réaffiche jamais.
+S'il est perdu, il faut le réinitialiser depuis le dashboard.
+
+#### Le lint anti-contenu, en pratique
+
+`scripts/lint-anti-contenu.mjs` refuse deux choses dans les migrations :
+
+1. les types fourre-tout — `json`, `jsonb`, `xml`, `bytea`, `hstore` ;
+2. les colonnes textuelles au nom évocateur — `contenu`, `corps`, `message`,
+   `episode`, `brouillon`, `payload`, `transcript`…
+
+Échappatoire volontaire et tracée dans le diff :
+
+```sql
+-- noe:contenu-autorise empreinte opaque, jamais le contenu lui-meme
+empreinte jsonb
+```
+
+Couvert par 7 tests, dont un qui rejoue la migration réelle du socle. L'un de
+ces tests a d'ailleurs révélé un trou à l'écriture : les `alter table … add
+column` échappaient au contrôle, ce qui est précisément le cas où du contenu se
+glisserait après coup.
 
 ### E.3 — Vercel ⏳
 
