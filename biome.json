@@ -6,7 +6,13 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignoreUnknown": true
+    "ignoreUnknown": true,
+    "includes": [
+      "**",
+      "!packages/episode-spec/motifs.json",
+      "!packages/episode-spec/vecteurs-redaction.json",
+      "!packages/episode-spec/causes-gap.json"
+    ]
   },
   "formatter": {
     "enabled": true,

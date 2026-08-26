@@ -19,11 +19,29 @@ export const Target = z.object({
  * Un trou de capture. Événement de première classe : on ne rebouche jamais en
  * silence, on enregistre ce qu'on a manqué et pourquoi.
  */
+/**
+ * Les causes de trou, comme **donnée** et non comme littéral inline.
+ *
+ * Le capteur est en Rust et porte le même enum ; s'ils divergent, le capteur
+ * écrit une cause que le harness refuse de parser, et l'épisode part en
+ * quarantaine sans que personne comprenne pourquoi. La liste est donc exportée
+ * pour être projetée dans un miroir vérifié, exactement comme les motifs PII.
+ */
+export const CAUSES_GAP = [
+  'crash',
+  'kill',
+  'sleep',
+  'seq_break',
+  'manual',
+  'pause',
+  'timeout',
+] as const;
+
 export const Gap = z.object({
   // « pause » et « timeout » ajoutes par la spec 002 (voir docs/decisions.md) :
   // une pause operateur et une cloture automatique a 60 min sont des trous de
   // capture au meme titre qu un crash — declares, jamais silencieux.
-  cause: z.enum(['crash', 'kill', 'sleep', 'seq_break', 'manual', 'pause', 'timeout']),
+  cause: z.enum(CAUSES_GAP),
   from_seq: z.number().int().nonnegative(),
   to_seq: z.number().int().nonnegative(),
 });

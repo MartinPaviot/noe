@@ -44,8 +44,15 @@ pub struct Orphelin {
     pub episode_id: String,
     /// Entrées relues avec succès.
     pub entrees: Vec<EntreeJournal>,
-    /// Une dernière ligne incomplète a été écartée — R3.4.
+    /// Une ligne incomplète a été écartée — R3.4.
     pub ligne_tronquee: bool,
+    /// Les `seq` manquants entre la première et la dernière entrée relue.
+    ///
+    /// R3.4 : « toute discontinuité de `seq` détectée à la relecture DOIT
+    /// produire `gap{cause:"seq_break"}` ». Une ligne qui a disparu proprement —
+    /// secteur illisible, troncature du système de fichiers — ne laisse aucune
+    /// trace visible : seul le compte des numéros la révèle.
+    pub seq_manquants: Vec<u64>,
     /// Le `seq` de la dernière entrée saine, qui borne le trou.
     pub dernier_seq: u64,
 }
@@ -172,10 +179,12 @@ pub fn orphelins(racine: &Path) -> std::io::Result<Vec<Orphelin>> {
 
         let (entrees, ligne_tronquee) = relire(&dossier.join(NOM_JOURNAL))?;
         let dernier_seq = entrees.last().map(EntreeJournal::seq).unwrap_or(0);
+        let seq_manquants = seq_manquants(&entrees);
         trouves.push(Orphelin {
             episode_id,
             entrees,
             ligne_tronquee,
+            seq_manquants,
             dernier_seq,
         });
     }
@@ -211,6 +220,31 @@ fn relire(chemin: &Path) -> std::io::Result<(Vec<EntreeJournal>, bool)> {
     Ok((entrees, illisible))
 }
 
+/// Les `seq` absents d'une suite relue (R3.4).
+///
+/// On ne cherche PAS un compte : on cherche les numéros manquants, parce que
+/// savoir qu'il manque trois lignes ne dit pas où, et que le trou doit se situer
+/// dans le journal pour être exploitable en revue.
+fn seq_manquants(entrees: &[EntreeJournal]) -> Vec<u64> {
+    let mut vus: Vec<u64> = entrees.iter().map(EntreeJournal::seq).collect();
+    vus.sort_unstable();
+    vus.dedup();
+    let (Some(&premier), Some(&dernier)) = (vus.first(), vus.last()) else {
+        return Vec::new();
+    };
+    let mut manquants = Vec::new();
+    let mut attendu = premier;
+    for &s in &vus {
+        while attendu < s {
+            manquants.push(attendu);
+            attendu += 1;
+        }
+        attendu = s + 1;
+    }
+    debug_assert!(attendu == dernier + 1);
+    manquants
+}
+
 /// Clôt un orphelin avec le trou qui explique son interruption (R3.2).
 ///
 /// Le `seq` du gap suit le dernier `seq` sain : la continuité que R3.1 exige ne
@@ -228,7 +262,7 @@ pub fn clore_orphelin(racine: &Path, orphelin: &Orphelin) -> std::io::Result<Ent
         monotone_ms: derniere_ms,
         // `SeqBreak` si une ligne a ete perdue en route, `Crash` sinon : les
         // deux causes ne racontent pas la meme panne et la spec les distingue.
-        cause: if orphelin.ligne_tronquee {
+        cause: if orphelin.ligne_tronquee || !orphelin.seq_manquants.is_empty() {
             CauseGap::SeqBreak
         } else {
             CauseGap::Crash
@@ -498,6 +532,107 @@ mod tests {
         assert_eq!(entrees.len(), 250);
         for paire in entrees.windows(2) {
             assert!(paire[1].seq() > paire[0].seq(), "R3.1");
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // R3.4 : une discontinuite de seq ne passe jamais inapercue.
+    // ---------------------------------------------------------------------
+
+    /// Ecrit un journal a la main, en sautant certains numeros.
+    fn journal_trous(r: &Path, id: &str, seqs: &[u64]) {
+        let dossier = r.join(id);
+        std::fs::create_dir_all(&dossier).unwrap();
+        std::fs::write(dossier.join(NOM_MARQUEUR), id).unwrap();
+        let contenu: String = seqs
+            .iter()
+            .map(|s| format!("{}\n", serde_json::to_string(&action(*s)).unwrap()))
+            .collect();
+        std::fs::write(dossier.join(NOM_JOURNAL), contenu).unwrap();
+    }
+
+    #[test]
+    fn une_suite_continue_ne_signale_aucun_manque() {
+        let r = racine("continue");
+        journal_trous(&r, "ep1", &[1, 2, 3, 4, 5]);
+        assert!(orphelins(&r).unwrap()[0].seq_manquants.is_empty());
+    }
+
+    #[test]
+    fn un_seq_saute_est_nomme_precisement() {
+        // Savoir qu il manque une ligne ne dit pas laquelle. Le numero, si :
+        // c est ce qui permet de situer le trou entre deux evenements connus.
+        let r = racine("saute");
+        journal_trous(&r, "ep1", &[1, 2, 5, 6]);
+        assert_eq!(orphelins(&r).unwrap()[0].seq_manquants, vec![3, 4]);
+    }
+
+    #[test]
+    fn plusieurs_trous_sont_tous_nommes() {
+        let r = racine("plusieurs-trous");
+        journal_trous(&r, "ep1", &[1, 3, 4, 8]);
+        assert_eq!(orphelins(&r).unwrap()[0].seq_manquants, vec![2, 5, 6, 7]);
+    }
+
+    #[test]
+    fn un_journal_vide_ne_fabrique_pas_de_manque() {
+        let r = racine("vide-seq");
+        journal_trous(&r, "ep1", &[]);
+        assert!(orphelins(&r).unwrap()[0].seq_manquants.is_empty());
+    }
+
+    #[test]
+    fn une_seule_entree_ne_fabrique_pas_de_manque() {
+        // Le trou se cherche ENTRE la premiere et la derniere : avec une seule
+        // ligne, il n y a pas d intervalle, et surtout rien ne dit que le
+        // journal aurait du commencer a 1.
+        let r = racine("une-seule");
+        journal_trous(&r, "ep1", &[7]);
+        assert!(orphelins(&r).unwrap()[0].seq_manquants.is_empty());
+    }
+
+    #[test]
+    fn une_discontinuite_donne_seq_break_meme_sans_ligne_tronquee() {
+        let r = racine("disco");
+        journal_trous(&r, "ep1", &[1, 2, 9]);
+        let orphelin = orphelins(&r).unwrap().remove(0);
+
+        assert!(!orphelin.ligne_tronquee, "aucune ligne n est coupee");
+        assert!(!orphelin.seq_manquants.is_empty());
+
+        match clore_orphelin(&r, &orphelin).unwrap() {
+            EntreeJournal::Gap { cause, .. } => assert_eq!(
+                cause,
+                CauseGap::SeqBreak,
+                "R3.4 : une ligne disparue proprement reste une discontinuite"
+            ),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn un_journal_ecrit_normalement_n_a_aucune_discontinuite() {
+        // Le controle temoin : si celui-ci rougissait, la detection crierait au
+        // loup sur chaque episode et on finirait par la debrancher.
+        let r = racine("temoin-seq");
+        let h = Arc::new(HorlogeSimulee::new());
+        let mut j = Journal::ouvrir(&r, "ep1", h.clone()).unwrap();
+        for i in 1..=150 {
+            j.ecrire(&action(i)).unwrap();
+        }
+        h.avancer(Duration::from_millis(FLUSH_MS));
+        j.battre().unwrap();
+        drop(j);
+
+        let orphelin = orphelins(&r).unwrap().remove(0);
+        assert!(
+            orphelin.seq_manquants.is_empty(),
+            "faux positif : {:?}",
+            orphelin.seq_manquants
+        );
+        match clore_orphelin(&r, &orphelin).unwrap() {
+            EntreeJournal::Gap { cause, .. } => assert_eq!(cause, CauseGap::Crash),
+            autre => panic!("{autre:?}"),
         }
     }
 }

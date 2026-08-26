@@ -24,7 +24,12 @@ regex = "1"
 # HMAC-SHA256 et alea cryptographique (design 1 : « ring (HMAC) »).
 ring = "0.17"
 # DPAPI : la cle HMAC ne touche jamais le disque en clair (R4.4).
-windows = { version = "0.58", features = ["Win32_Security_Cryptography", "Win32_Foundation"] }
+windows = { version = "0.58", features = ["Win32_Security_Cryptography",
+    "Win32_Foundation",
+    # R3.3 : GetTickCount64 et QueryUnbiasedInterruptTime, dont l ecart donne
+    # exactement le temps passe en veille.
+    "Win32_System_SystemInformation",
+    "Win32_System_WindowsProgramming",] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ulid = "1"

@@ -41,3 +41,4 @@ export {
 export const EPISODE_FORMAT_VERSION = '1.0.0' as const;
 
 export { episodeAvecTrou, episodeCapture, episodeValide, ULID_A, ULID_B } from './fixtures.js';
+export { CAUSES_GAP } from './schema.js';

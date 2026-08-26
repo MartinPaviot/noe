@@ -1,0 +1,11 @@
+{
+  "causes": [
+    "crash",
+    "kill",
+    "manual",
+    "pause",
+    "seq_break",
+    "sleep",
+    "timeout"
+  ]
+}

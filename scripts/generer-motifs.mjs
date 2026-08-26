@@ -14,6 +14,12 @@
  * personne ne regarde — exactement la divergence que la décision voulait
  * empêcher.
  *
+ * Les fichiers produits sont **exclus du formateur** dans `biome.json`. Biome
+ * reformatait le JSON genere — il replie un tableau court sur une ligne — et le
+ * verificateur le declarait alors perime a chaque `pnpm format`. Deux outils qui
+ * se disputent le meme fichier finissent toujours par faire desactiver le plus
+ * utile des deux.
+ *
  * Sont aussi générés des **vecteurs de test partagés**. Comparer les chaînes de
  * motifs entre deux implémentations ne prouve presque rien : deux moteurs
  * d'expressions régulières peuvent lire la même chaîne différemment. Comparer
@@ -27,12 +33,12 @@ const ICI = dirname(fileURLToPath(import.meta.url));
 const RACINE = join(ICI, '..');
 const DEST_MOTIFS = join(RACINE, 'packages', 'episode-spec', 'motifs.json');
 const DEST_VECTEURS = join(RACINE, 'packages', 'episode-spec', 'vecteurs-redaction.json');
+const DEST_CAUSES = join(RACINE, 'packages', 'episode-spec', 'causes-gap.json');
 
 // `pathToFileURL` : sur Windows, un chemin absolu commence par une lettre de
 // lecteur, que le chargeur ESM lit comme un schema d URL inconnu.
-const { MOTIFS_PII, VERSION_MOTIFS, chercherPii, resoudreChevauchements } = await import(
-  pathToFileURL(join(RACINE, 'packages', 'episode-spec', 'dist', 'index.js')).href
-);
+const { CAUSES_GAP, MOTIFS_PII, VERSION_MOTIFS, chercherPii, resoudreChevauchements } =
+  await import(pathToFileURL(join(RACINE, 'packages', 'episode-spec', 'dist', 'index.js')).href);
 
 /**
  * Les entrées sur lesquelles TOUTES les implémentations doivent s'accorder.
@@ -129,9 +135,15 @@ const rendu = (o) => `${JSON.stringify(o, null, 2)}\n`;
 const verifier = process.argv.includes('--verifier');
 let ecarts = 0;
 
+// Les causes de trou : meme dispositif que les motifs, meme raison. Le capteur
+// Rust porte le meme enum ; s'ils divergent, il ecrit une cause que le harness
+// refuse de parser, et l'episode part en quarantaine sans explication.
+const causes = { causes: [...CAUSES_GAP].sort() };
+
 for (const [nom, chemin, contenu] of [
   ['motifs.json', DEST_MOTIFS, motifs],
   ['vecteurs-redaction.json', DEST_VECTEURS, vecteurs],
+  ['causes-gap.json', DEST_CAUSES, causes],
 ]) {
   const attendu = rendu(contenu);
   if (verifier) {

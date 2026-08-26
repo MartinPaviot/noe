@@ -14,6 +14,7 @@ mod moteur;
 mod motifs;
 mod redaction;
 mod source;
+mod veille;
 
 use std::sync::Mutex;
 
@@ -272,6 +273,18 @@ fn sur_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
                 let mut s = e.session.lock().expect("session empoisonnee");
                 s.basculer_pause()
             };
+            // R5.2 : la pause laisse une trace. Le moteur ecrit le trou a la
+            // REPRISE, quand sa borne de fin existe enfin.
+            {
+                let mut m = e.moteur.lock().expect("moteur empoisonne");
+                if let Some(moteur) = m.as_mut() {
+                    if en_pause {
+                        moteur.mettre_en_pause();
+                    } else {
+                        moteur.reprendre();
+                    }
+                }
+            }
             notifier(
                 app,
                 if en_pause {
@@ -497,45 +510,65 @@ pub fn run() {
             // (2 s d'inactivite), et assez rare pour ne rien couter.
             {
                 let batteur = handle.clone();
-                std::thread::spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    let etat: State<Etat> = batteur.state();
-                    let clos = {
-                        let mut m = etat.moteur.lock().expect("moteur empoisonne");
-                        match m.as_mut() {
-                            Some(moteur) => {
-                                moteur.battre();
-                                moteur.battre_journal();
-                                moteur.clos()
-                            }
-                            None => false,
-                        }
-                    };
-                    // R1.3 : l'episode s'est clos tout seul. L'icone doit le
-                    // dire, sinon l'operateur croit observer alors que non.
-                    if clos {
-                        let bilan = {
+                std::thread::spawn(move || {
+                    let temps = veille::TempsWindows;
+                    let mut detecteur = veille::DetecteurVeille::nouveau(&temps);
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                        let etat: State<Etat> = batteur.state();
+                        // R3.3 : l'ecart des deux compteurs Windows donne le temps
+                        // suspendu. Interroge a CHAQUE battement, episode ouvert ou
+                        // non : sinon la premiere veille apres une ouverture serait
+                        // comptee depuis le dernier battement d'avant, donc fausse.
+                        let dormi = detecteur.battre(&temps, etat.horloge.monotone_ms());
+                        let clos = {
                             let mut m = etat.moteur.lock().expect("moteur empoisonne");
-                            m.take().map(|mut moteur| {
-                                moteur.clore();
-                                moteur.journal().len()
-                            })
+                            match m.as_mut() {
+                                Some(moteur) => {
+                                    if let Some(v) = dormi {
+                                        // Les deux durées ne disent pas la même
+                                        // chose : la machine a pu dormir bien
+                                        // plus longtemps que l'épisode n'a duré.
+                                        eprintln!(
+                                            "[noe] veille de {} s, dont {} s dans l episode",
+                                            v.duree_mesuree_ms / 1_000,
+                                            v.duree_dans_episode_ms() / 1_000
+                                        );
+                                        moteur.signaler_veille(&v);
+                                    }
+                                    moteur.battre();
+                                    moteur.battre_journal();
+                                    moteur.clos()
+                                }
+                                None => false,
+                            }
                         };
-                        let ferme = {
-                            let mut s = etat.session.lock().expect("session empoisonnee");
-                            s.arreter().ok()
-                        };
-                        if let Some(ep) = ferme {
-                            notifier(
-                                &batteur,
-                                "Episode clos automatiquement",
-                                &format!(
-                                    "60 minutes atteintes — {} entrees. Tache « {} ».",
-                                    bilan.unwrap_or(0),
-                                    ep.task_slug
-                                ),
-                            );
-                            rafraichir_tray(&batteur);
+                        // R1.3 : l'episode s'est clos tout seul. L'icone doit le
+                        // dire, sinon l'operateur croit observer alors que non.
+                        if clos {
+                            let bilan = {
+                                let mut m = etat.moteur.lock().expect("moteur empoisonne");
+                                m.take().map(|mut moteur| {
+                                    moteur.clore();
+                                    moteur.journal().len()
+                                })
+                            };
+                            let ferme = {
+                                let mut s = etat.session.lock().expect("session empoisonnee");
+                                s.arreter().ok()
+                            };
+                            if let Some(ep) = ferme {
+                                notifier(
+                                    &batteur,
+                                    "Episode clos automatiquement",
+                                    &format!(
+                                        "60 minutes atteintes — {} entrees. Tache « {} ».",
+                                        bilan.unwrap_or(0),
+                                        ep.task_slug
+                                    ),
+                                );
+                                rafraichir_tray(&batteur);
+                            }
                         }
                     }
                 });

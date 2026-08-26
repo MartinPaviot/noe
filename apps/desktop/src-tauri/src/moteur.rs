@@ -129,6 +129,8 @@ pub struct Moteur {
     /// L'application qu'on vient de quitter, et l'instant du départ.
     quittee: Option<(String, u64)>,
     veille_depuis: Option<u64>,
+    /// Instant d'entree en pause, tant qu'elle dure (R5.2).
+    pause_depuis: Option<u64>,
 
     /// Le writer, quand il y en a un. Les tests s'en passent : ils verifient la
     /// logique temporelle, et un disque dans la boucle la rendrait plus lente
@@ -163,6 +165,7 @@ impl Moteur {
             app_courante: application,
             quittee: None,
             veille_depuis: None,
+            pause_depuis: None,
             journal: None,
             echecs_ecriture: 0,
         }
@@ -351,6 +354,11 @@ impl Moteur {
         // tomber à la clôture perdrait un snapshot que R2.3 exige.
         let maintenant = self.horloge.monotone_ms();
         self.verifier_inactivite(maintenant);
+        // Une pause encore ouverte se termine ici. Sans ca, l'episode se
+        // clorait sur un trou jamais declare — precisement ce que R3.4 refuse.
+        if let Some(debut) = self.pause_depuis.take() {
+            self.trou(CauseGap::Pause, debut, maintenant);
+        }
         self.clos = true;
         if let Some(j) = self.journal.as_mut() {
             if let Err(e) = j.clore() {
@@ -358,6 +366,49 @@ impl Moteur {
                 eprintln!("[noe] cloture du journal refusee : {e}");
             }
         }
+    }
+
+    /// R3.3 — la machine a dormi, le detecteur l'a mesure.
+    ///
+    /// Le trou est ecrit avec les bornes du detecteur, pas avec l'instant
+    /// courant : c'est la seule facon de situer la veille entre les deux
+    /// evenements qu'elle separe.
+    pub fn signaler_veille(&mut self, veille: &crate::veille::Veille) {
+        if self.clos {
+            return;
+        }
+        self.trou(CauseGap::Sleep, veille.debut_ms, veille.fin_ms);
+        // Au reveil, l'inactivite et la « pause » n'ont plus de sens : la
+        // machine etait eteinte, l'operateur n'hesitait pas.
+        self.derniere_saisie = None;
+        self.derniere_action = veille.fin_ms;
+    }
+
+    /// R5.2 — l'operateur suspend la capture.
+    ///
+    /// Rien n'est ecrit ici : c'est la REPRISE qui produit le trou, parce
+    /// qu'avant elle on ne connait pas encore sa borne de fin. Une pause jamais
+    /// reprise se termine a la cloture, et `clore` s'en charge.
+    pub fn mettre_en_pause(&mut self) {
+        if self.clos || self.pause_depuis.is_some() {
+            return;
+        }
+        self.pause_depuis = Some(self.horloge.monotone_ms());
+    }
+
+    /// R5.2 — la capture repart : le trou de pause est ecrit maintenant.
+    pub fn reprendre(&mut self) {
+        let Some(debut) = self.pause_depuis.take() else {
+            return;
+        };
+        if self.clos {
+            return;
+        }
+        let fin = self.horloge.monotone_ms();
+        self.trou(CauseGap::Pause, debut, fin);
+        // Comme au reveil : le temps de pause n'est pas du temps de travail.
+        self.derniere_saisie = None;
+        self.derniere_action = fin;
     }
 
     /// Fait respirer le writer : c'est ce qui honore le vidage a 5 s (R3.1).
@@ -845,5 +896,207 @@ mod tests {
         });
         assert!(m.clos(), "R1.3 doit tenir sans battement intermediaire");
         assert_eq!(m.gaps(), vec![CauseGap::Timeout]);
+    }
+
+    // ---------------------------------------------------------------------
+    // Tache 5 : les gaps systeme (R3.3, R3.4, R5.2).
+    // ---------------------------------------------------------------------
+
+    /// Le capteur et le harness doivent nommer les trous pareil.
+    ///
+    /// S'ils divergent, le capteur ecrit une cause que le schema refuse, et
+    /// l'episode part en quarantaine sans que personne comprenne pourquoi. Le
+    /// miroir JSON est genere depuis `CAUSES_GAP` et compare ici — meme
+    /// dispositif que pour les motifs PII, meme raison.
+    #[test]
+    fn les_causes_de_gap_sont_les_memes_qu_en_typescript() {
+        #[derive(serde::Deserialize)]
+        struct Miroir {
+            causes: Vec<String>,
+        }
+        const MIROIR: &str = include_str!("../../../../packages/episode-spec/causes-gap.json");
+        let attendu: Miroir = serde_json::from_str(MIROIR).expect("causes-gap.json");
+
+        let toutes = [
+            CauseGap::Crash,
+            CauseGap::Kill,
+            CauseGap::Sleep,
+            CauseGap::SeqBreak,
+            CauseGap::Manual,
+            CauseGap::Pause,
+            CauseGap::Timeout,
+        ];
+        let mut obtenu: Vec<String> = toutes
+            .iter()
+            .map(|c| {
+                serde_json::to_value(c)
+                    .expect("serialisable")
+                    .as_str()
+                    .expect("une chaine")
+                    .to_string()
+            })
+            .collect();
+        obtenu.sort();
+
+        let mut attendues = attendu.causes.clone();
+        attendues.sort();
+        assert_eq!(
+            obtenu, attendues,
+            "les deux enums ont diverge : un episode capture deviendrait              illisible par le harness"
+        );
+    }
+
+    #[test]
+    fn une_veille_mesuree_produit_un_trou_avec_ses_bornes() {
+        let horloge = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        horloge.avancer(Duration::from_secs(300));
+
+        m.signaler_veille(&crate::veille::Veille {
+            debut_ms: 60_000,
+            fin_ms: 300_000,
+            duree_mesuree_ms: 240_000,
+        });
+
+        let gap = m
+            .journal()
+            .iter()
+            .find_map(|e| match e {
+                EntreeJournal::Gap {
+                    cause: CauseGap::Sleep,
+                    debut_ms,
+                    fin_ms,
+                    ..
+                } => Some((*debut_ms, *fin_ms)),
+                _ => None,
+            })
+            .expect("R3.3 : un gap de veille");
+        assert_eq!(gap, (60_000, 300_000), "les bornes viennent du detecteur");
+    }
+
+    #[test]
+    fn apres_une_veille_la_reprise_n_est_pas_une_hesitation() {
+        let horloge = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        horloge.avancer(Duration::from_secs(600));
+
+        m.signaler_veille(&crate::veille::Veille {
+            debut_ms: 0,
+            fin_ms: 600_000,
+            duree_mesuree_ms: 600_000,
+        });
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 600_100,
+            genre: GenreEvenement::Invocation(cible("button", "Enregistrer")),
+        });
+
+        assert!(
+            !m.declencheurs().contains(&Declencheur::PausePuisAction),
+            "dix minutes de veille ne sont pas dix minutes de reflexion"
+        );
+    }
+
+    #[test]
+    fn la_pause_n_ecrit_rien_avant_la_reprise() {
+        // Tant que la pause dure, sa borne de fin n'existe pas : ecrire le trou
+        // tout de suite obligerait a le corriger apres coup.
+        let horloge = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        m.mettre_en_pause();
+        horloge.avancer(Duration::from_secs(120));
+
+        assert!(m.gaps().is_empty(), "rien avant la reprise");
+    }
+
+    #[test]
+    fn la_reprise_ecrit_le_trou_de_pause_avec_ses_bornes() {
+        let horloge = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        horloge.avancer(Duration::from_secs(10));
+        m.mettre_en_pause();
+        horloge.avancer(Duration::from_secs(120));
+        m.reprendre();
+
+        let gap = m
+            .journal()
+            .iter()
+            .find_map(|e| match e {
+                EntreeJournal::Gap {
+                    cause: CauseGap::Pause,
+                    debut_ms,
+                    fin_ms,
+                    ..
+                } => Some((*debut_ms, *fin_ms)),
+                _ => None,
+            })
+            .expect("R5.2 : un gap de pause");
+        assert_eq!(gap, (10_000, 130_000));
+    }
+
+    #[test]
+    fn une_pause_jamais_reprise_se_termine_a_la_cloture() {
+        // Sinon l'episode se clorait sur un trou jamais declare, ce que R3.4
+        // interdit — et la statistique de completude serait fausse a la hausse.
+        let horloge = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        horloge.avancer(Duration::from_secs(5));
+        m.mettre_en_pause();
+        horloge.avancer(Duration::from_secs(60));
+        m.clore();
+
+        assert!(m.gaps().contains(&CauseGap::Pause), "obtenu {:?}", m.gaps());
+    }
+
+    #[test]
+    fn deux_pauses_successives_donnent_deux_trous() {
+        let horloge = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        for _ in 0..2 {
+            m.mettre_en_pause();
+            horloge.avancer(Duration::from_secs(30));
+            m.reprendre();
+            horloge.avancer(Duration::from_secs(5));
+        }
+        assert_eq!(
+            m.gaps().iter().filter(|c| **c == CauseGap::Pause).count(),
+            2
+        );
+    }
+
+    #[test]
+    fn mettre_en_pause_deux_fois_ne_deplace_pas_la_borne() {
+        // Un double appui sur « pause » ne doit pas raccourcir le trou : la
+        // borne reste celle de la PREMIERE mise en pause.
+        let horloge = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        m.mettre_en_pause();
+        horloge.avancer(Duration::from_secs(50));
+        m.mettre_en_pause();
+        horloge.avancer(Duration::from_secs(10));
+        m.reprendre();
+
+        let (debut, fin) = m
+            .journal()
+            .iter()
+            .find_map(|e| match e {
+                EntreeJournal::Gap {
+                    cause: CauseGap::Pause,
+                    debut_ms,
+                    fin_ms,
+                    ..
+                } => Some((*debut_ms, *fin_ms)),
+                _ => None,
+            })
+            .expect("un gap de pause");
+        assert_eq!((debut, fin), (0, 60_000), "le trou couvre les 60 s");
+    }
+
+    #[test]
+    fn reprendre_sans_pause_ne_fabrique_pas_de_trou() {
+        let horloge = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        m.reprendre();
+        assert!(m.gaps().is_empty(), "un trou invente salirait le corpus");
     }
 }
