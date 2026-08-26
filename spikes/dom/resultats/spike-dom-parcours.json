@@ -1,0 +1,95 @@
+{
+  "application_cible": "Salesforce Lightning (org de démo)",
+  "phase": "parcours",
+  "date": "2026-08-26T18:48:13.791Z",
+  "occurrences": 5,
+  "encapsulation": {
+    "personnalises": 270,
+    "ouvertes": 270,
+    "sansRacine": 0
+  },
+  "actions_etat_declarees": 15,
+  "actions_etat_observees": 20,
+  "observations_totales": 30,
+  "couverture_etat_pct": 100,
+  "couverture_brute_pct": 133.33333333333334,
+  "roles_explicites_pct": 50,
+  "resolus_pct": 100,
+  "testid_presents_pct": 0,
+  "surcout_in_page_pct": 0.021346279512170364,
+  "cout_total_ms": 15,
+  "ecoule_total_ms": 68396,
+  "clics_par_occurrence": 3,
+  "stabilite": {
+    "nue": {
+      "pct": 100,
+      "communes": 4,
+      "union": 4,
+      "distincts": 4,
+      "degenere": false
+    },
+    "nom": {
+      "pct": 100,
+      "communes": 4,
+      "union": 4,
+      "distincts": 4,
+      "degenere": false
+    },
+    "chemin": {
+      "pct": 100,
+      "communes": 4,
+      "union": 4,
+      "distincts": 4,
+      "degenere": false
+    },
+    "data": {
+      "pct": 100,
+      "communes": 3,
+      "union": 3,
+      "distincts": 3,
+      "degenere": false
+    },
+    "testid": {
+      "pct": 100,
+      "communes": 3,
+      "union": 3,
+      "distincts": 3,
+      "degenere": false
+    },
+    "complet": {
+      "pct": 100,
+      "communes": 4,
+      "union": 4,
+      "distincts": 4,
+      "degenere": false
+    }
+  },
+  "cles_data": [],
+  "par_occurrence": [
+    {
+      "occurrence": 0,
+      "observations": 6,
+      "actions_etat": 4
+    },
+    {
+      "occurrence": 1,
+      "observations": 6,
+      "actions_etat": 4
+    },
+    {
+      "occurrence": 2,
+      "observations": 6,
+      "actions_etat": 4
+    },
+    {
+      "occurrence": 3,
+      "observations": 6,
+      "actions_etat": 4
+    },
+    {
+      "occurrence": 4,
+      "observations": 6,
+      "actions_etat": 4
+    }
+  ]
+}

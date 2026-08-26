@@ -61,9 +61,9 @@ async function cliquerParLabel(page, motif, timeout = 20000) {
   await bouton.click({ timeout });
 }
 
-async function occurrence(page, n) {
+export async function occurrence(page, n, N2) {
   const statut = STATUTS[n % STATUTS.length];
-  log(`occurrence ${n + 1}/${N} — statut visé « ${statut} »`);
+  log(`occurrence ${n + 1}/${N2 ?? N} — statut visé « ${statut} »`);
 
   // 1. Ouvrir la fiche.
   await page.goto(`${ORG}/lightning/r/${LEAD}/view`, { waitUntil: 'domcontentloaded' });
@@ -110,6 +110,23 @@ async function occurrence(page, n) {
   await dodo(2500);
   log(`  enregistre`);
 }
+
+export async function ouvrirSession(profil, headless = false) {
+  const ctx = await chromium.launchPersistentContext(profil, {
+    headless,
+    channel: 'chrome',
+    viewport: null,
+    args: ['--start-maximized'],
+  });
+  const page = ctx.pages()[0] ?? (await ctx.newPage());
+  await page.goto(`${ORG}/lightning/page/home`, { waitUntil: 'domcontentloaded' });
+  await dodo(3000);
+  return { ctx, page };
+}
+
+// `chromium` est re-exporte : le spike DOM tourne sur CE banc, pas sur une
+// seconde installation de Playwright qui pourrait deriver en version.
+export { chromium, dodo, LEAD, log, ORG, PROFIL };
 
 async function main() {
   const ctx = await chromium.launchPersistentContext(PROFIL, {
@@ -166,7 +183,11 @@ async function main() {
   await ctx.close();
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// Ne joue le scenario complet que si ce fichier est lance directement ; importe,
+// il n'expose que son parcours.
+if (process.argv[1]?.replaceAll('\\', '/').endsWith('spikes/occurrence/occurrence.mjs')) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

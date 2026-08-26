@@ -1,0 +1,111 @@
+{
+  "application_cible": "Salesforce Lightning (org de démo)",
+  "phase": "large",
+  "date": "2026-08-26T19:03:23.029Z",
+  "occurrences": 5,
+  "encapsulation": {
+    "personnalises": 270,
+    "ouvertes": 270,
+    "sansRacine": 0
+  },
+  "actions_etat_declarees": 50,
+  "actions_etat_observees": 50,
+  "observations_totales": 50,
+  "couverture_etat_pct": 100,
+  "couverture_brute_pct": 100,
+  "roles_explicites_pct": 50,
+  "resolus_pct": 100,
+  "testid_presents_pct": 0,
+  "surcout_in_page_pct": 0.01687435121157234,
+  "cout_total_ms": 14,
+  "ecoule_total_ms": 84744,
+  "clics_par_occurrence": 10,
+  "stabilite": {
+    "nue": {
+      "pct": 100,
+      "communes": 10,
+      "union": 10,
+      "distincts": 10,
+      "degenere": false
+    },
+    "nom": {
+      "pct": 100,
+      "communes": 10,
+      "union": 10,
+      "distincts": 10,
+      "degenere": false
+    },
+    "chemin": {
+      "pct": 100,
+      "communes": 10,
+      "union": 10,
+      "distincts": 10,
+      "degenere": false
+    },
+    "data": {
+      "pct": 100,
+      "communes": 9,
+      "union": 9,
+      "distincts": 9,
+      "degenere": false
+    },
+    "testid": {
+      "pct": 100,
+      "communes": 4,
+      "union": 4,
+      "distincts": 4,
+      "degenere": true
+    },
+    "complet": {
+      "pct": 100,
+      "communes": 10,
+      "union": 10,
+      "distincts": 10,
+      "degenere": false
+    }
+  },
+  "cles_data": [
+    {
+      "cle": "data-aura-rendered-by",
+      "presence_pct": 30,
+      "stabilite_pct": 100
+    },
+    {
+      "cle": "data-tab-value",
+      "presence_pct": 30,
+      "stabilite_pct": 100
+    },
+    {
+      "cle": "data-label",
+      "presence_pct": 30,
+      "stabilite_pct": 100
+    }
+  ],
+  "par_occurrence": [
+    {
+      "occurrence": 0,
+      "observations": 10,
+      "actions_etat": 10
+    },
+    {
+      "occurrence": 1,
+      "observations": 10,
+      "actions_etat": 10
+    },
+    {
+      "occurrence": 2,
+      "observations": 10,
+      "actions_etat": 10
+    },
+    {
+      "occurrence": 3,
+      "observations": 10,
+      "actions_etat": 10
+    },
+    {
+      "occurrence": 4,
+      "observations": 10,
+      "actions_etat": 10
+    }
+  ]
+}
