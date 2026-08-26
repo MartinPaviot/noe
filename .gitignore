@@ -14,3 +14,6 @@ coverage/
 *.log
 
 .vercel
+
+# Artefacts de build Rust
+target/

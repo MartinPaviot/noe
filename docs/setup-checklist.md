@@ -43,22 +43,30 @@
 Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -Name pv
 ```
 
-### 👤 A.1 — Visual Studio Build Tools, workload « Développement Desktop en C++ »
+### ✅ A.1 — Visual Studio Build Tools (fait par l'agent le 2026-08-26)
 
-Prérequis Tauri sur Windows. Aucune installation Visual Studio n'existe sur ce
-poste : sans ce workload, `cargo build` échouera sur l'édition de liens.
+**Je m'étais trompé en session 0 en classant cette étape « humaine ».** winget
+sait installer Build Tools en non-interactif, workload compris :
 
-- [ ] Télécharger **Build Tools for Visual Studio 2022** :
-      <https://visualstudio.microsoft.com/visual-cpp-build-tools/>
-- [ ] Dans l'installeur, onglet **Charges de travail**, cocher
-      **« Développement Desktop en C++ »**
-- [ ] Volet de droite, vérifier que ces composants sont cochés :
-      `MSVC v143 - VS 2022 C++ x64/x86 build tools`, `Windows 11 SDK`,
-      `C++ CMake tools for Windows`
-- [ ] Installer (~6-7 Go), puis **rouvrir le terminal**
-- [ ] Vérifier : `cargo --version` puis `cd apps/desktop && cargo tauri build --debug`
+```sh
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget \
+  --accept-source-agreements --accept-package-agreements \
+  --override "--quiet --wait --norestart \
+    --add Microsoft.VisualStudio.Workload.VCTools \
+    --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+    --add Microsoft.VisualStudio.Component.Windows11SDK.22621 \
+    --includeRecommended"
+```
 
-> ⏱️ ~25 min dont ~20 min de téléchargement sans surveillance.
+Vérifié après coup :
+
+```
+Visual Studio Build Tools 2022
+workload C++ : C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
+cargo build  : exit 0  — avant, « linker link.exe not found »
+```
+
+> ⏱️ ~45 min sans aucune intervention. Le seul coût était l'attente.
 
 ---
 
