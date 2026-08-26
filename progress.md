@@ -216,3 +216,82 @@ Inchangés : Supabase `noe-prod` ~10 €/mois, Azure sur crédits. Le spike DOM 
 rien coûté — org de démo, Chrome local, aucun appel modèle.
 
 ---
+
+## Session — 2026-08-26 (suite) · Spec 002, tâches 0 à 4
+
+### Fait
+
+La spec 002 **existe enfin en fichiers**. Son texte ne vivait que dans un
+message : on la citait de mémoire depuis des sessions. Extraite de la
+transcription, déposée sans reformulation, amendée D19/D20 — `DomSource` à côté
+de `UiaSource`, tâche 6 dédoublée en 6a/6b/6c/6d, R2.5 à R2.7.
+
+**Six tâches cochées : 0, 0bis, 1, 2, 3, 4.**
+
+- **0** — verdict UIA inscrit au design : stratégie *globale filtrée* (seule sous
+  le budget CPU, 3,16 % contre 8,48 %), walker profondeur 12 / 1500 nœuds.
+- **0bis** — spike DOM, zone VERT.
+- **1** — coquille Tauri : tray 3 états, menu, hotkeys avec refus notifié.
+- **2** — horloge injectable, traits de capture, moteur temporel. Les quatre
+  scénarios rejouables ; l'heure d'épisode du scénario timeout se rejoue en
+  0,03 s de temps réel.
+- **3** — pipeline de redaction : HMAC-SHA256 sur valeur normalisée, clé 256 bits
+  sous DPAPI, miroir JSON des motifs consommé par Rust.
+- **4** — writer JSONL fiable et kill-test d'un **vrai** processus tué.
+
+### Ce que la mesure a contredit
+
+Cinq défauts trouvés, dont quatre étaient les miens.
+
+1. **Un numéro de téléphone français fuyait** (D24). `+33 6 12 34 56 78` — la
+   graphie la plus courante — n'était réclamée par aucun motif : `TEL_FR`
+   exigeait le chiffre collé à l'indicatif, `TEL_INTL` excluait la France. Trouvé
+   en construisant les vecteurs partagés, avant qu'aucune capture ne tourne. Les
+   79 tests existants ne l'avaient pas vu : ils vérifiaient les graphies
+   auxquelles l'auteur avait pensé.
+2. **La bibliothèque était inconsommable par Rust** (D25). Elle est déclarée en
+   chaînes « pour que l'adaptateur Rust la lise telle quelle » depuis le premier
+   jour ; le moteur a refusé net une anticipation négative qu'il ne supporte pas.
+   La promesse était fausse depuis le début, et seule l'écriture du consommateur
+   pouvait le révéler.
+3. **Le test inter-implémentations était incomplet** — il comparait la détection
+   mais pas l'arbitrage. C'est un avertissement de champ mort qui l'a signalé,
+   pas une relecture.
+4. **Rien n'appelait le battement.** Le vidage à 5 s ne se serait produit qu'au
+   centième événement, et la clôture automatique à 60 minutes jamais. Les tests
+   avançaient une horloge simulée à la main ; l'application réelle n'avait
+   personne pour frapper.
+5. **Le 34,5 % d'UIA ne mesurait pas ce qu'on lui faisait dire** (D22) : obtenu
+   sur une surface navigateur, que D19 retire précisément à `UiaSource`.
+
+### Ce qui est explicitement reporté
+
+- **Snapshots redactés** (R4.5) → tâche 7, qui les crée. Le rédacteur est prêt et
+  testé, mais il n'existe encore aucun snapshot à redacter.
+- **Troisième implémentation des motifs** → tâche 6b. La bibliothèque est
+  vérifiée sur deux moteurs, pas trois.
+- **`allow(dead_code)` de `source.rs` et `moteur.rs`** → à retirer en tâche 6a,
+  consigne inscrite dans la tâche.
+
+### Vert
+
+`pnpm verify` (88 tests TS) · `cargo test --all-targets` (88 de bibliothèque +
+2 d'intégration) · les deux workflows verts sur `98e7f75`.
+
+### Prochaine tâche
+
+Spec 002, **tâche 5** — gaps système : veille, `seq_break`, pause à la reprise,
+timeout. Le moteur produit déjà les gaps de veille et de timeout ; il reste à
+brancher les événements système Windows réels et à étendre l'enum côté
+`episode-spec` avec sa note dans `decisions.md`.
+
+### En attente
+
+Rien. Aucun des quatre irréductibles n'a été touché.
+
+### Coûts
+
+Inchangés — Supabase `noe-prod` ~10 €/mois, Azure sur crédits. Aucun appel modèle
+de la session.
+
+---
