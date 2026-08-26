@@ -10,18 +10,10 @@
 //! écrire : il produit un journal, et c'est le writer de la tâche 4 qui décidera
 //! quoi en faire.
 
-//! ## Code en attente de consommateur
-//!
-//! `allow(dead_code)` a l'echelle du module : le moteur est instancie par les
-//! deux hotkeys, mais tant qu'aucune source reelle n'existe (tache 6a) il ne
-//! recoit aucun evenement, si bien que la moitie de ses branches n'est atteinte
-//! que par les tests. **A retirer en tache 6a.**
-#![allow(dead_code)]
-
 use crate::horloge::Horloge;
 use crate::journal::Journal;
 use crate::redaction::Redacteur;
-use crate::source::{Cible, GenreEvenement, RawEvent, Source};
+use crate::source::{GenreEvenement, RawEvent, Source};
 
 /// Les instants où la spec exige un snapshot (R2.3).
 ///
@@ -460,14 +452,14 @@ impl Moteur {
     }
 }
 
-/// Fabrique une cible ordinaire, pour alléger les scénarios.
-pub fn cible(role: &str, nom: &str) -> Cible {
-    Cible::new(role, nom)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fabrique une cible ordinaire, pour alléger les scénarios.
+    fn cible(role: &str, nom: &str) -> crate::source::Cible {
+        crate::source::Cible::new(role, nom)
+    }
     use crate::horloge::HorlogeSimulee;
     use crate::source::{attendre_ms, attendre_s, CaptureSource, Etape, FakeSource};
     use std::sync::mpsc::channel;

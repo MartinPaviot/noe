@@ -11,17 +11,6 @@
 //! rendrait les scénarios non reproductibles, et c'est la reproductibilité qui
 //! fait toute la valeur d'un rejeu.
 
-//! ## Code en attente de consommateur
-//!
-//! `allow(dead_code)` a l'echelle du module, et c'est deliberé : ce module est
-//! le SOCLE que la tache 2 livre, son consommateur de production est la tache 6a
-//! (`UiaSource`). Rien ici n'est mort — tout est exerce par les quatre scenarios
-//! rejouables — mais rien n'est encore construit depuis le chemin du binaire.
-//!
-//! **A retirer en tache 6a**, ou l'adaptateur reel construira ces types. La
-//! consigne est inscrite dans `tasks.md` pour que l'oubli se voie.
-#![allow(dead_code)]
-
 #[cfg(test)]
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
@@ -140,14 +129,26 @@ impl std::error::Error for ErreurSource {}
 /// Le type existe pour que la désinscription soit portée par la durée de vie :
 /// une source qu'on oublie de désabonner continuerait de pousser des événements
 /// dans un épisode clos, ce que R1.2 interdit.
+///
+/// La première version ne portait qu'un champ privé vide : le commentaire
+/// promettait une coupure que le type ne savait pas faire. Il tient désormais le
+/// drapeau que la source consulte, et le baisse en tombant — la promesse est
+/// dans le code, plus seulement dans la phrase.
 #[must_use = "relacher l abonnement coupe immediatement la capture"]
 pub struct Abonnement {
-    _prive: (),
+    actif: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Abonnement {
-    fn nouveau() -> Self {
-        Self { _prive: () }
+    pub fn nouveau(actif: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
+        actif.store(true, std::sync::atomic::Ordering::SeqCst);
+        Self { actif }
+    }
+}
+
+impl Drop for Abonnement {
+    fn drop(&mut self) {
+        self.actif.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -181,6 +182,7 @@ pub fn attendre_ms(ms: u64) -> Etape {
 #[derive(Default)]
 pub struct FakeSource {
     puits: Option<Sender<RawEvent>>,
+    actif: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[cfg(test)]
@@ -214,7 +216,7 @@ impl CaptureSource for FakeSource {
             return Err(ErreurSource::DejaAbonne);
         }
         self.puits = Some(puits);
-        Ok(Abonnement::nouveau())
+        Ok(Abonnement::nouveau(self.actif.clone()))
     }
 }
 

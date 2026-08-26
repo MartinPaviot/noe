@@ -14,6 +14,7 @@ mod moteur;
 mod motifs;
 mod redaction;
 mod source;
+mod uia;
 mod veille;
 
 use std::sync::Mutex;
@@ -32,6 +33,8 @@ use etat::{EtatTray, Session};
 use horloge::{Horloge, HorlogeReelle};
 use moteur::Moteur;
 use redaction::Redacteur;
+use source::{Abonnement, CaptureSource, RawEvent};
+use uia::UiaSource;
 
 /// Ctrl+Alt+D commence, Ctrl+Alt+F clôt. D comme début, F comme fin.
 ///
@@ -63,6 +66,12 @@ struct Etat {
     /// Charge une fois pour toutes : la cle HMAC ne doit pas changer entre deux
     /// episodes, sinon les jetons changent et les jointures cassent (R4.2).
     redacteur: std::sync::Arc<Redacteur>,
+    /// L'abonnement natif et son canal, vivants pendant l'episode seulement.
+    ///
+    /// Relacher le tuple coupe la capture : c'est `Abonnement` qui porte cette
+    /// garantie, et R1.2 en depend — hors episode, aucune source ne doit
+    /// continuer a pousser.
+    capture: Mutex<Option<(Abonnement, std::sync::mpsc::Receiver<RawEvent>)>>,
 }
 
 /// Le dossier de données du poste. Tout ce que Noe écrit vit dessous.
@@ -159,6 +168,18 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
                 ),
             }
             *e.moteur.lock().expect("moteur empoisonne") = Some(moteur);
+
+            // R2.1 : l'abonnement natif ne vit QUE pendant l'episode.
+            let (tx, rx) = std::sync::mpsc::channel();
+            match UiaSource::new().abonner(tx) {
+                Ok(a) => *e.capture.lock().expect("capture empoisonnee") = Some((a, rx)),
+                Err(err) => notifier(
+                    app,
+                    "Capture native indisponible",
+                    &format!("Les surfaces natives ne seront pas observees : {err}"),
+                ),
+            }
+
             notifier(
                 app,
                 "Noe observe",
@@ -187,6 +208,27 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
     // Le moteur se clot AVANT d'etre rendu : un delai d'inactivite deja expire
     // appartient a l'episode, et le laisser tomber perdrait un snapshot exige
     // par R2.3.
+    // Couper la source AVANT de clore : un evenement qui arriverait entre les
+    // deux serait ecrit dans un episode deja termine, ce que R1.2 interdit.
+    let restants = {
+        let mut c = e.capture.lock().expect("capture empoisonnee");
+        match c.take() {
+            Some((abonnement, rx)) => {
+                drop(abonnement);
+                rx.try_iter().collect::<Vec<_>>()
+            }
+            None => Vec::new(),
+        }
+    };
+    {
+        let mut m = e.moteur.lock().expect("moteur empoisonne");
+        if let Some(moteur) = m.as_mut() {
+            for ev in restants {
+                moteur.traiter(ev);
+            }
+        }
+    }
+
     let bilan = {
         let mut m = e.moteur.lock().expect("moteur empoisonne");
         m.take().map(|mut moteur| {
@@ -195,13 +237,19 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
                 moteur.journal().len(),
                 moteur.unresolved(),
                 moteur.echecs_ecriture(),
+                // Les trous et les declencheurs disent a l operateur ce que
+                // l episode vaut AVANT que le juge s en mele : un episode plein
+                // de trous se voit tout de suite.
+                moteur.gaps().len(),
+                moteur.declencheurs().len(),
             )
         })
     };
 
     match resultat {
         Ok(ep) => {
-            let (entrees, unresolved, echecs) = bilan.unwrap_or((0, 0, 0));
+            let (entrees, unresolved, echecs, trous, declencheurs) =
+                bilan.unwrap_or((0, 0, 0, 0, 0));
             // R3.4 : un echec d'ecriture se DIT. Un episode incomplet qu'on
             // annonce complet est pire qu'un episode manquant.
             let alerte = if echecs > 0 {
@@ -213,7 +261,7 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
                 app,
                 "Noe a borne l'episode",
                 &format!(
-                    "{} — tache « {} » · {entrees} entrees, {unresolved} non resolues{alerte}.                      Assemblage et grade : tache 8.",
+                    "{} — tache « {} » · {entrees} entrees, {declencheurs} declencheurs,                      {trous} trous, {unresolved} non resolues{alerte}.                      Assemblage et grade : tache 8.",
                     ep.id, ep.task_slug
                 ),
             );
@@ -413,6 +461,76 @@ pub fn harnais_journal(args: &[String]) -> i32 {
             }
         }
 
+        // Banc de la tache 6a : prouve que l'abonnement UIA capte VRAIMENT.
+        //
+        // Les tests unitaires couvrent le vocabulaire ; ils ne peuvent rien dire
+        // de l'abonnement lui-meme, qui exige un bureau. Ce mode s'abonne pour
+        // de bon pendant N secondes et rend ce qu'il a vu.
+        (Some("uia"), racine_ou_secondes) => {
+            let secondes: u64 = racine_ou_secondes
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10);
+
+            let mut source = uia::UiaSource::new();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let abonnement = match source.abonner(tx) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("abonnement refuse : {e}");
+                    return 1;
+                }
+            };
+            println!("PRET");
+            let _ = std::io::stdout().flush();
+
+            let debut = std::time::Instant::now();
+            let mut vus: Vec<source::RawEvent> = Vec::new();
+            while debut.elapsed() < std::time::Duration::from_secs(secondes) {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                vus.extend(rx.try_iter());
+            }
+            drop(abonnement);
+
+            let mut par_genre: std::collections::BTreeMap<&str, usize> =
+                std::collections::BTreeMap::new();
+            let mut par_role: std::collections::BTreeMap<String, usize> =
+                std::collections::BTreeMap::new();
+            let mut resolus = 0usize;
+            for ev in &vus {
+                let g = match &ev.genre {
+                    source::GenreEvenement::Focus(_) => "focus",
+                    source::GenreEvenement::Invocation(_) => "invocation",
+                    source::GenreEvenement::ChangementValeur(_) => "valeur",
+                    source::GenreEvenement::ChangementStructure(_) => "structure",
+                    source::GenreEvenement::Saisie(_) => "saisie",
+                    source::GenreEvenement::Soumission(_) => "soumission",
+                    source::GenreEvenement::BasculeApplication { .. } => "bascule",
+                    source::GenreEvenement::Veille => "veille",
+                    source::GenreEvenement::Reveil => "reveil",
+                };
+                *par_genre.entry(g).or_default() += 1;
+                if let Some(c) = ev.genre.cible() {
+                    *par_role.entry(c.role.clone()).or_default() += 1;
+                    if c.resolue() {
+                        resolus += 1;
+                    }
+                }
+            }
+            println!(
+                "{}",
+                serde_json::json!({
+                    "evenements": vus.len(),
+                    "resolus": resolus,
+                    "par_genre": par_genre,
+                    "par_role": par_role,
+                    "source_uia": vus.iter().all(|e| e.source == source::Source::Uia),
+                })
+            );
+            0
+        }
+
         (Some("reprendre"), Some(racine)) => {
             let orphelins = match journal::orphelins(&racine) {
                 Ok(o) => o,
@@ -488,6 +606,7 @@ pub fn run() {
                 horloge: std::sync::Arc::new(HorlogeReelle::new()),
                 moteur: Mutex::new(None),
                 redacteur: std::sync::Arc::new(Redacteur::new(&cle)),
+                capture: Mutex::new(None),
             });
 
             let menu = construire_menu(&handle, &cfg)?;
@@ -521,10 +640,25 @@ pub fn run() {
                         // non : sinon la premiere veille apres une ouverture serait
                         // comptee depuis le dernier battement d'avant, donc fausse.
                         let dormi = detecteur.battre(&temps, etat.horloge.monotone_ms());
+                        // Draine ce que la source native a pousse depuis le
+                        // dernier battement. Une seconde de latence ne deforme pas
+                        // la chronologie : le moteur date chaque evenement avec
+                        // l'instant que la SOURCE lui a donne, pas avec celui de
+                        // son arrivee.
+                        let arrives: Vec<RawEvent> = {
+                            let c = etat.capture.lock().expect("capture empoisonnee");
+                            match c.as_ref() {
+                                Some((_, rx)) => rx.try_iter().collect(),
+                                None => Vec::new(),
+                            }
+                        };
                         let clos = {
                             let mut m = etat.moteur.lock().expect("moteur empoisonne");
                             match m.as_mut() {
                                 Some(moteur) => {
+                                    for ev in arrives {
+                                        moteur.traiter(ev);
+                                    }
                                     if let Some(v) = dormi {
                                         // Les deux durées ne disent pas la même
                                         // chose : la machine a pu dormir bien
