@@ -113,6 +113,41 @@ te donne le lien et le code dans la foulée.
 > `NODE_EXTRA_CA_CERTS` posées pendant la session 0 restent inoffensives une fois
 > l'interception coupée : le bundle contient les 147 CA publics standard en plus.
 
+### 👤 B.0-bis — Aucun annuaire Azure sur l'identité (constaté 4×)
+
+L'interception TLS étant levée, `az login` **réussit**. Mais Azure Resource
+Manager répond vide, de façon reproductible (4 connexions, dont 2 avec
+`--allow-no-subscriptions`, qui existe pour enregistrer un compte au niveau
+annuaire justement quand il n'y a pas de souscription) :
+
+```
+identite      : martin.paviot@outlook.com   (confirmee par l'utilisateur)
+tenants       : 0
+subscriptions : 0
+```
+
+**Zéro annuaire**, pas seulement zéro souscription. Le poste ne porte par
+ailleurs aucune trace d'Azure : pas de profil du module PowerShell `Az`, pas
+d'`azd`, aucun `.env` avec une variable Azure. L'historique shell montre
+`@ai-sdk/openai` et `npm install openai` — **l'autre projet utilise OpenAI en
+direct, pas Azure OpenAI.**
+
+Founders Hub et Azure sont deux systèmes distincts : le premier gère un droit de
+tirage, le second des ressources. Les crédits peuvent exister sans qu'aucun
+annuaire n'ait jamais été créé — c'est la lecture cohérente avec tout ce qui
+précède.
+
+- [ ] 👤 <https://www.microsoft.com/en-us/startups/dashboard> → **Benefits** →
+      carte **Azure credits** → s'il reste un bouton **Activate / Claim**, c'est
+      l'explication complète : cliquer, ce qui provisionne la souscription
+- [ ] 👤 *Ou*, si le portail montre bien une souscription : relever son **ID**
+      (ou celui de l'annuaire) et me le donner → `az login --tenant <id>`
+
+> ⚠️ **Rien de tout ceci n'est sur le chemin critique.** Azure ne sert qu'à F01,
+> et F01 est bloqué par l'absence du prompt maître. Le spike n'a pas non plus
+> tranché l'étage d'exécution : rien ne garantit encore que ce sera Azure OpenAI.
+> Provisionner avant le verdict contredirait l'ordre voulu par le brief.
+
 ### 👤 B.1 — `az login` sur la bonne souscription
 
 ```sh
