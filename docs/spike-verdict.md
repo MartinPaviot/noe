@@ -16,12 +16,25 @@ produisant des signatures de ciblage stables — et avec quels paramètres de wa
 
 ## 2. Les trois nombres
 
-| Stratégie | Stabilité rôle+nom | Couverture actions d'état | CPU p95 (fenêtres 30 s) | RAM max | Observé/déclaré |
-| --- | --- | --- | --- | --- | --- |
-| **globale** | 37.0 % ❌ | 100.0 % ✅ | 4.39 % ✅ | 19.7 Mo | 187/15 |
-| **focus** | 0.0 % ❌ | 0.0 % ❌ | 5.75 % ❌ | 19.3 Mo | 0/15 |
+| Stratégie | Stabilité post-pipeline | Témoin, nom brut | Couverture | CPU p95 (30 s) | RAM max | Actions d'état |
+| --- | --- | --- | --- | --- | --- | --- |
+| **globale** | 34.5 % ❌ | 41.7 % | 100.0 % ✅ | 3.16 % ✅ | 22.5 Mo | 169 |
+| **focus** | 47.1 % ❌ | 46.9 % | 100.0 % ✅ | 8.48 % ❌ | 22.8 Mo | 227 |
 
 Seuils : CPU < 5 % (R7.1) · stabilité ≥ 90 % · couverture ≥ 100 %.
+
+La colonne **post-pipeline** applique au nom accessible la normalisation que le
+produit appliquerait avant tout usage — pseudonymisation des fragments de
+données, suppression des motifs volatils — puis compare. Le **témoin** refait le
+même calcul sur les noms bruts : l'écart entre les deux colonnes mesure ce que
+l'enrichissement apporte réellement.
+
+## 2 bis. Décision, grille pré-enregistrée (D18)
+
+**Zone : < 60 %** — meilleure stabilité post-pipeline **34.5 %**
+(stratégie « globale », sur les 1 stratégie(s) tenant le budget CPU).
+
+**déficit sémantique web constaté** — déclenche le repli pré-décidé : extension Chrome comme adaptateur de capture pour les surfaces navigateur. Retour vers l’opérateur avec le plan.
 
 **Stabilité** = part des signatures `rôle|nom` d'actions d'état communes à
 **toutes** les occurrences. Une signature qui n'apparaît que dans certaines
@@ -35,7 +48,7 @@ l'opérateur à chaque occurrence.
 | Stratégie | Nœuds p50 | Nœuds p95 | Profondeur max | Durée p95 | Tronqués |
 | --- | --- | --- | --- | --- | --- |
 | **globale** | 0 | 0 | 0 | 0 ms | 0 % |
-| **focus** | 1 | 228 | 9 | 429 ms | 0 % |
+| **focus** | 1 | 242 | 12 | 117 ms | 21 % |
 
 Budgets éprouvés : profondeur max **12**, nœuds max **1500**.
 

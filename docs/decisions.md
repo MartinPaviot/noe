@@ -510,3 +510,56 @@ terrain de preuve comme si elle bloquait le build. Elle ne bloquait qu'un jalon
 qui vient d'être redéfini. J'aurais pu le voir plus tôt : le harness, la capture
 et la fédération se construisent tous contre une org de démo — c'est le jalon,
 pas le chemin, qui exigeait du réel.
+
+---
+
+## 2026-08-26 — D18 : itération 2 du spike, périmètre élargi, grille de décision pré-enregistrée
+
+**Accordée par l'opérateur.** Bornée à une journée.
+
+### Ce que la v1 mesurait mal
+
+Elle comparait les **noms accessibles bruts**. Or le produit ne compare jamais des
+noms bruts : il les fait passer par la pseudonymisation et la normalisation avant
+tout usage. Mesurer avant le pipeline, c'est mesurer un objet qui n'existe nulle
+part dans le système réel.
+
+### Les trois correctifs
+
+**1. Stabilité POST-PIPELINE.** Chaque nom accessible traverse la normalisation
+produit avant comparaison : pseudonymisation des fragments de données en tokens
+stables, suppression des motifs volatils — horodatages relatifs, compteurs,
+identifiants générés. On compare ce que le système compare.
+
+**2. Signature enrichie.** `rôle + nom normalisé + région + position structurelle
+dans l'arbre`. Le nom seul était un ancrage trop maigre ; la région et le chemin
+de rôles ancrent l'élément dans sa structure.
+
+**3. Réparation de « focus ».** Deux tentatives ont échoué : `TreeScope::Element`
+sur la racine ne s'abonne qu'à la racine, puis `get_native_window_handle()` renvoie
+0 sur les éléments internes de Chrome. **On ne peut pas conclure sans avoir vu
+cette stratégie travailler** : le CPU global n'a aucune marge (4,39 % contre un
+plafond de 5) et le walker coûte 429 ms au p95. « focus » est censée être
+l'économe — c'est précisément l'hypothèse à éprouver.
+
+### Grille de décision, appliquée sans redemander
+
+| Stabilité post-pipeline | Décision |
+| --- | --- |
+| **≥ 90 %** | **VERT** — tâche 0 de la spec 002, puis déroulé |
+| **60-89 %** | On construit, **chaîne de repli déclarée régime normal**, ciblage marqué *best-effort* |
+| **< 60 %** | **Déficit sémantique web constaté** — déclenche le repli pré-décidé : extension Chrome comme adaptateur de capture pour les surfaces navigateur. Retour vers l'opérateur avec le plan. |
+
+### Le rappel d'architecture qui cadre tout ça
+
+> **La preuve vit sur le plan API. Ce spike mesure la qualité du film, pas celle
+> du jugement.**
+
+C'est ce qui rend la zone 60-89 % acceptable plutôt que tiède. Le juge compare des
+**états API** avant/après ; les branches se calculent sur des **transitions de
+champs**. Un ciblage UI imparfait dégrade la lisibilité du film — quel bouton a
+été pressé — pas la validité du verdict. On perd en netteté, pas en vérité.
+
+C'est aussi ce qui rend le seuil < 60 % franc : en dessous, le film devient trop
+flou pour servir de contexte au copilote, et l'extension navigateur redevient le
+bon outil pour les surfaces web.

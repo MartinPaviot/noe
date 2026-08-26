@@ -19,9 +19,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use regex::Regex;
 use serde::Serialize;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use uiautomation::events::{
@@ -49,7 +50,10 @@ const MAX_MINUTES_DEFAUT: u64 = 120;
 #[derive(Clone, Debug, Serialize)]
 struct Observation {
     occurrence: usize,
+    /// Signature enrichie : role | nom normalise | region | chemin de roles.
     signature: String,
+    /// Signature nue : role | nom brut. Sert de temoin pour mesurer l apport.
+    signature_nue: String,
     role: String,
     /// Longueur seulement : le nom lui-même ne sort jamais d'ici.
     longueur_nom: usize,
@@ -88,7 +92,10 @@ struct ResultatPhase {
     actions_etat: usize,
     actions_etat_resolues: usize,
     actions_etat_declarees: usize,
+    /// Stabilite POST-PIPELINE, signature enrichie. C est LE chiffre du critere (a).
     stabilite_signature_pct: f64,
+    /// Temoin : meme calcul sur les noms BRUTS. Mesure l apport de l enrichissement.
+    stabilite_nue_pct: f64,
     couverture_etat_pct: f64,
     cpu_p95_fenetres_30s: f64,
     cpu_max_fenetre_30s: f64,
@@ -130,10 +137,11 @@ fn fenetres_30s(ech: &[EchantillonCharge]) -> Vec<f64> {
 /// Stabilité : part des signatures d'actions d'état communes à TOUTES les
 /// occurrences. Une signature présente dans certaines répétitions seulement
 /// n'est pas un point d'ancrage fiable pour le ciblage.
-fn stabilite(obs: &[Observation]) -> f64 {
+fn stabilite_par(obs: &[Observation], nue: bool) -> f64 {
     let mut par_occ: BTreeMap<usize, BTreeSet<String>> = BTreeMap::new();
     for o in obs.iter().filter(|o| o.etat && o.resolu) {
-        par_occ.entry(o.occurrence).or_default().insert(o.signature.clone());
+        let s = if nue { o.signature_nue.clone() } else { o.signature.clone() };
+        par_occ.entry(o.occurrence).or_default().insert(s);
     }
     if par_occ.len() < 2 {
         return 0.0;
@@ -187,14 +195,147 @@ fn mesurer_walker(automation: &UIAutomation, racine: &UIElement) -> MesureWalker
     }
 }
 
-fn signature(el: &UIElement) -> (String, String, bool) {
-    let role = el
-        .get_control_type()
+// ---------------------------------------------------------------------------
+// Normalisation POST-PIPELINE du nom accessible (D18, correctif 1)
+// ---------------------------------------------------------------------------
+
+/// Motifs volatils : ce qui change d'une occurrence à l'autre sans que
+/// l'élément change. Les comparer bruts, c'est mesurer le bruit.
+static MOTIFS: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
+
+fn motifs() -> &'static Vec<(Regex, &'static str)> {
+    MOTIFS.get_or_init(|| {
+        let m: Vec<(&str, &'static str)> = vec![
+            // --- fragments de donnees : pseudonymises en tokens stables ------
+            (r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "EMAIL"),
+            (r"(?:\+33|0)[1-9](?:[ .-]?\d{2}){4}", "TEL"),
+            // Identifiants Salesforce : 15 ou 18 caracteres alphanumeriques.
+            (r"\b[a-zA-Z0-9]{18}\b", "ID18"),
+            (r"\b[a-zA-Z0-9]{15}\b", "ID15"),
+            // --- motifs volatils : effaces ----------------------------------
+            // Horodatages relatifs, francais et anglais.
+            (r"(?i)il y a \d+\s*\w+", "TEMPS"),
+            (r"(?i)\d+\s*(minutes?|heures?|jours?|min|h|hours?|days?|ago)\b", "TEMPS"),
+            (r"\d{1,2}[/:]\d{2}(?:[/:]\d{2,4})?", "TEMPS"),
+            // Compteurs entre parentheses : « Fichiers (12) ».
+            (r"\(\s*\d+\s*\)", "N"),
+            // Toute sequence de 4 chiffres ou plus : ids, compteurs, montants.
+            (r"\d{4,}", "N"),
+        ];
+        m.into_iter()
+            .filter_map(|(p, t)| Regex::new(p).ok().map(|r| (r, t)))
+            .collect()
+    })
+}
+
+/**
+ * Applique au nom accessible la normalisation que le produit appliquerait
+ * AVANT tout usage — puis seulement on compare.
+ *
+ * Comparer des noms bruts revient à mesurer un objet qui n'existe nulle part
+ * dans le système réel : le produit ne voit jamais un nom non normalisé.
+ */
+fn normaliser_nom(brut: &str) -> String {
+    let mut s = brut.trim().to_string();
+    for (re, jeton) in motifs() {
+        s = re.replace_all(&s, *jeton).into_owned();
+    }
+    // Espaces effondres : « Piste   ouverte » et « Piste ouverte » sont le meme nom.
+    s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// Rôle d'un élément, ou « Inconnu ».
+fn role_de(el: &UIElement) -> String {
+    el.get_control_type()
         .map(|c| format!("{c:?}"))
-        .unwrap_or_else(|_| "Inconnu".into());
-    let nom = el.get_name().unwrap_or_default();
-    let resolu = !nom.trim().is_empty() && role != "Inconnu";
-    (role.clone(), format!("{role}|{nom}"), resolu)
+        .unwrap_or_else(|_| "Inconnu".into())
+}
+
+/**
+ * Ancrage structurel (D18, correctif 2) : la région porteuse et le chemin des
+ * rôles ancestraux.
+ *
+ * Le nom seul est un ancrage trop maigre sur une SPA. La région dit *où* dans
+ * l'application, le chemin de rôles dit *quoi* dans la structure — deux choses
+ * qui bougent beaucoup moins qu'un libellé.
+ */
+fn contexte(automation: &UIAutomation, el: &UIElement) -> (String, String) {
+    let mut region = String::new();
+    let mut chemin: Vec<String> = Vec::new();
+
+    if let Ok(walker) = automation.create_tree_walker() {
+        let mut courant = el.clone();
+        for _ in 0..PROFONDEUR_ANCRAGE {
+            match walker.get_parent(&courant) {
+                Ok(p) => {
+                    let r = role_de(&p);
+                    // Premiere region nommee rencontree en remontant.
+                    if region.is_empty()
+                        && matches!(r.as_str(), "Pane" | "Group" | "Document" | "Window" | "Custom")
+                    {
+                        let n = normaliser_nom(&p.get_name().unwrap_or_default());
+                        if !n.is_empty() {
+                            region = n;
+                        }
+                    }
+                    chemin.push(r);
+                    courant = p;
+                }
+                Err(_) => break,
+            }
+        }
+    }
+
+    (region, chemin.join(">"))
+}
+
+/// Nombre d'ancêtres remontés pour l'ancrage. Au-delà, le coût dépasse l'apport.
+const PROFONDEUR_ANCRAGE: usize = 4;
+
+/**
+ * Remonte de l'élément au conteneur de haut niveau — le dernier ancêtre avant la
+ * racine du bureau.
+ *
+ * Sert d'identité de fenêtre pour la stratégie « focus ». Le handle natif ne peut
+ * pas jouer ce rôle : il vaut 0 sur les éléments internes de Chrome, ce qui a fait
+ * échouer deux tentatives de réparation.
+ */
+fn conteneur_de(automation: &UIAutomation, el: &UIElement, racine: &UIElement) -> Option<UIElement> {
+    let walker = automation.create_tree_walker().ok()?;
+    let id_racine = racine.get_runtime_id().ok()?;
+    let mut courant = el.clone();
+    for _ in 0..25 {
+        match walker.get_parent(&courant) {
+            Ok(p) => {
+                if p.get_runtime_id().ok().as_ref() == Some(&id_racine) {
+                    return Some(courant);
+                }
+                courant = p;
+            }
+            Err(_) => break,
+        }
+    }
+    Some(courant)
+}
+
+/**
+ * Signature enrichie : `rôle | nom normalisé | région | chemin de rôles`.
+ *
+ * Retourne aussi la signature NUE (rôle + nom brut) pour que le rapport puisse
+ * chiffrer ce que l'enrichissement a réellement apporté.
+ */
+fn signature(automation: &UIAutomation, el: &UIElement) -> (String, String, String, bool) {
+    let role = role_de(el);
+    let brut = el.get_name().unwrap_or_default();
+    let nom = normaliser_nom(&brut);
+    let (region, chemin) = contexte(automation, el);
+    let resolu = !brut.trim().is_empty() && role != "Inconnu";
+    (
+        role.clone(),
+        format!("{role}|{brut}"),
+        format!("{role}|{nom}|{region}|{chemin}"),
+        resolu,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -267,14 +408,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     // La (re)souscription vit dans la boucle principale, pas dans un handler :
     // tous les appels UIA restent ainsi sur le meme thread.
-    let fabriquer = |c: Arc<Mutex<Collecte>>, occ: Arc<AtomicU64>| -> UIEventHandler {
+    let fabriquer = |c: Arc<Mutex<Collecte>>, occ: Arc<AtomicU64>, auto_sig: UIAutomation| -> UIEventHandler {
         (Box::new(move |sender: &UIElement, kind: UIEventType| {
-            let (role, sig, resolu) = signature(sender);
+            let (role, sig_nue, sig, resolu) = signature(&auto_sig, sender);
             let nom_len = sender.get_name().unwrap_or_default().chars().count();
             if let Ok(mut g) = c.lock() {
                 g.observations.push(Observation {
                     occurrence: occ.load(Ordering::Relaxed) as usize,
                     signature: sig,
+                    signature_nue: sig_nue,
                     role,
                     longueur_nom: nom_len,
                     resolu,
@@ -292,7 +434,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if strategie == "globale" {
         for &ev in EVENEMENTS_ETAT.iter().chain(&[UIEventType::StructureChanged]) {
-            let h = fabriquer(Arc::clone(&collecte), Arc::clone(&occurrence));
+            let h = fabriquer(Arc::clone(&collecte), Arc::clone(&occurrence), automation.clone());
             automation.add_automation_event_handler(
                 ev,
                 &racine,
@@ -304,14 +446,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     // Fenetre actuellement couverte par la strategie « focus ».
-    let mut fenetre_courante: isize = 0;
+    let mut fenetre_courante = String::new();
 
     let focus_handler: Option<UIFocusChangedEventHandler> = if strategie == "focus" {
         let c = Arc::clone(&collecte);
         let occ = Arc::clone(&occurrence);
         let auto2 = UIAutomation::new()?;
         let h: UIFocusChangedEventHandler = (Box::new(move |sender: &UIElement| {
-            let (role, sig, resolu) = signature(sender);
+            let (role, sig_nue, sig, resolu) = signature(&auto2, sender);
             let nom_len = sender.get_name().unwrap_or_default().chars().count();
             let m = mesurer_walker(&auto2, sender);
             if let Ok(mut g) = c.lock() {
@@ -319,6 +461,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 g.observations.push(Observation {
                     occurrence: occ.load(Ordering::Relaxed) as usize,
                     signature: sig,
+                    signature_nue: sig_nue,
                     role,
                     longueur_nom: nom_len,
                     resolu,
@@ -386,8 +529,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tours += 1;
         if strategie == "focus" && tours % 4 == 1 {
             if let Ok(focus) = automation.get_focused_element() {
-                let hwnd = focus.get_native_window_handle().map(|h| h.into()).unwrap_or(0isize);
-                if hwnd != 0 && hwnd != fenetre_courante {
+                // Le handle natif vaut 0 sur les elements internes de Chrome : deux
+                // tentatives ont echoue la-dessus. On identifie le conteneur par son
+                // runtime_id, qui existe toujours.
+                let identite = conteneur_de(&automation, &focus, &racine)
+                    .and_then(|c| c.get_runtime_id().ok())
+                    .map(|id| id.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("."))
+                    .unwrap_or_default();
+                if !identite.is_empty() && identite != fenetre_courante {
                     // Retirer les abonnements de la fenetre precedente.
                     for (ev, h, el) in &poignees {
                         let _ = automation.remove_automation_event_handler(*ev, el, h);
@@ -417,7 +566,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     for &ev in EVENEMENTS_ETAT.iter().chain(&[UIEventType::StructureChanged]) {
-                        let h = fabriquer(Arc::clone(&collecte), Arc::clone(&occurrence));
+                        let h = fabriquer(Arc::clone(&collecte), Arc::clone(&occurrence), automation.clone());
                         if automation
                             .add_automation_event_handler(ev, &conteneur, TreeScope::Subtree, None, &h)
                             .is_ok()
@@ -425,7 +574,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             poignees.push((ev, h, conteneur.clone()));
                         }
                     }
-                    fenetre_courante = hwnd;
+                    fenetre_courante = identite;
                     println!(
                         "  abonnement deplace sur « {} » ({} handlers)",
                         conteneur.get_name().unwrap_or_default().chars().take(40).collect::<String>(),
@@ -490,7 +639,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         actions_etat: actions_etat.len(),
         actions_etat_resolues: resolues,
         actions_etat_declarees: declarees_total,
-        stabilite_signature_pct: stabilite(&g.observations),
+        stabilite_signature_pct: stabilite_par(&g.observations, false),
+        stabilite_nue_pct: stabilite_par(&g.observations, true),
         couverture_etat_pct: if declarees_total == 0 {
             0.0
         } else {

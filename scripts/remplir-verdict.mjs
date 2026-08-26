@@ -81,8 +81,56 @@ const reco = recommander();
 
 const ligne = (p) =>
   p
-    ? `| **${p.strategie}** | ${n(p.stabilite_signature_pct)} % ${ok(p.stabilite_signature_pct, SEUIL_STABILITE_PCT, '>')} | ${n(p.couverture_etat_pct)} % ${ok(p.couverture_etat_pct, SEUIL_COUVERTURE_PCT, '>')} | ${n(p.cpu_p95_fenetres_30s, 2)} % ${ok(p.cpu_p95_fenetres_30s, SEUIL_CPU_PCT)} | ${n(p.ram_max_mo)} Mo | ${p.actions_etat}/${p.actions_etat_declarees} |`
-    : '| — | — | — | — | — | — |';
+    ? `| **${p.strategie}** | ${n(p.stabilite_signature_pct)} % ${ok(p.stabilite_signature_pct, SEUIL_STABILITE_PCT, '>')} | ${n(p.stabilite_nue_pct)} % | ${n(p.couverture_etat_pct)} % ${ok(p.couverture_etat_pct, SEUIL_COUVERTURE_PCT, '>')} | ${n(p.cpu_p95_fenetres_30s, 2)} % ${ok(p.cpu_p95_fenetres_30s, SEUIL_CPU_PCT)} | ${n(p.ram_max_mo)} Mo | ${p.actions_etat} |`
+    : '| — | — | — | — | — | — | — |';
+
+/**
+ * Grille de décision pré-enregistrée (D18), appliquée sans redemander.
+ *
+ * On retient la MEILLEURE stabilité observée parmi les stratégies qui tiennent
+ * le budget CPU : une stratégie qui chauffe n'est pas une option, quel que soit
+ * son ancrage.
+ */
+function grille() {
+  const viables = phases.filter((p) => p.cpu_p95_fenetres_30s < SEUIL_CPU_PCT);
+  const source = viables.length > 0 ? viables : phases;
+  const meilleure = Math.max(...source.map((p) => p.stabilite_signature_pct));
+  const retenue = source.find((p) => p.stabilite_signature_pct === meilleure);
+  const commentaire =
+    viables.length === 0
+      ? 'aucune stratégie ne tient le budget CPU — chiffre pris sur l’ensemble'
+      : `sur les ${viables.length} stratégie(s) tenant le budget CPU`;
+
+  if (meilleure >= 90) {
+    return {
+      zone: 'VERT',
+      meilleure,
+      retenue,
+      commentaire,
+      suite: 'tâche 0 de la spec 002, puis déroulé.',
+    };
+  }
+  if (meilleure >= 60) {
+    return {
+      zone: '60-89 %',
+      meilleure,
+      retenue,
+      commentaire,
+      suite:
+        'on construit. La chaîne de repli devient le **régime normal** et le ciblage est marqué *best-effort*.',
+    };
+  }
+  return {
+    zone: '< 60 %',
+    meilleure,
+    retenue,
+    commentaire,
+    suite:
+      '**déficit sémantique web constaté** — déclenche le repli pré-décidé : extension Chrome comme adaptateur de capture pour les surfaces navigateur. Retour vers l’opérateur avec le plan.',
+  };
+}
+
+const g = grille();
 
 const walker = (p) =>
   p
@@ -107,12 +155,25 @@ produisant des signatures de ciblage stables — et avec quels paramètres de wa
 
 ## 2. Les trois nombres
 
-| Stratégie | Stabilité rôle+nom | Couverture actions d'état | CPU p95 (fenêtres 30 s) | RAM max | Observé/déclaré |
-| --- | --- | --- | --- | --- | --- |
+| Stratégie | Stabilité post-pipeline | Témoin, nom brut | Couverture | CPU p95 (30 s) | RAM max | Actions d'état |
+| --- | --- | --- | --- | --- | --- | --- |
 ${ligne(globale)}
 ${ligne(focus)}
 
 Seuils : CPU < ${SEUIL_CPU_PCT} % (R7.1) · stabilité ≥ ${SEUIL_STABILITE_PCT} % · couverture ≥ ${SEUIL_COUVERTURE_PCT} %.
+
+La colonne **post-pipeline** applique au nom accessible la normalisation que le
+produit appliquerait avant tout usage — pseudonymisation des fragments de
+données, suppression des motifs volatils — puis compare. Le **témoin** refait le
+même calcul sur les noms bruts : l'écart entre les deux colonnes mesure ce que
+l'enrichissement apporte réellement.
+
+## 2 bis. Décision, grille pré-enregistrée (D18)
+
+**Zone : ${g.zone}** — meilleure stabilité post-pipeline **${n(g.meilleure)} %**
+(stratégie « ${g.retenue?.strategie ?? '—'} », ${g.commentaire}).
+
+${g.suite}
 
 **Stabilité** = part des signatures \`rôle|nom\` d'actions d'état communes à
 **toutes** les occurrences. Une signature qui n'apparaît que dans certaines
