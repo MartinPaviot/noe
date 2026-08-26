@@ -22,7 +22,7 @@
  * de son avancement. Le jour où la fenêtre naît, ce script capture cette
  * fenêtre-là.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -198,6 +198,7 @@ const html = join(DEST, `.${jour}-${sujet}.html`);
 writeFileSync(html, page, 'utf8');
 
 const sortie = join(DEST, `${jour}-${sujet}.png`);
+const sortieVue = join(DEST, `${jour}-vue.png`);
 const pilote = join(RACINE, 'spikes', 'occurrence', 'node_modules', 'playwright', 'index.mjs');
 
 const { chromium } = await import(pathToFileURL(pilote).href);
@@ -205,6 +206,52 @@ const navigateur = await chromium.launch({ channel: 'chrome' });
 const page2 = await navigateur.newPage({ viewport: { width: 1280, height: 800 } });
 await page2.goto(pathToFileURL(html).href, { waitUntil: 'load' });
 await page2.screenshot({ path: sortie });
+
+/**
+ * La vue produit elle-même (D26).
+ *
+ * Depuis la tâche 8bis, il existe des pixels de produit à montrer. On les
+ * capture depuis le build servi par un serveur local : chargée en `file://`,
+ * la page ne peut pas lire ses fixtures — le navigateur y bloque `fetch`.
+ *
+ * Sur les **fixtures versionnées**, jamais sur les épisodes du poste : une image
+ * quotidienne prise sur des données réelles les publierait dans un dépôt public,
+ * ce que la première règle du projet interdit. C'est donc la vue telle qu'elle
+ * est, avec des données qui ne sont celles de personne.
+ */
+const APP = join(RACINE, 'apps', 'desktop');
+let serveur;
+try {
+  readFileSync(join(APP, 'dist', 'index.html'));
+  serveur = spawn('pnpm', ['exec', 'vite', 'preview', '--port', '4174', '--strictPort'], {
+    cwd: APP,
+    shell: true,
+    stdio: 'ignore',
+  });
+
+  const p3 = await navigateur.newPage({ viewport: { width: 1280, height: 800 } });
+  // Le serveur met un instant à écouter ; on réessaie plutôt que de dormir une
+  // durée devinée.
+  let servie = false;
+  for (let essai = 0; essai < 25 && !servie; essai++) {
+    try {
+      await p3.goto('http://localhost:4174/', { waitUntil: 'load', timeout: 1_500 });
+      servie = true;
+    } catch {
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+  if (!servie) throw new Error('le serveur de previsualisation n a pas repondu');
+
+  await p3.waitForSelector('#app[data-pret="oui"]', { timeout: 10_000 });
+  await p3.screenshot({ path: sortieVue, fullPage: true });
+  console.log(`  ${sortieVue.replace(RACINE, '.')}`);
+} catch (e) {
+  console.log(`  (vue non capturee : ${e instanceof Error ? e.message : e})`);
+} finally {
+  serveur?.kill();
+}
+
 await navigateur.close();
 
 // Le HTML intermediaire ne sert qu'au rendu : le committer ferait deux sources

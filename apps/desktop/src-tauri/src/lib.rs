@@ -20,6 +20,7 @@ mod snapshot;
 mod source;
 mod uia;
 mod veille;
+mod vue;
 
 use std::sync::Mutex;
 
@@ -52,6 +53,7 @@ fn raccourci_fin() -> Shortcut {
     Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyF)
 }
 
+const ID_FENETRE: &str = "fenetre";
 const ID_PAUSE: &str = "pause";
 const ID_PANIQUE: &str = "panique";
 const ID_DOSSIER: &str = "dossier";
@@ -358,6 +360,7 @@ fn construire_menu<R: Runtime>(app: &AppHandle<R>, cfg: &Config) -> tauri::Resul
         s.en_pause()
     };
 
+    let fenetre = MenuItem::with_id(app, ID_FENETRE, "Voir les episodes", true, None::<&str>)?;
     let pause = CheckMenuItem::with_id(app, ID_PAUSE, "Pause", true, en_pause, None::<&str>)?;
     let panique = MenuItem::with_id(app, ID_PANIQUE, "Panique", true, None::<&str>)?;
     let dossier = MenuItem::with_id(
@@ -372,12 +375,34 @@ fn construire_menu<R: Runtime>(app: &AppHandle<R>, cfg: &Config) -> tauri::Resul
 
     Menu::with_items(
         app,
-        &[&taches, &pause, &panique, &separateur, &dossier, &quitter],
+        &[
+            &fenetre,
+            &separateur,
+            &taches,
+            &pause,
+            &panique,
+            &separateur,
+            &dossier,
+            &quitter,
+        ],
     )
 }
 
 fn sur_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
     match id {
+        // D26 : le squelette traversant. La fenetre reste cachee tant que
+        // personne ne la demande — une application de barre d'etat qui ouvre une
+        // fenetre a chaque lancement se fait fermer une fois pour toutes.
+        ID_FENETRE => {
+            if let Some(f) = app.get_webview_window("main") {
+                let _ = f.show();
+                let _ = f.unminimize();
+                let _ = f.set_focus();
+            } else {
+                notifier(app, "Fenetre indisponible", "La vue ne s est pas ouverte.");
+            }
+        }
+
         ID_PAUSE => {
             let e: State<Etat> = app.state();
             let en_pause = {
@@ -792,9 +817,22 @@ pub fn harnais_journal(args: &[String]) -> i32 {
     }
 }
 
+/// D26 : la liste des épisodes réels du poste.
+#[tauri::command]
+fn lister_episodes(app: AppHandle) -> Vec<vue::ResumeEpisode> {
+    vue::lister(&dossier_donnees(&app).join("episodes"))
+}
+
+/// D26 : le détail d'un épisode — sa frise d'événements et de trous.
+#[tauri::command]
+fn detail_episode(app: AppHandle, id: String) -> Option<vue::DetailEpisode> {
+    vue::detail(&dossier_donnees(&app).join("episodes"), &id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![lister_episodes, detail_episode])
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(

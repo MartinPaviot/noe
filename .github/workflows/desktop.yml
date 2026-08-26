@@ -70,6 +70,40 @@ jobs:
         working-directory: .
         run: node scripts/generer-icones-tray.mjs --verifier
 
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.15.1
+
+      - name: Installer les dependances
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Construire la vue
+        run: pnpm build
+        working-directory: apps/desktop
+
+      - name: Navigateur Playwright
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: apps/desktop
+
+      # D21 : quatre baselines par surface — avec donnees, vide, erreur,
+      # chargement. Un diff visuel est rouge : la tache n est pas finie.
+      #
+      # Sur Windows et pas sur Linux : cette vue est celle d une application
+      # Windows, et sa pile de polices l est aussi. Comparer les pixels sur la
+      # plateforme cible est plus fidele que sur celle qui est commode.
+      - name: Tests visuels (D21)
+        run: pnpm exec playwright test
+        working-directory: apps/desktop
+
+      - name: Archiver les diffs visuels
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diffs-visuels
+          path: apps/desktop/test-results/
+          retention-days: 7
+
   # Le binaire complet se lie a WebView2 et prend plusieurs minutes : on le
   # verifie sur main et a la demande, pas a chaque poussee de branche.
   binaire:

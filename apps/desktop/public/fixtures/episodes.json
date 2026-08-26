@@ -1,0 +1,38 @@
+[
+  {
+    "id": "01JQA1B2C3D4E5F6G7H8J9K0M1",
+    "task_slug": "maj-crm-post-echange",
+    "t0": "2026-01-14T09:12:00.000Z",
+    "t1": "2026-01-14T09:16:42.000Z",
+    "grade": "B",
+    "grade_reason": "declasse en B : 1 entite non resolue",
+    "actions": 14,
+    "trous": 0,
+    "completude_pct": 100,
+    "scope_fields": ["Description", "Statut de la piste"]
+  },
+  {
+    "id": "01JQA1B2C3D4E5F6G7H8J9K0M2",
+    "task_slug": "maj-crm-post-echange",
+    "t0": "2026-01-14T08:41:00.000Z",
+    "t1": "2026-01-14T08:44:10.000Z",
+    "grade": "C",
+    "grade_reason": "declasse en C : 2 trou(s) et 1 entite(s) non resolue(s)",
+    "actions": 9,
+    "trous": 2,
+    "completude_pct": 81,
+    "scope_fields": ["Description"]
+  },
+  {
+    "id": "01JQA1B2C3D4E5F6G7H8J9K0M3",
+    "task_slug": "relance-devis",
+    "t0": "2026-01-13T17:05:00.000Z",
+    "t1": "2026-01-13T17:06:20.000Z",
+    "grade": "A",
+    "grade_reason": "sequence sans trou, toutes entites resolues, redaction validee",
+    "actions": 6,
+    "trous": 0,
+    "completude_pct": 100,
+    "scope_fields": ["Montant", "Echeance", "Contact"]
+  }
+]

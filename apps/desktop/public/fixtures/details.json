@@ -1,0 +1,178 @@
+{
+  "01JQA1B2C3D4E5F6G7H8J9K0M1": {
+    "resume": {
+      "id": "01JQA1B2C3D4E5F6G7H8J9K0M1",
+      "task_slug": "maj-crm-post-echange",
+      "t0": "2026-01-14T09:12:00.000Z",
+      "t1": "2026-01-14T09:16:42.000Z",
+      "grade": "B",
+      "grade_reason": "declasse en B : 1 entite non resolue",
+      "actions": 14,
+      "trous": 0,
+      "completude_pct": 100,
+      "scope_fields": ["Description", "Statut de la piste"]
+    },
+    "frise": [
+      {
+        "seq": 1,
+        "ts": "2026-01-14T09:12:01.000Z",
+        "genre": "action",
+        "quoi": "navigate",
+        "cible": "Details",
+        "region": "Fiche"
+      },
+      {
+        "seq": 2,
+        "ts": "2026-01-14T09:12:02.000Z",
+        "genre": "action",
+        "quoi": "invoke",
+        "cible": "Modifier Statut",
+        "region": "Fiche"
+      },
+      {
+        "seq": 3,
+        "ts": "2026-01-14T09:12:03.000Z",
+        "genre": "action",
+        "quoi": "toggle",
+        "cible": "Statut de la piste",
+        "region": "Fiche"
+      },
+      {
+        "seq": 4,
+        "ts": "2026-01-14T09:12:04.000Z",
+        "genre": "action",
+        "quoi": "input",
+        "cible": "Description",
+        "region": "Fiche"
+      },
+      {
+        "seq": 5,
+        "ts": "2026-01-14T09:12:05.000Z",
+        "genre": "action",
+        "quoi": "copy",
+        "cible": "copy",
+        "region": "Fiche"
+      },
+      {
+        "seq": 6,
+        "ts": "2026-01-14T09:12:06.000Z",
+        "genre": "action",
+        "quoi": "paste",
+        "cible": "paste",
+        "region": "Fiche"
+      },
+      {
+        "seq": 7,
+        "ts": "2026-01-14T09:12:07.000Z",
+        "genre": "action",
+        "quoi": "submit",
+        "cible": "Enregistrer",
+        "region": "Fiche"
+      }
+    ]
+  },
+  "01JQA1B2C3D4E5F6G7H8J9K0M2": {
+    "resume": {
+      "id": "01JQA1B2C3D4E5F6G7H8J9K0M2",
+      "task_slug": "maj-crm-post-echange",
+      "t0": "2026-01-14T08:41:00.000Z",
+      "t1": "2026-01-14T08:44:10.000Z",
+      "grade": "C",
+      "grade_reason": "declasse en C : 2 trou(s) et 1 entite(s) non resolue(s)",
+      "actions": 9,
+      "trous": 2,
+      "completude_pct": 81,
+      "scope_fields": ["Description"]
+    },
+    "frise": [
+      {
+        "seq": 1,
+        "ts": "2026-01-14T09:12:01.000Z",
+        "genre": "action",
+        "quoi": "navigate",
+        "cible": "Details",
+        "region": "Fiche"
+      },
+      {
+        "seq": 2,
+        "ts": "2026-01-14T08:42:02.000Z",
+        "genre": "trou",
+        "quoi": "sleep",
+        "cible": "",
+        "region": null
+      },
+      {
+        "seq": 3,
+        "ts": "2026-01-14T09:12:03.000Z",
+        "genre": "action",
+        "quoi": "input",
+        "cible": "Description",
+        "region": "Fiche"
+      },
+      {
+        "seq": 4,
+        "ts": "2026-01-14T08:42:04.000Z",
+        "genre": "trou",
+        "quoi": "pause",
+        "cible": "",
+        "region": null
+      },
+      {
+        "seq": 5,
+        "ts": "2026-01-14T09:12:05.000Z",
+        "genre": "action",
+        "quoi": "submit",
+        "cible": "Enregistrer",
+        "region": "Fiche"
+      }
+    ]
+  },
+  "01JQA1B2C3D4E5F6G7H8J9K0M3": {
+    "resume": {
+      "id": "01JQA1B2C3D4E5F6G7H8J9K0M3",
+      "task_slug": "relance-devis",
+      "t0": "2026-01-13T17:05:00.000Z",
+      "t1": "2026-01-13T17:06:20.000Z",
+      "grade": "A",
+      "grade_reason": "sequence sans trou, toutes entites resolues, redaction validee",
+      "actions": 6,
+      "trous": 0,
+      "completude_pct": 100,
+      "scope_fields": ["Montant", "Echeance", "Contact"]
+    },
+    "frise": [
+      {
+        "seq": 1,
+        "ts": "2026-01-14T09:12:01.000Z",
+        "genre": "action",
+        "quoi": "navigate",
+        "cible": "Devis",
+        "region": "Liste"
+      },
+      {
+        "seq": 2,
+        "ts": "2026-01-14T09:12:02.000Z",
+        "genre": "action",
+        "quoi": "input",
+        "cible": "Montant",
+        "region": "Fiche"
+      },
+      {
+        "seq": 3,
+        "ts": "2026-01-14T09:12:03.000Z",
+        "genre": "action",
+        "quoi": "input",
+        "cible": "Echeance",
+        "region": "Fiche"
+      },
+      {
+        "seq": 4,
+        "ts": "2026-01-14T09:12:04.000Z",
+        "genre": "action",
+        "quoi": "submit",
+        "cible": "Envoyer",
+        "region": "Fiche"
+      }
+    ]
+  }
+}

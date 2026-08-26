@@ -1,0 +1,286 @@
+/**
+ * Le squelette traversant (D26).
+ *
+ * Sombre, dense, sans ornement. Ce n'est pas une esquisse d'UI produit : c'est
+ * un instrument de lecture, dont la seule qualité exigée est qu'on voie
+ * immédiatement ce qui va mal — un grade qui tombe, un trou qui apparaît.
+ *
+ * Les couleurs de grade suivent la convention des trois états de la barre
+ * d'état : vert pour ce qui va, ambre pour ce qui est dégradé, rouge pour ce qui
+ * est refusé.
+ */
+
+:root {
+  --fond: #14161a;
+  --fond-carte: #191c21;
+  --bord: #262a31;
+  --texte: #e8eaed;
+  --texte-faible: #8b929d;
+  --vert: #2e9e5b;
+  --vert-clair: #7fd6a4;
+  --ambre: #d98a1f;
+  --rouge: #d4574a;
+  --bleu: #3b7fd4;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--fond);
+  color: var(--texte);
+  font:
+    14px / 1.5 "Segoe UI",
+    system-ui,
+    sans-serif;
+}
+
+#app {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 28px 32px 48px;
+}
+
+.tete h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.3px;
+}
+
+.tete p {
+  margin: 4px 0 26px;
+  color: var(--texte-faible);
+}
+
+/* --- la liste ---------------------------------------------------------- */
+
+.liste {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.episode {
+  background: var(--fond-carte);
+  border: 1px solid var(--bord);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+
+.episode:focus-visible {
+  outline: 2px solid var(--bleu);
+  outline-offset: 2px;
+}
+
+.episode header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.grade {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.grade-A {
+  background: #16281f;
+  color: var(--vert-clair);
+  border: 1px solid var(--vert);
+}
+
+.grade-B {
+  background: #2a2113;
+  color: #f0c078;
+  border: 1px solid var(--ambre);
+}
+
+.grade-C {
+  background: #2c1a18;
+  color: #f0958a;
+  border: 1px solid var(--rouge);
+}
+
+.slug {
+  font-weight: 600;
+}
+
+.quand {
+  margin-left: auto;
+  color: var(--texte-faible);
+  font-size: 13px;
+}
+
+.raison {
+  margin: 8px 0 0;
+  color: var(--texte-faible);
+  font-size: 13px;
+}
+
+.chiffres {
+  display: flex;
+  gap: 30px;
+  margin: 14px 0 0;
+}
+
+.chiffres div {
+  display: flex;
+  flex-direction: column;
+}
+
+.chiffres dt {
+  order: 2;
+  color: var(--texte-faible);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.chiffres dd {
+  order: 1;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+/* Un trou non nul doit se voir sans qu'on le cherche. */
+.chiffres dd.alerte {
+  color: #f0958a;
+}
+
+.perimetre {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0 0;
+}
+
+.perimetre span {
+  border: 1px solid var(--bord);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--texte-faible);
+}
+
+/* --- la frise ---------------------------------------------------------- */
+
+.frise {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--bord);
+}
+
+.pt {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: #1f242b;
+  border: 1px solid var(--bord);
+  max-width: 220px;
+}
+
+.pt b {
+  font-weight: 650;
+  color: var(--texte);
+}
+
+.pt i {
+  font-style: normal;
+  color: var(--texte-faible);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pt-trou {
+  background: #2c1a18;
+  border-color: var(--rouge);
+}
+
+.pt-trou b {
+  color: #f0958a;
+}
+
+.pt-vide {
+  color: var(--texte-faible);
+  border-style: dashed;
+}
+
+/* --- les états ---------------------------------------------------------- */
+
+.etat {
+  border: 1px solid var(--bord);
+  border-radius: 10px;
+  padding: 30px 26px;
+  background: var(--fond-carte);
+}
+
+.etat h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 620;
+}
+
+.etat p {
+  margin: 0 0 8px;
+  color: var(--texte-faible);
+}
+
+.etat .apaise {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.etat-erreur {
+  border-color: var(--rouge);
+}
+
+.etat-erreur h2 {
+  color: #f0958a;
+}
+
+.etat-erreur .detail {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--texte);
+}
+
+kbd {
+  border: 1px solid var(--bord);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+/* Le chargement ne clignote pas : une baseline visuelle doit être stable, et
+   une animation la rendrait non déterministe. */
+.etat-chargement {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.squelette {
+  height: 74px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #1f242b 0%, #262b33 50%, #1f242b 100%);
+}
