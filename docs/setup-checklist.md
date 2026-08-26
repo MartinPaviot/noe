@@ -33,8 +33,8 @@
 | WebView2 Runtime | ✅ | préinstallé Win11 | voir commande ci-dessous |
 | Azure CLI | 🔧 | installé par l'agent | `az version` |
 | Supabase CLI | 🔧 | **devDependency du dépôt**, pas un global | `pnpm supabase --version` |
-| Stripe CLI | ✅ | `1.32.0` — ⚠️ **clé test expirée le 2026-02-28** | `stripe config --list` |
-| Vercel CLI | ✅ | `50.37.3` — ⚠️ **token invalide** | `vercel whoami` |
+| Stripe CLI | ✅ | `1.32.0`, apparié — ⚠️ **mauvais compte, voir E.1** | `stripe config --list` |
+| Vercel CLI | ✅ | `50.37.3`, authentifié `martinpaviot` | `vercel whoami` |
 | Biome · Vitest · gitleaks | ✅ | devDependencies / CI, jamais en global | `pnpm lint` · `pnpm test` |
 
 **Vérifier WebView2 :**
@@ -281,10 +281,28 @@ retenu : Salesforce → <https://github.com/salesforcecli>, Google Workspace →
 
 ### E.1 — Stripe ⏳
 
-Compte détecté : `acct_1SSP…NA2P` (tronqué) — *« Environnement de test New business »*.
-⚠️ **La clé test a expiré le 2026-02-28.** Re-login requis avant toute action.
+**État au 2026-08-26.** CLI apparié (session 0), mais **le compte n'est pas le bon** :
 
-- [ ] 👤 `stripe login` (ouvre le navigateur, ~2 min)
+```
+display_name      : Usenareo
+business_type     : individual    <- compte personnel, pas une societe
+pays / devise     : FR / EUR
+charges_enabled   : true          <- compte active, capable d'encaisser en reel
+```
+
+Le brief demande une facturation « sous l'entité existante, détenue à 100 % ».
+Un renommage ne suffirait pas : il change l'étiquette, pas l'entité juridique qui
+encaisse. Ni la création ni le renommage d'un compte propriétaire ne sont
+automatisables — `POST /v1/accounts` ne crée que des comptes *Connect*.
+
+🔧 **La clé live a été retirée** de `~/.config/stripe/config.toml` (session 0).
+Seul le test subsiste. Un `stripe login` la réinstallera le jour du gate live.
+
+- [ ] 👤 **Trancher l'entité**, puis me le dire :
+      - *Nouveau compte société* → <https://dashboard.stripe.com/settings/account>
+        → sélecteur de compte → **Nouveau compte** → type **Société**
+      - *ou renommer celui-ci* → même page, champ **Nom du compte** (~30 s)
+- [ ] 👤 `stripe login` ensuite, pour réapparier sur le bon compte
 - [ ] ⏳ Product **« Noe »** + Prices mensuel et annuel — **mode TEST**
 - [ ] ⏳ Checkout Session + Customer Portal — **mode TEST**
 - [ ] ⏳ Webhook `checkout.session.completed` → émission d'une clé de licence
@@ -310,10 +328,13 @@ Compte détecté : `acct_1SSP…NA2P` (tronqué) — *« Environnement de test N
 
 ### E.3 — Vercel ⏳
 
-⚠️ Token invalide détecté.
+✅ **Authentifié le 2026-08-26** — compte `martinpaviot`, une seule team :
+**Martin's projects** (`martins-projects-02d07974`). Pas de team Elevay distincte.
 
-- [ ] 👤 `vercel login` (~2 min)
-- [ ] ⏳ `vercel link` → projet **`noe`** dans la team existante
+- [x] 👤 ~~`vercel login`~~ — fait
+- [ ] ⏳ `vercel link` → projet **`noe`**. **Volontairement différé :** la landing
+      est F12, et la session 0 s'interdit tout code métier. Créer un projet vide
+      qui échouerait au build n'apporte rien. À faire à l'ouverture de F12.
 - [ ] ⏳ Landing + page de téléchargement + docs + **page trust**
 - [ ] Le proxy edge attend que la cascade le justifie — pas maintenant
 
