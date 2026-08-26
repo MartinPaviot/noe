@@ -18,7 +18,15 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/visuel',
   snapshotPathTemplate: '{testDir}/__screenshots__/{arg}{ext}',
-  fullyParallel: true,
+  // **Un seul worker, pas de parallelisme.**
+  //
+  // En parallele, cinq contextes de navigateur contre un meme serveur de
+  // previsualisation donnaient des resultats differents d une execution a
+  // l autre — 4, puis 1, puis 5 tests rapportes. Un controle visuel dont le
+  // resultat varie ne prouve rien, et D21 en fait un rouge. En serie, les cinq
+  // passent en 4,7 s : le parallelisme ne rachetait meme pas son instabilite.
+  fullyParallel: false,
+  workers: 1,
   // Une baseline qui ne passe qu'au deuxième essai cache un vrai
   // non-déterminisme : on ne réessaie pas.
   retries: 0,

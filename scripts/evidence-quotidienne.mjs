@@ -249,7 +249,19 @@ try {
 } catch (e) {
   console.log(`  (vue non capturee : ${e instanceof Error ? e.message : e})`);
 } finally {
-  serveur?.kill();
+  // `kill()` ne suffit pas sous Windows : `shell: true` interpose un
+  // interpreteur, et tuer celui-ci laisse le serveur vivant — il ecoutait
+  // encore apres plusieurs executions, et faisait echouer les tests visuels du
+  // port voisin. On tue l arbre.
+  if (serveur?.pid) {
+    try {
+      execFileSync('taskkill', ['/pid', String(serveur.pid), '/T', '/F'], {
+        stdio: 'ignore',
+      });
+    } catch {
+      serveur.kill();
+    }
+  }
 }
 
 await navigateur.close();

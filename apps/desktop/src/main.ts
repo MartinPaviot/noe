@@ -67,7 +67,17 @@ async function garnirFrise(carte: HTMLElement): Promise<void> {
   if (!(cible instanceof HTMLElement) || id === undefined) return;
   if (cible.dataset['garnie'] === 'oui') return;
 
-  const detail = await detailEpisode(id);
+  // Un detail illisible ne doit pas figer la vue entiere : la liste est deja
+  // affichee et reste utilisable, la frise manquante le dit.
+  let detail: Awaited<ReturnType<typeof detailEpisode>> = null;
+  try {
+    detail = await detailEpisode(id);
+  } catch {
+    cible.dataset['garnie'] = 'oui';
+    cible.innerHTML = '<span class="pt pt-vide">frise indisponible</span>';
+    return;
+  }
+
   cible.dataset['garnie'] = 'oui';
   cible.innerHTML =
     detail === null || detail.frise.length === 0
@@ -137,7 +147,11 @@ async function monter(): Promise<void> {
 
   // Les frises se garnissent après coup : la liste doit s'afficher tout de
   // suite, même si le détail de vingt épisodes prend un instant.
-  await Promise.all(
+  //
+  // `allSettled` et non `all` : une seule frise en échec ne doit pas empêcher
+  // la vue de se déclarer prête. C'est un test visuel qui l'a montré — la vue
+  // restait indéfiniment sans `data-pret`, donc invisible au contrôle.
+  await Promise.allSettled(
     [...racine.querySelectorAll<HTMLElement>('.episode')].map((c) => garnirFrise(c)),
   );
   racine.dataset['pret'] = 'oui';

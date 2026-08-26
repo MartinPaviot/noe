@@ -235,11 +235,7 @@ mod tests {
     fn deposer(racine: &Path, ep: &Episode) {
         let d = racine.join(&ep.id);
         std::fs::create_dir_all(&d).unwrap();
-        std::fs::write(
-            d.join("episode.json"),
-            serde_json::to_string(ep).unwrap(),
-        )
-        .unwrap();
+        std::fs::write(d.join("episode.json"), serde_json::to_string(ep).unwrap()).unwrap();
     }
 
     #[test]
@@ -247,7 +243,11 @@ mod tests {
         let ep = episode(
             "01A",
             "2026-01-01T00:00:00.000Z",
-            vec![action(1, "input", "Description"), trou(2), action(3, "submit", "Enregistrer")],
+            vec![
+                action(1, "input", "Description"),
+                trou(2),
+                action(3, "submit", "Enregistrer"),
+            ],
         );
         let r = resumer(&ep);
         assert_eq!(r.actions, 2);
@@ -272,7 +272,11 @@ mod tests {
         let ep = episode(
             "01A",
             "2026-01-01T00:00:00.000Z",
-            vec![action(1, "navigate", "Details"), trou(2), action(3, "submit", "Enregistrer")],
+            vec![
+                action(1, "navigate", "Details"),
+                trou(2),
+                action(3, "submit", "Enregistrer"),
+            ],
         );
         let f = friser(&ep);
         assert_eq!(f.len(), 3);
@@ -286,8 +290,22 @@ mod tests {
     fn la_liste_va_du_plus_recent_au_plus_ancien() {
         // C'est ce qu'on vient de faire qui interesse.
         let r = racine("ordre");
-        deposer(&r, &episode("01ANCIEN", "2026-01-01T00:00:00.000Z", vec![action(1, "input", "X")]));
-        deposer(&r, &episode("01RECENT", "2026-03-01T00:00:00.000Z", vec![action(1, "input", "Y")]));
+        deposer(
+            &r,
+            &episode(
+                "01ANCIEN",
+                "2026-01-01T00:00:00.000Z",
+                vec![action(1, "input", "X")],
+            ),
+        );
+        deposer(
+            &r,
+            &episode(
+                "01RECENT",
+                "2026-03-01T00:00:00.000Z",
+                vec![action(1, "input", "Y")],
+            ),
+        );
 
         let ids: Vec<String> = lister(&r).into_iter().map(|e| e.id).collect();
         assert_eq!(ids, vec!["01RECENT", "01ANCIEN"]);
@@ -298,7 +316,14 @@ mod tests {
         // Un fichier corrompu ne doit pas rendre l'application aveugle a tout
         // le reste. Il reste sur disque ; son absence de la liste est le signal.
         let r = racine("abime");
-        deposer(&r, &episode("01BON", "2026-01-01T00:00:00.000Z", vec![action(1, "input", "X")]));
+        deposer(
+            &r,
+            &episode(
+                "01BON",
+                "2026-01-01T00:00:00.000Z",
+                vec![action(1, "input", "X")],
+            ),
+        );
         let d = r.join("01CASSE");
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join("episode.json"), "{ ceci n est pas du json").unwrap();
@@ -320,7 +345,11 @@ mod tests {
         let r = racine("detail");
         deposer(
             &r,
-            &episode("01DETAIL", "2026-01-01T00:00:00.000Z", vec![action(1, "input", "X"), trou(2)]),
+            &episode(
+                "01DETAIL",
+                "2026-01-01T00:00:00.000Z",
+                vec![action(1, "input", "X"), trou(2)],
+            ),
         );
         let d = detail(&r, "01DETAIL").expect("un detail");
         assert_eq!(d.resume.actions, 1);
