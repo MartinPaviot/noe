@@ -446,7 +446,10 @@ prends pas — pas l'opération.
 
 ## 2026-08-26 — D15 : le terrain de preuve reste ouvert (troisième demande)
 
-**Statut : EN ATTENTE.** Ne bloque rien avant la tâche 12 de la spec 003.
+> **CLOSE par D16** — la révision de la spec 003 a retiré ce prérequis. Conservée
+> telle quelle : une demande qui s'est révélée mal posée mérite de rester lisible.
+
+**Statut : SANS OBJET.** Ne bloque rien avant la tâche 12 de la spec 003.
 
 Le terrain de preuve — le CRM réel qui porte la campagne — a été demandé trois
 fois. Les trois messages contenaient un gabarit non rempli :
@@ -469,3 +472,41 @@ terrain de construction — l'org Salesforce Developer Edition de D13.
   vérité avec API en lecture**. Elevay et Gmail les remplissent.
 
 Tant que la réponse n'arrive pas, je réordonne et je continue ailleurs.
+
+---
+
+## 2026-08-26 — D16 : D15 est close, le terrain de preuve sort du chemin critique
+
+**Statut : D15 SANS OBJET.** Le blocage a été levé par un changement de portée, pas
+par une réponse.
+
+La spec 003 a été révisée : **la validation sur usage réel n'est plus un
+prérequis** de la spec ni du build. Tout se prouve sur le **terrain de
+construction** — l'org de démo que j'ai créée (D13). Le dogfooding et les bêtas
+arrivent à la phase de durcissement.
+
+> « Le produit n'attend jamais après la vie de son constructeur. »
+
+**Ce que ça change concrètement.**
+
+| | Avant | Après |
+| --- | --- | --- |
+| Tâche 0 | 0a construction + 0b terrain de preuve, en attente de l'opérateur | une seule tâche, **aucune question en attente** |
+| Jalon (R7.3) | une journée réelle de campagne, non scriptable | **jalon technique** : ≥ 5 épisodes par la vraie chaîne sur des parcours **variés** de l'org de démo |
+| Tâche 12 | épisode réel, prérequis : comptes réels connectés | épisode capturé par la vraie chaîne sur l'org de démo |
+
+**Ce que la révision préserve, et c'est le point.** Le jalon exige toujours la
+**vraie chaîne** — app desktop + UIA + fédération, *jamais des fixtures* — et des
+**parcours variés**, dont au moins deux qui s'écartent du script nominal. Ce n'est
+pas un assouplissement de la preuve : c'est un déplacement de ce qu'elle prouve.
+
+Et la spec l'écrit noir sur blanc : ces chiffres prouvent que **la boucle
+fonctionne**, pas encore que **le produit apprend un humain**. La seconde preuve
+appartient au durcissement. Un jalon qui sait ce qu'il ne prouve pas vaut mieux
+qu'un jalon qui l'oublie.
+
+**Ma demande répétée était donc mal posée.** Je réclamais une décision sur le
+terrain de preuve comme si elle bloquait le build. Elle ne bloquait qu'un jalon
+qui vient d'être redéfini. J'aurais pu le voir plus tôt : le harness, la capture
+et la fédération se construisent tous contre une org de démo — c'est le jalon,
+pas le chemin, qui exigeait du réel.

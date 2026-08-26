@@ -1,0 +1,54 @@
+- generic [active]:
+  - generic [ref=f31e2]:
+    - generic [ref=f31e3]:
+      - link "Aller à la navigation" [ref=f31e4] [cursor=pointer]:
+        - /url: javascript:void(0);
+      - link "Aller au contenu principal" [ref=f31e5] [cursor=pointer]:
+        - /url: javascript:void(0);
+      - generic [ref=f31e6]:
+        - button "Rechercher" [ref=f31e12]: Rechercher...
+        - navigation "En-tête global" [ref=f31e17]:
+          - list [ref=f31e19]:
+            - listitem [ref=f31e20]:
+              - group [ref=f31e21]:
+                - button "Ajouter aux favoris" [ref=f31e23] [cursor=pointer]:
+                  - generic [ref=f31e24]:
+                    - tooltip "Ajouter aux favoris"
+                - button [ref=f31e32] [cursor=pointer]:
+                  - generic [ref=f31e33]:
+                    - tooltip "Liste de favoris"
+            - listitem [ref=f31e40]:
+              - button "Actions globales" [ref=f31e42]
+            - listitem [ref=f31e49]:
+              - button [ref=f31e52] [cursor=pointer]:
+                - generic [ref=f31e53]:
+                  - tooltip "Aide de Salesforce"
+            - listitem [ref=f31e60]:
+              - button [ref=f31e66] [cursor=pointer]:
+                - generic [ref=f31e67]:
+                  - tooltip "Configuration"
+            - listitem [ref=f31e74]:
+              - button [ref=f31e77] [cursor=pointer]:
+                - generic [ref=f31e78]:
+                  - tooltip "Notifications"
+            - listitem [ref=f31e87]:
+              - button [ref=f31e90] [cursor=pointer]:
+                - generic [ref=f31e91]:
+                  - tooltip "Afficher le profil"
+    - generic [ref=f31e93]:
+      - generic [ref=f31e96]:
+        - generic [ref=f31e98]:
+          - navigation "Application" [ref=f31e99]:
+            - button "Lanceur d'application" [ref=f31e101] [cursor=pointer]
+          - heading "Developer Edition" [level=1] [ref=f31e113]
+        - navigation "Global" [ref=f31e117]:
+          - list [ref=f31e118]:
+            - listitem [ref=f31e119]:
+              - link "Welcome" [ref=f31e120] [cursor=pointer]:
+                - /url: /lightning/n/devedapp__Welcome
+      - main [ref=f31e123]:
+        - generic [ref=f31e133]:
+          - heading "Toutes les pistes en cours" [level=2] [ref=f31e140]
+          - article [ref=f31e154]
+  - generic:
+    - status
