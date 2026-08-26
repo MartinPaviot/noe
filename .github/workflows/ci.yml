@@ -44,6 +44,20 @@ jobs:
       - name: Tests (Vitest)
         run: pnpm test
 
+      # Le gate de la spec 001 : le rejeu du corpus dore doit sortir en 0.
+      # C'est la CI du produit, executee par la CI du depot.
+      - name: Rejeu du corpus dore (spec 001)
+        run: node packages/harness/dist/cli.js replay packages/harness/golden
+
+      - name: Rejeu — politique nulle doit echouer (test negatif)
+        run: |
+          if node packages/harness/dist/cli.js judge packages/harness/golden --policy nulle; then
+            echo "ERREUR : la politique nulle a ete jugee conforme. Le juge est casse."
+            exit 1
+          else
+            echo "OK : la politique nulle est bien rejetee (code $?)."
+          fi
+
   secrets:
     name: scan de secrets
     runs-on: ubuntu-latest

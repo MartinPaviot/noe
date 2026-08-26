@@ -1,18 +1,42 @@
 /**
- * @noe/harness — rejeu et jugement mecanique.
- * Vide en session 0 : le juge est la feature F04, le rejeu la F03.
+ * @noe/harness — le socle de preuve.
+ *
+ * Rejeu à froid d'un corpus d'épisodes et jugement mécanique. Aucun appel réseau,
+ * aucun modèle : le juge compare des états normalisés, et rien d'autre.
  */
 
-export const AIDE = `noe — harness de rejeu et de jugement
+export {
+  type ChampJuge,
+  CLASSES,
+  type Classe,
+  diffObserve,
+  equivalent,
+  juger,
+  normalize,
+  type Valeur,
+  type VerdictEpisode,
+} from './judge.js';
 
-Usage
-  noe <commande> [options]
+export {
+  type Cible,
+  contexteDe,
+  type Policy,
+  politiqueNulle,
+  politiqueParfaite,
+  type ReplayContext,
+} from './policy.js';
 
-Commandes (aucune n'est implementee en session 0)
-  replay <corpus>     Rejoue un corpus d'episodes de maniere deterministe.
-  judge <run>         Applique le juge mecanique a un run de rejeu.
-  fixtures            Liste les corpus dores disponibles localement.
+export {
+  type Agregat,
+  agreger,
+  chargerCorpus,
+  codeSortie,
+  type EpisodeIllisible,
+  EXIT_ERREUR,
+  EXIT_OK,
+  EXIT_VERDICT_NON_CONFORME,
+  type RapportRejeu,
+  rejouer,
+} from './replay.js';
 
-Regle
-  Seul le juge mecanique promeut. Aucune sortie de ce CLI ne quitte le poste.
-`;
+export { rapportJson, rapportTexte, stringifyStable } from './report.js';

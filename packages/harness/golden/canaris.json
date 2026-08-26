@@ -1,0 +1,9 @@
+{
+  "description": "Chaines temoins. Aucune ne doit apparaitre en clair dans une sortie du socle. Voir R5.",
+  "chaines": [
+    "CANARY_PII_001",
+    "canary.pii@example.invalid",
+    "+33600000000",
+    "FR7630006000011234567890189"
+  ]
+}

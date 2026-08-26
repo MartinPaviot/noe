@@ -1,0 +1,124 @@
+{
+  "schema_v": 1,
+  "id": "01JQA1B2C3D4E5F6G7H8J9K0M3",
+  "task_slug": "maj-crm-post-echange",
+  "t0": "2026-08-03T10:00:00.000Z",
+  "t1": "2026-08-03T11:30:00.000Z",
+  "events": [
+    {
+      "schema_v": 1,
+      "seq": 0,
+      "ts": "2026-08-03T10:00:15.000Z",
+      "kind": "ui_action",
+      "source": "ui",
+      "action": "navigate",
+      "target": {
+        "role": "button",
+        "name": "Contacts"
+      }
+    },
+    {
+      "schema_v": 1,
+      "seq": 1,
+      "ts": "2026-08-03T10:01:00.000Z",
+      "kind": "ui_action",
+      "source": "ui",
+      "action": "invoke",
+      "target": {
+        "role": "button",
+        "name": "Ouvrir la fiche"
+      }
+    },
+    {
+      "schema_v": 1,
+      "seq": 2,
+      "ts": "2026-08-03T10:02:00.000Z",
+      "kind": "gap",
+      "source": "system",
+      "gap": {
+        "cause": "sleep",
+        "from_seq": 1,
+        "to_seq": 3
+      }
+    },
+    {
+      "schema_v": 1,
+      "seq": 3,
+      "ts": "2026-08-03T11:20:00.000Z",
+      "kind": "ui_action",
+      "source": "ui",
+      "action": "submit",
+      "target": {
+        "role": "button",
+        "name": "Enregistrer"
+      }
+    },
+    {
+      "schema_v": 1,
+      "seq": 4,
+      "ts": "2026-08-03T11:20:05.000Z",
+      "kind": "api_change",
+      "source": "api",
+      "connector": "crm",
+      "object": "contact",
+      "object_id": "c_003",
+      "fields_changed": ["statut"]
+    }
+  ],
+  "entities": [
+    {
+      "key": {
+        "type": "contact",
+        "value_pseudo": "PSEUDO_CONTACT_003"
+      },
+      "first_seen_seq": 0,
+      "api_refs": [
+        {
+          "connector": "crm",
+          "object": "contact",
+          "id": "c_003"
+        }
+      ],
+      "state_before": {
+        "statut": "nouveau",
+        "prochaine_action": "",
+        "date_relance": null,
+        "notes": ""
+      },
+      "state_after": {
+        "statut": "qualifie",
+        "prochaine_action": "",
+        "date_relance": null,
+        "notes": ""
+      }
+    },
+    {
+      "key": {
+        "type": "deal",
+        "value_pseudo": "PSEUDO_DEAL_001"
+      },
+      "first_seen_seq": 1,
+      "api_refs": [
+        {
+          "connector": "crm",
+          "object": "deal",
+          "id": "d_001"
+        }
+      ],
+      "state_before": {
+        "statut": "ouvert"
+      },
+      "state_after": {
+        "statut": "ouvert"
+      }
+    }
+  ],
+  "grade": "B",
+  "grade_reason": "declasse en B : 1 trou de capture",
+  "scope_fields": ["statut", "prochaine_action", "date_relance", "notes"],
+  "completeness": {
+    "explained": 1,
+    "out_of_scope": 0,
+    "gaps": 1
+  }
+}

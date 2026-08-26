@@ -1,0 +1,124 @@
+{
+  "schema_v": 1,
+  "id": "01JQA1B2C3D4E5F6G7H8J9K0M1",
+  "task_slug": "maj-crm-post-echange",
+  "t0": "2026-08-01T09:00:00.000Z",
+  "t1": "2026-08-01T09:06:00.000Z",
+  "events": [
+    {
+      "schema_v": 1,
+      "seq": 0,
+      "ts": "2026-08-01T09:00:20.000Z",
+      "kind": "ui_action",
+      "source": "ui",
+      "action": "navigate",
+      "target": {
+        "role": "button",
+        "name": "Contacts"
+      }
+    },
+    {
+      "schema_v": 1,
+      "seq": 1,
+      "ts": "2026-08-01T09:01:00.000Z",
+      "kind": "ui_action",
+      "source": "ui",
+      "action": "invoke",
+      "target": {
+        "role": "button",
+        "name": "Ouvrir la fiche"
+      }
+    },
+    {
+      "schema_v": 1,
+      "seq": 2,
+      "ts": "2026-08-01T09:03:10.000Z",
+      "kind": "ui_action",
+      "source": "ui",
+      "action": "input",
+      "target": {
+        "role": "button",
+        "name": "Prochaine action"
+      }
+    },
+    {
+      "schema_v": 1,
+      "seq": 3,
+      "ts": "2026-08-01T09:04:00.000Z",
+      "kind": "ui_action",
+      "source": "ui",
+      "action": "submit",
+      "target": {
+        "role": "button",
+        "name": "Enregistrer"
+      }
+    },
+    {
+      "schema_v": 1,
+      "seq": 4,
+      "ts": "2026-08-01T09:04:05.000Z",
+      "kind": "api_change",
+      "source": "api",
+      "connector": "crm",
+      "object": "contact",
+      "object_id": "c_001",
+      "fields_changed": ["statut", "prochaine_action", "date_relance"]
+    }
+  ],
+  "entities": [
+    {
+      "key": {
+        "type": "contact",
+        "value_pseudo": "PSEUDO_CONTACT_001"
+      },
+      "first_seen_seq": 0,
+      "api_refs": [
+        {
+          "connector": "crm",
+          "object": "contact",
+          "id": "c_001"
+        }
+      ],
+      "state_before": {
+        "statut": "nouveau",
+        "prochaine_action": "",
+        "date_relance": null,
+        "notes": ""
+      },
+      "state_after": {
+        "statut": "qualifie",
+        "prochaine_action": "envoyer le devis",
+        "date_relance": "2026-08-15T00:00:00.000Z",
+        "notes": ""
+      }
+    },
+    {
+      "key": {
+        "type": "deal",
+        "value_pseudo": "PSEUDO_DEAL_001"
+      },
+      "first_seen_seq": 1,
+      "api_refs": [
+        {
+          "connector": "crm",
+          "object": "deal",
+          "id": "d_001"
+        }
+      ],
+      "state_before": {
+        "statut": "ouvert"
+      },
+      "state_after": {
+        "statut": "ouvert"
+      }
+    }
+  ],
+  "grade": "A",
+  "grade_reason": "sequence sans trou, toutes entites resolues, redaction validee",
+  "scope_fields": ["statut", "prochaine_action", "date_relance", "notes"],
+  "completeness": {
+    "explained": 3,
+    "out_of_scope": 0,
+    "gaps": 0
+  }
+}

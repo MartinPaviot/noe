@@ -2,7 +2,7 @@
   "projet": "noe",
   "version_schema": 1,
   "source_de_verite": "docs/prompt-maitre-v0.md",
-  "statut_source": "PROVISOIRE — derive du brief de session 0. A reconcilier des que le prompt maitre est depose.",
+  "statut_source": "La spec 001 (specs/001-socle-de-preuve/) fait autorite sur F02-F04 et les a reordonnes AVANT F01 : le harness ne depend de rien, tout depend de lui.",
   "regle": "Une feature par session, verifiee de bout en bout. Seul le juge mecanique fait passer passes a true.",
   "features": [
     {
@@ -12,7 +12,8 @@
       "livrable": "Un verdict ecrit dans docs/spike-verdict.md, appuye sur un rejeu comparatif, tranchant le choix de modele pour l'etage execution et le choix du terrain selon les 5 criteres.",
       "verifie_par": "docs/spike-verdict.md rempli, chiffres reproductibles, decision datee et signee.",
       "depends_on": [],
-      "passes": false
+      "passes": false,
+      "note": "Reordonne apres le socle par la spec 001 : le spike est une mesure, pas une feature, et le harness ne l attend pas."
     },
     {
       "id": "F02",
@@ -20,8 +21,10 @@
       "phase": "fondations",
       "livrable": "Schemas Zod dans @noe/episode-spec : episode, observation, trou de capture, provenance. Immuabilite garantie par construction.",
       "verifie_par": "Tests de round-trip, refus des episodes mal formes, un trou de capture modelise comme evenement de premiere classe.",
-      "depends_on": ["F01"],
-      "passes": false
+      "depends_on": [],
+      "passes": true,
+      "preuve": "spec 001 : 15/15 taches vertes, 99 tests, noe replay golden/ sort en 0 avec 100 % d accord sur les grades A, noe judge --policy nulle sort en 1.",
+      "spec": "specs/001-socle-de-preuve/"
     },
     {
       "id": "F03",
@@ -29,8 +32,12 @@
       "phase": "fondations",
       "livrable": "noe replay <corpus> rejoue un corpus dore d'episodes de maniere bit-a-bit deterministe, hors reseau.",
       "verifie_par": "Deux rejeux du meme corpus produisent une sortie identique ; le rejeu echoue si une fixture a bouge.",
-      "depends_on": ["F02"],
-      "passes": false
+      "depends_on": [
+        "F02"
+      ],
+      "passes": true,
+      "preuve": "spec 001 : 15/15 taches vertes, 99 tests, noe replay golden/ sort en 0 avec 100 % d accord sur les grades A, noe judge --policy nulle sort en 1.",
+      "spec": "specs/001-socle-de-preuve/"
     },
     {
       "id": "F04",
@@ -38,8 +45,12 @@
       "phase": "fondations",
       "livrable": "noe judge <run> applique des seuils explicites a un run de rejeu et rend un verdict binaire, sans intervention humaine.",
       "verifie_par": "Le juge refuse un run degrade injecte volontairement ; ses seuils sont versionnes avec le corpus.",
-      "depends_on": ["F03"],
-      "passes": false
+      "depends_on": [
+        "F03"
+      ],
+      "passes": true,
+      "preuve": "spec 001 : 15/15 taches vertes, 99 tests, noe replay golden/ sort en 0 avec 100 % d accord sur les grades A, noe judge --policy nulle sort en 1.",
+      "spec": "specs/001-socle-de-preuve/"
     },
     {
       "id": "F05",
@@ -47,7 +58,9 @@
       "phase": "capture",
       "livrable": "Capture locale d'episodes depuis le systeme de verite retenu : scope minimal, fenetre temporelle explicite, journal de lecture.",
       "verifie_par": "Aucun appel hors du scope declare ; toute lacune produit un trou de capture enregistre, jamais un silence.",
-      "depends_on": ["F04"],
+      "depends_on": [
+        "F04"
+      ],
       "passes": false
     },
     {
@@ -56,7 +69,9 @@
       "phase": "capture",
       "livrable": "Adaptateur en lecture seule vers le terrain retenu (Salesforce ou Google Workspace), avec OAuth en mode test et refresh.",
       "verifie_par": "CI doree contre l'environnement de demo ; le connecteur ne possede aucun scope d'ecriture.",
-      "depends_on": ["F05"],
+      "depends_on": [
+        "F05"
+      ],
       "passes": false
     },
     {
@@ -65,7 +80,9 @@
       "phase": "valeur",
       "livrable": "A partir des episodes captures, un bilan classant le travail observe par automatisabilite, avec les preuves rattachees.",
       "verifie_par": "Le bilan est reproductible depuis un corpus dore et chaque affirmation pointe un episode.",
-      "depends_on": ["F06"],
+      "depends_on": [
+        "F06"
+      ],
       "passes": false
     },
     {
@@ -74,7 +91,9 @@
       "phase": "produit",
       "livrable": "Premier lancement : detection de la stack de l'utilisateur, connexion du systeme de verite, verification des permissions.",
       "verifie_par": "Un poste vierge atteint un etat capture-pret sans intervention au terminal.",
-      "depends_on": ["F06"],
+      "depends_on": [
+        "F06"
+      ],
       "passes": false
     },
     {
@@ -83,7 +102,10 @@
       "phase": "produit",
       "livrable": "Production quotidienne de brouillons proposes a l'utilisateur. Mode Assiste strict : Noe propose, l'humain valide et envoie.",
       "verifie_par": "Aucun chemin de code ne peut emettre sans validation humaine ; docs/edition-boundary.md fait foi.",
-      "depends_on": ["F07", "F08"],
+      "depends_on": [
+        "F07",
+        "F08"
+      ],
       "passes": false
     },
     {
@@ -92,7 +114,9 @@
       "phase": "distribution",
       "livrable": "Build Tauri Windows signe via Azure Trusted Signing, avec canal de mise a jour automatique.",
       "verifie_par": "SmartScreen ne bloque pas sur un poste vierge ; une mise a jour s'applique de bout en bout.",
-      "depends_on": ["F08"],
+      "depends_on": [
+        "F08"
+      ],
       "passes": false
     },
     {
@@ -101,7 +125,9 @@
       "phase": "commerce",
       "livrable": "Stripe Checkout + Customer Portal, webhook checkout.session.completed emettant une cle de licence signee ed25519, verifiee hors ligne par l'app.",
       "verifie_par": "Parcours complet en mode test ; une cle falsifiee est rejetee localement, sans reseau.",
-      "depends_on": ["F10"],
+      "depends_on": [
+        "F10"
+      ],
       "passes": false
     },
     {
@@ -110,7 +136,9 @@
       "phase": "lancement",
       "livrable": "Landing Vercel, page de telechargement, docs, page trust expliquant le modele de confidentialite, depot public lisible.",
       "verifie_par": "Chaque affirmation de la page trust pointe un fichier verifiable du depot public.",
-      "depends_on": ["F11"],
+      "depends_on": [
+        "F11"
+      ],
       "passes": false
     }
   ]

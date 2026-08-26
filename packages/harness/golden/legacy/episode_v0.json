@@ -1,0 +1,50 @@
+{
+  "schema_v": 0,
+  "id": "01JQA1B2C3D4E5F6G7H8J9K0N1",
+  "task_slug": "maj-crm-post-echange",
+  "t0": "2026-07-01T09:00:00.000Z",
+  "t1": "2026-07-01T09:05:00.000Z",
+  "events": [
+    {
+      "schema_v": 0,
+      "kind": "api_change",
+      "seq": 0,
+      "ts": "2026-07-01T09:04:00.000Z",
+      "source": "api",
+      "connector": "crm",
+      "object": "contact",
+      "object_id": "c_v0",
+      "fields_changed": ["statut", "prochaine_action"]
+    }
+  ],
+  "entities": [
+    {
+      "key": {
+        "type": "contact",
+        "value_pseudo": "PSEUDO_CONTACT_V0"
+      },
+      "first_seen_seq": 0,
+      "api_refs": [
+        {
+          "connector": "crm",
+          "object": "contact",
+          "id": "c_v0"
+        }
+      ],
+      "state_before": {
+        "statut": "nouveau",
+        "prochaine_action": ""
+      },
+      "state_after": {
+        "statut": "qualifie",
+        "prochaine_action": "rappeler"
+      }
+    }
+  ],
+  "grade": "A",
+  "completeness": {
+    "explained": 2,
+    "out_of_scope": 0,
+    "gaps": 0
+  }
+}
