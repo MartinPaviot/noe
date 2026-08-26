@@ -132,6 +132,16 @@ d'`azd`, aucun `.env` avec une variable Azure. L'historique shell montre
 `@ai-sdk/openai` et `npm install openai` — **l'autre projet utilise OpenAI en
 direct, pas Azure OpenAI.**
 
+**Hypothèses éliminées** — ne pas les retenter :
+
+| Hypothèse | Test | Résultat |
+| --- | --- | --- |
+| Interception TLS d'Avast | analyse HTTPS désactivée | levée, `az login` réussit |
+| Mauvais navigateur (Edge/Comet) | page ouverte explicitement dans **Chrome** | identique, `[]` |
+| Contexte non persisté | `msal_token_cache.bin` = 8,7 Ko | jeton bien persisté ; c'est `azureProfile.json` qui reste vide, faute de souscription à inscrire |
+| Extension `account` manquante | `use_dynamic_install=yes_without_prompt` | sans effet, ARM répond vide en amont |
+| Souscription désactivée | `az account list --all` | vide aussi |
+
 Founders Hub et Azure sont deux systèmes distincts : le premier gère un droit de
 tirage, le second des ressources. Les crédits peuvent exister sans qu'aucun
 annuaire n'ait jamais été créé — c'est la lecture cohérente avec tout ce qui
