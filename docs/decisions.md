@@ -641,3 +641,44 @@ qu'elle valide, sinon la revue ne voit jamais le avant/après.
 **Distinction à tenir** : les tests visuels prouvent la **non-régression** ;
 `docs/evidence/` documente l'**histoire** d'une opération. Deux besoins, deux
 dossiers, on ne les mélange pas.
+
+## 2026-08-26 — D22 : le 34,5 % d'UIA a été mesuré hors de son périmètre
+
+**Constat, en amendant la spec 002.** Le spike UIA rend une stabilité
+post-pipeline de **34,5 %**. Ce chiffre a servi à déclencher D19 — le repli
+navigateur — et c'est un usage légitime. Mais il a été obtenu sur **Salesforce
+Lightning, dans un navigateur**, c'est-à-dire exactement la classe de surface que
+D19 **retire** au `UiaSource`.
+
+**Décision.** Le 34,5 % est reclassé : il justifie le repli, il ne caractérise
+pas le `UiaSource`. Après D19, UIA ne répond que des applications natives, et sa
+stabilité sur ce périmètre-là **n'est pas mesurée à ce jour**. Aucun choix de
+conception du `UiaSource` ne s'y adosse ; la tâche 13 de la spec 002 produira le
+chiffre natif, sur une surface native.
+
+**Ce qui reste valide du spike UIA**, parce que ce n'est pas dépendant de la
+surface : la stratégie d'abonnement (**globale filtrée**, seule sous le budget
+CPU — 3,16 % contre 8,48 %) et les paramètres du walker (profondeur 12, 1500
+nœuds, debounce 300 ms). Ces valeurs sont inscrites en design §2 par la tâche 0,
+avec la réserve des 21 % de snapshots tronqués.
+
+**Pourquoi ça compte.** Un nombre survit à son contexte et finit par être cité
+pour autre chose que ce qu'il mesure. Celui-ci aurait servi, dans six mois, à
+« démontrer » qu'UIA ancre mal — sur un périmètre où il n'a jamais été essayé.
+
+## 2026-08-26 — D23 : la spec 002 existe enfin en fichiers
+
+**Constat.** Le texte de la spec 002 n'avait jamais été écrit dans le dépôt : il
+vivait uniquement dans un message. On travaillait dessus depuis des sessions en
+la citant de mémoire, et son triptyque était introuvable dans `specs/`.
+
+**Décision.** Le texte de l'opérateur est extrait de la transcription et déposé
+en `specs/002-capture-bornee/{requirements,design,tasks}.md`, **découpé sans
+reformulation**. Les ajouts postérieurs portent tous un marqueur `[amendé D19]`
+ou `[amendé D20]` et **ne suppriment aucune ligne d'origine** — même règle que
+pour le prompt maître.
+
+**Ce que ça change.** Les cases de `tasks.md` deviennent cochables, donc la
+progression de la spec devient vérifiable au lieu d'être racontée. Tâches 0 et
+0bis cochées ; tâche 6 dédoublée en 6a (natif) / 6b (web), plus 6c (changement de
+valeur, le trou laissé par le spike DOM) et 6d (frontière de source).

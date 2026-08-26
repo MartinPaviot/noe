@@ -1,0 +1,37 @@
+# Spec 002 — La capture bornée (N3) · tasks
+
+**Statut :** approuvé, **amendée** le 2026-08-26 (D19 + verdict du spike DOM).
+
+> Le texte de cette spec est celui de l'opérateur, découpé en triptyque sans
+> reformulation. Les ajouts postérieurs sont marqués `[amendé D19]` ou
+> `[amendé D20]` et ne suppriment aucune ligne d'origine.
+
+Périmètre : capturer une occurrence de tâche réelle, bornée à la main, et en produire un épisode valide, redacté et rejouable structurellement. **Dépend de** : spec 001 verte (le schéma et le harness existent). **Nourrie par** : le verdict du spike (deux points de design marqués `[SPIKE]`, fixés en tâche 0). **Hors périmètre explicite** : N1 ambiant (spec ultérieure), connecteurs et états API (spec 003 — donc les épisodes de cette spec plafonnent au grade B, entités non résolues : c'est attendu et testé comme tel ; la boucle complète ferme en 003), NER par modèle (différé : regex + pseudonymisation couvrent la v1, les canaris surveillent, le NER arrive avant tout utilisateur externe), toute UI au-delà du menu tray.
+
+---
+
+- [x] **0. Intégrer le verdict du spike** — inscrire dans design.md §2 la stratégie d'abonnement et les paramètres du walker, avec référence à `docs/spike-verdict.md`. **Fait le 2026-08-26** : stratégie **globale filtrée** (seule sous le budget CPU, 3,16 % contre 8,48 %), walker profondeur 12 / 1500 nœuds / debounce 300 ms. Assorti d’une réserve inscrite au design : les 34,5 % de stabilité ont été mesurés sur une surface **navigateur**, que D19 retire au `UiaSource` — ils ne caractérisent donc pas son périmètre. _Req : 2.1, 2.3, 7.1._
+- [x] **0bis. `[amendé D20]` Spike DOM** — mesurer les ancrages navigateur sur l'org de démo, appliquer la grille pré-enregistrée, consigner dans `docs/spike-verdict-dom.md`, et en tirer les points (c) à (f) de design.md §2. **Fait le 2026-08-26 — zone VERT** : stabilité post-pipeline 100 % (seuil 90), couverture 100 %, surcoût in-page 0,02 % (seuil 5). Résultat de conception : l'enrichissement dégrade la stabilité, les `data-*` entrent par liste blanche. _Req : 2.5, 2.6, 2.7, 7.1._
+- [ ] **1. Squelette app** — Tauri v2 Windows, icône tray 3 états, menu (tâche active [sous-menu], pause, panique, dossier, quitter), hotkeys globaux début/fin (refus notifié si aucune tâche active), CI windows-latest verte. _Req : 1.1, 5.1._
+- [ ] **2. Traits CaptureSource + Clock, FakeSource + FakeClock** — pipeline complet testable sans UIA ni temps réel ; 4 scénarios rejouables (nominal, bascule d'app, saisie+pause, timeout 60 min en temps simulé). _Req : socle de 1-4, 1.3._
+- [ ] **3. Pipeline redaction** — regex versionnées + HMAC/DPAPI + normalisation pré-hash, appliqué à payload, snapshots ET noms accessibles/titres ; validateur de redaction (scan zéro-match sur épisode sérialisé) branché au grade ; tests : stabilité, non-collision, clé jamais en sortie, titres redactés. _Req : 4.1, 4.2, 4.4, 4.5, 4.6._
+- [ ] **4. Writer fiable** — JSONL append, seq, flush 5 s/100, fsync clôture ; kill-test automatisé (process tué mi-capture → reprise → orphelin clôturé avec gap crash). _Req : 3.1, 3.2._
+- [ ] **5. Gaps système** — veille, seq_break, pause (à la reprise) et timeout détectés et écrits ; extension de l'enum côté episode-spec + note decisions.md. _Req : 3.3, 3.4, 5.2, 1.3._
+- [ ] **6a. `[amendé D19]` Adaptateur UIA réel — surfaces natives** — UiaSource avec les paramètres de la tâche 0 ; ciblage rôle+nom+région, unresolved comptés. Le `RawEvent` porte `source:"uia"`. _Req : 2.1, 2.2, 2.4._
+- [ ] **6b. `[amendé D19]` Adaptateur DOM — surfaces navigateur** — extension MV3 (script de contenu à `document_start` + service worker) reliée à l'app Tauri par native messaging ; ancrage rôle ARIA + nom normalisé + chemin, `data-*` par liste blanche (design §2 c/d) ; branchement par balayage des racines shadow, rebalayage sur mutation ; émission au fil de l'eau ; `source:"dom"`. La bibliothèque de motifs est celle de `episode-spec`, lue telle quelle — un test compare les trois implémentations sur le même jeu d'entrées. _Req : 2.2, 2.4, 2.5, 2.6, 2.7._
+- [ ] **6c. `[amendé D20]` Changement de valeur, bout en bout** — c'est le trou explicitement laissé par le spike DOM (design §2 e) : démontrer qu'une modification de champ dans Lightning produit bien un événement de valeur capté, sur cinq répétitions. Tant que ce n'est pas démontré, aucune ligne de la spec ne le suppose acquis. _Req : 2.7._
+- [ ] **6d. `[amendé D19]` Frontière de source** — la classe de la fenêtre au premier plan choisit la source, sans bascule dynamique sur une même surface ; test d'un épisode mixte natif↔navigateur où chaque événement porte la bonne `source` et où la frontière n'introduit ni doublon ni trou. _Req : 2.1._
+- [ ] **7. Snapshots** — les 5 déclencheurs, walker canonisé, budget 50 Ko + truncated, redaction avant écriture. _Req : 2.3._
+- [ ] **8. Assemblage + validation** — clôture → entités pseudo → grade avec raison → load() harness → immuable ou quarantaine ; auto-clôture 60 min. _Req : 1.1, 1.3, 1.4._
+- [ ] **9. Pause + liste blanche vide** — pause étanche (zéro écriture testée), capture refusée hors surfaces activées. _Req : 5.2, 5.4._
+- [ ] **10. Panique** — fenêtres 5/15/60, suppression d'épisodes ENTIERS (+ événements, snapshots, dérivés, compteurs), avortement de l'épisode ouvert, volume confirmé, irréversibilité et non-découpe testées. _Req : 5.3._
+- [ ] **11. Export/import** — archive chiffrée + manifeste incluant la clé HMAC enveloppée + `--verify` + test de migration de machine (import sur profil vierge → mêmes tokens sur nouvelle capture du même identifiant). _Req : 6.1, 6.2._
+- [ ] **12. Canaris sur capture réelle** — session scriptée qui saisit les canaris dans un formulaire de démo → sweep étendu vert. _Req : 4.3._
+- [ ] **13. Empreinte mesurée** — script de mesure + 5 occurrences réelles < 5 % CPU p95 / < 200 Mo ; dégradation ordonnée testée en surcharge simulée, chaque palier écrit en événement `degraded`. `[amendé D19]` **Les deux sources sont mesurées, sur leur propre classe de surface** : le `UiaSource` sur une application native — son chiffre actuel de 34,5 % vient d’un navigateur et ne vaut pas pour lui — et le `DomSource` là où il coûte vraiment, c’est-à-dire au balayage des racines et au transport, pas au calcul d’ancrage déjà mesuré à 0,02 %. _Req : 7.1, 7.2._
+- [ ] **14. Gate de sortie** — je capture UNE occurrence réelle de ma tâche de campagne : épisode en `episodes/`, grade B avec raison « entités non résolues », chargé par `noe replay` avec le verdict hors-périmètre propre, zéro canari, empreinte dans le budget. Alors on écrit la **spec 003 — Fédération** (qui fera passer ces mêmes épisodes au grade A et fermera la boucle).
+
+  `[amendé D19]` L'occurrence de campagne se déroulant **dans le navigateur**, ce
+  gate se franchit par le `DomSource`. Le `UiaSource` a son propre critère, à
+  vérifier dans la même tâche : une occurrence native (Outlook ou l'Explorateur)
+  produit elle aussi un épisode valide. Un seul des deux au vert ne ferme pas le
+  gate — D19 partitionne les surfaces, il ne dispense pas d'en couvrir une.
