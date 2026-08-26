@@ -21,14 +21,6 @@
 //! test le vérifie en faisant échouer toute lecture de contenu pendant un
 //! collage.
 
-//! ## En attente de D27
-//!
-//! `allow(dead_code)` borné : la logique d'appariement est livrée et testée, mais
-//! son consommateur de production dépend d'un arbitrage — comment le système
-//! nous dit qu'un collage a eu lieu (`docs/decisions.md`, D27). **À retirer dès
-//! que D27 est tranché**, quelle que soit la réponse.
-#![allow(dead_code)]
-
 use std::collections::BTreeMap;
 
 /// Ce que le système d'exploitation sait du presse-papiers.
@@ -100,6 +92,8 @@ impl Appariement {
         }
     }
 
+    /// Combien de copies l'épisode a retenues. Sert aux tests des plafonds.
+    #[cfg(test)]
     pub fn copies_connues(&self) -> usize {
         self.notres.len()
     }
@@ -130,24 +124,62 @@ fn empreinte(texte: &str) -> String {
 /// (`docs/decisions.md`, D27) : Windows n'émet pas d'événement de collage, et la
 /// seule voie fiable est un hook clavier système — une capacité que ce produit
 /// ne s'octroie pas sans qu'on l'ait dit.
-#[cfg(not(test))]
 pub struct PressePapiersWindows;
 
-#[cfg(not(test))]
 impl PressePapiers for PressePapiersWindows {
     fn sequence(&self) -> u64 {
         // SAFETY : lecture d'un compteur global, sans paramètre.
         u64::from(unsafe { windows::Win32::System::DataExchange::GetClipboardSequenceNumber() })
     }
 
+    /// Lit le texte du presse-papiers.
+    ///
+    /// **Appelée uniquement depuis `copie_observee`**, c'est-à-dire après qu'un
+    /// `Ctrl+C` a été observé pendant un épisode ouvert. C'est ce qui rend la
+    /// lecture légitime au sens de R2.3 : on ne lit pas « le presse-papiers »,
+    /// on lit ce que l'opérateur vient de copier.
     fn texte(&self) -> Option<String> {
-        // Volontairement non implémenté pour l'instant.
-        //
-        // Le seul appelant légitime est `copie_observee`, et il n'est pas encore
-        // branché : tant qu'il ne l'est pas, ce programme n'a AUCUN chemin de
-        // code qui lise le presse-papiers. Rendre `None` est plus sûr que de
-        // préparer une lecture dont personne n'a besoin.
-        None
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::System::DataExchange::{
+            CloseClipboard, GetClipboardData, OpenClipboard,
+        };
+        use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+        use windows::Win32::System::Ole::CF_UNICODETEXT;
+
+        // SAFETY : chaque ouverture est refermée, y compris sur les chemins
+        // d'échec — un presse-papiers laissé ouvert bloque tout le poste.
+        unsafe {
+            if OpenClipboard(None).is_err() {
+                return None;
+            }
+            let handle: HANDLE = match GetClipboardData(CF_UNICODETEXT.0.into()) {
+                Ok(h) => HANDLE(h.0),
+                Err(_) => {
+                    let _ = CloseClipboard();
+                    return None;
+                }
+            };
+            let pointeur = GlobalLock(windows::Win32::Foundation::HGLOBAL(handle.0));
+            if pointeur.is_null() {
+                let _ = CloseClipboard();
+                return None;
+            }
+
+            // Longueur bornée : un presse-papiers peut contenir un document
+            // entier, et on n'en veut qu'une empreinte.
+            const MAX: usize = 8 * 1024;
+            let large = pointeur as *const u16;
+            let mut longueur = 0usize;
+            while longueur < MAX && *large.add(longueur) != 0 {
+                longueur += 1;
+            }
+            let tranche = std::slice::from_raw_parts(large, longueur);
+            let texte = String::from_utf16_lossy(tranche);
+
+            let _ = GlobalUnlock(windows::Win32::Foundation::HGLOBAL(handle.0));
+            let _ = CloseClipboard();
+            Some(texte)
+        }
     }
 }
 

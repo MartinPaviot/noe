@@ -877,7 +877,7 @@ c'est mieux qu'une case cochée sans image.
 
 ## 2026-08-27 — D27 : la détection du collage attend un arbitrage, la copie non
 
-**Spec :** 002 · **Tâches :** 6a, 7 · **Statut : EN ATTENTE d'une ligne de l'opérateur**
+**Spec :** 002 · **Tâches :** 6a, 7 · **TRANCHÉ le 2026-08-27 — option 1**
 
 **Le constat.** R2.3 fait du copier-coller apparié l'un des cinq déclencheurs de
 snapshot. La logique d'appariement est livrée et testée — y compris son point
@@ -928,3 +928,37 @@ cinq à rester en attente.
 
 En attendant, la copie est détectée, le collage ne l'est pas, et le journal le
 dit plutôt que de faire comme si.
+
+### Réponse de l'opérateur, 2026-08-27
+
+> « hook clavier, installé pendant l'épisode seulement »
+
+**Option 1 retenue.** Le hook `WH_KEYBOARD_LL` est posé à l'ouverture de
+l'épisode et retiré à sa clôture. Hors épisode, il n'existe pas — ce qui rejoint
+R1.2 : sans épisode ouvert, aucune capture, d'aucune sorte.
+
+**Les garanties qui accompagnent la capacité.** Puisqu'on s'octroie de voir
+toutes les frappes du poste, ce qu'on en fait doit être vérifiable :
+
+1. **Aucune touche n'est enregistrée.** La procédure de hook ne fait qu'une
+   chose : comparer le code de touche aux quatre combinaisons qui l'intéressent,
+   et incrémenter un compteur. Elle n'écrit rien, ne transmet rien, ne garde rien.
+2. **La décision est pure et testée** — `geste_de(vk, ctrl, shift)` vit hors du
+   code Windows, et une table de tests énumère ce qui compte comme copie, comme
+   collage, et surtout **tout ce qui ne compte pour rien**.
+3. **Le hook ne vit que pendant l'épisode**, et sa pose comme sa dépose sont
+   journalisées : l'opérateur peut vérifier dans le journal qu'il n'a pas traîné.
+4. **Quatre combinaisons, pas une de plus** : `Ctrl+C`, `Ctrl+X`, `Ctrl+V`,
+   `Maj+Inser`. Tout le reste traverse sans être regardé.
+
+**Ce que le hook N'a PAS eu le droit de simplifier.** On aurait pu détecter les
+copies uniquement par le numéro de séquence du presse-papiers, sans hook. Mais ce
+numéro change aussi quand une AUTRE application écrit — un gestionnaire de mots
+de passe, précisément. Lire le contenu sur ce seul signal violerait R2.3. Le hook
+sert donc aussi à savoir que **c'est l'opérateur** qui a copié, avant toute
+lecture.
+
+**Reste ouvert, et rattaché à la tâche 9** : le filtre « surfaces activées » de
+R5.4. Aujourd'hui la copie est lue dès qu'un `Ctrl+C` est observé pendant un
+épisode ; il manque la vérification que la fenêtre au premier plan fait partie
+des surfaces autorisées.

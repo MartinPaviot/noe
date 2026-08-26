@@ -5,6 +5,7 @@
 //! testent sans écran. Tout ce qui décide vraiment quelque chose est ailleurs,
 //! là où la CI peut l'atteindre.
 
+mod clavier;
 mod cle;
 mod config;
 mod etat;
@@ -29,6 +30,7 @@ use tauri::{
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 
+use clavier::HookClavier;
 use cle::CleHmac;
 use config::Config;
 use etat::{EtatTray, Session};
@@ -74,6 +76,11 @@ struct Etat {
     /// garantie, et R1.2 en depend — hors episode, aucune source ne doit
     /// continuer a pousser.
     capture: Mutex<Option<(Abonnement, std::sync::mpsc::Receiver<RawEvent>)>>,
+    /// D27 : le hook clavier ne vit que pendant l'épisode. Le relâcher le
+    /// retire — R1.2 porté par la durée de vie, pas par la vigilance.
+    clavier: Mutex<Option<HookClavier>>,
+    /// L'appariement copier-coller de l'épisode en cours (R2.3).
+    appariement: Mutex<presse_papiers::Appariement>,
 }
 
 /// Le dossier de données du poste. Tout ce que Noe écrit vit dessous.
@@ -175,6 +182,14 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
             }
             *e.moteur.lock().expect("moteur empoisonne") = Some(moteur);
 
+            // D27 : le hook clavier s'arme AVEC l'episode. `armer()` remet les
+            // compteurs a zero, si bien qu'un episode n'herite jamais des
+            // gestes du precedent.
+            *e.appariement.lock().expect("appariement empoisonne") =
+                presse_papiers::Appariement::nouveau();
+            HookClavier::armer();
+            *e.clavier.lock().expect("clavier empoisonne") = Some(HookClavier::poser());
+
             // R2.1 : l'abonnement natif ne vit QUE pendant l'episode.
             let (tx, rx) = std::sync::mpsc::channel();
             match native.abonner(tx) {
@@ -214,6 +229,11 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
     // Le moteur se clot AVANT d'etre rendu : un delai d'inactivite deja expire
     // appartient a l'episode, et le laisser tomber perdrait un snapshot exige
     // par R2.3.
+    // Le hook clavier part en premier : desarme, il cesse de compter avant meme
+    // d etre retire, si bien qu aucune frappe ne peut se glisser entre les deux.
+    HookClavier::desarmer();
+    drop(e.clavier.lock().expect("clavier empoisonne").take());
+
     // Couper la source AVANT de clore : un evenement qui arriverait entre les
     // deux serait ecrit dans un episode deja termine, ce que R1.2 interdit.
     let restants = {
@@ -597,6 +617,34 @@ pub fn harnais_journal(args: &[String]) -> i32 {
             0
         }
 
+        // Banc de D27 : prouve que le hook compte les bons gestes, et RIEN
+        // d'autre. Les tests couvrent la table de decision ; ce mode couvre la
+        // pose du hook, qui exige un vrai bureau.
+        (Some("clavier"), _) => {
+            let hook = clavier::HookClavier::poser();
+            clavier::HookClavier::armer();
+            println!("PRET");
+            let _ = std::io::stdout().flush();
+
+            std::thread::sleep(std::time::Duration::from_secs(8));
+            let vus = clavier::relever();
+            drop(hook);
+
+            // Apres relachement, plus rien ne doit etre compte.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let apres = clavier::relever();
+
+            println!(
+                "{}",
+                serde_json::json!({
+                    "copies": vus.copies,
+                    "collages": vus.collages,
+                    "apres_relachement": apres.copies + apres.collages,
+                })
+            );
+            0
+        }
+
         (Some("reprendre"), Some(racine)) => {
             let orphelins = match journal::orphelins(&racine) {
                 Ok(o) => o,
@@ -673,6 +721,8 @@ pub fn run() {
                 moteur: Mutex::new(None),
                 redacteur: std::sync::Arc::new(Redacteur::new(&cle)),
                 capture: Mutex::new(None),
+                clavier: Mutex::new(None),
+                appariement: Mutex::new(presse_papiers::Appariement::nouveau()),
             });
 
             let menu = construire_menu(&handle, &cfg)?;
@@ -711,6 +761,38 @@ pub fn run() {
                         // la chronologie : le moteur date chaque evenement avec
                         // l'instant que la SOURCE lui a donne, pas avec celui de
                         // son arrivee.
+                        // D27 : les gestes du hook, releves au battement.
+                        //
+                        // La procedure de hook ne fait qu incrementer un compteur —
+                        // c est ici, hors du chemin critique du clavier, qu on lit
+                        // le presse-papiers et qu on apparie.
+                        let gestes = clavier::relever();
+                        let mut du_clavier: Vec<RawEvent> = Vec::new();
+                        if !gestes.rien() {
+                            let pp = presse_papiers::PressePapiersWindows;
+                            let maintenant = etat.horloge.monotone_ms();
+                            let mut a = etat.appariement.lock().expect("appariement empoisonne");
+                            for _ in 0..gestes.copies {
+                                a.copie_observee(&pp);
+                                du_clavier.push(RawEvent {
+                                    source: source::Source::Uia,
+                                    monotone_ms: maintenant,
+                                    genre: source::GenreEvenement::Copie,
+                                });
+                            }
+                            for _ in 0..gestes.collages {
+                                let apparie = matches!(
+                                    a.coller(&pp),
+                                    presse_papiers::Collage::Apparie { .. }
+                                );
+                                du_clavier.push(RawEvent {
+                                    source: source::Source::Uia,
+                                    monotone_ms: maintenant,
+                                    genre: source::GenreEvenement::Collage { apparie },
+                                });
+                            }
+                        }
+
                         let arrives: Vec<RawEvent> = {
                             let c = etat.capture.lock().expect("capture empoisonnee");
                             match c.as_ref() {
