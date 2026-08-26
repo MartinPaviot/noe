@@ -295,3 +295,66 @@ Inchangés — Supabase `noe-prod` ~10 €/mois, Azure sur crédits. Aucun appel
 de la session.
 
 ---
+
+## Session — 2026-08-26 (fin) · Spec 002, tâche 5
+
+### Fait
+
+**Tâche 5 cochée — gaps système.** Sept tâches de la spec 002 sont vertes : 0,
+0bis, 1, 2, 3, 4, 5.
+
+La **veille** se mesure au lieu de se deviner. Windows tient deux compteurs —
+`GetTickCount64` (veille comprise) et `QueryUnbiasedInterruptTime` (veille
+exclue) — dont l'écart *est* le temps suspendu. Guetter `WM_POWERBROADCAST`
+aurait exigé une fenêtre et une boucle de messages, beaucoup de code non
+testable ; et une notification manquée est perdue, là où un écart de compteurs se
+rattrape au battement suivant.
+
+`seq_break` naît désormais d'une **discontinuité de numéros**, pas seulement
+d'une ligne coupée : une ligne disparue proprement ne laisse aucune autre trace.
+Les numéros manquants sont nommés un par un — savoir qu'il en manque trois ne dit
+pas où.
+
+Le trou de **pause** s'écrit à la reprise, quand sa borne de fin existe enfin ;
+une pause jamais reprise se termine à la clôture.
+
+### Ce que les tests ont corrigé
+
+- **Le type `Veille` porte deux durées**, parce qu'un test a saturé. Un épisode
+  ouvert deux secondes avant une veille de quatre-vingt-dix en subit
+  quatre-vingt-dix, mais seules deux tombent dans son intervalle. Les confondre
+  ferait apparaître des veilles minuscules là où la machine a dormi une nuit.
+- **Le test croisé des causes de gap a été vérifié capable d'échouer**, en
+  amputant le miroir. Un test qui ne peut pas rougir ne prouve rien — la leçon
+  du témoin qui fabriquait ses propres événements, plus tôt dans la session.
+- **Biome et le générateur se disputaient les miroirs JSON.** Le formateur
+  repliait les tableaux courts, le vérificateur les déclarait périmés à chaque
+  `pnpm format`. Les fichiers générés sont désormais exclus du formateur : deux
+  outils qui se battent pour un fichier finissent par faire désactiver le plus
+  utile des deux.
+
+### Vert
+
+`pnpm verify` · `cargo test --all-targets` : **110 tests de bibliothèque + 2
+d'intégration**, 88 TypeScript. Les deux workflows verts sur `f7d9036`.
+**43 commits.**
+
+### Prochaine tâche
+
+Spec 002, **tâche 6a** — `UiaSource` réel. C'est une surface entièrement
+nouvelle : bindings `uiautomation`, stratégie *globale filtrée* et paramètres de
+walker fixés en tâche 0, `RawEvent` portant `source:"uia"`. À faire à cette
+occasion, consigne déjà inscrite dans la tâche : **retirer les
+`#![allow(dead_code)]`** de `source.rs` et `moteur.rs`, qui ne couvrent que
+l'attente de ce consommateur.
+
+### En attente
+
+Rien. Aucun des quatre irréductibles n'a été touché de toute la session.
+
+### Coûts
+
+Inchangés — Supabase `noe-prod` ~10 €/mois, Azure sur crédits. Aucun appel modèle
+de la session.
+
+---
