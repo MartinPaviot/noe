@@ -85,6 +85,12 @@ impl Refus {
 pub struct EpisodeOuvert {
     pub id: String,
     pub task_slug: String,
+    /// R1.1 : la borne d'ouverture, en millisecondes depuis l'epoch Unix.
+    ///
+    /// Murale et non monotone, a dessein : un episode doit pouvoir etre remis en
+    /// face d'un courriel ou d'un enregistrement CRM, ce qu'un compteur interne
+    /// au processus ne permet pas.
+    pub t0_ms: u64,
 }
 
 #[derive(Debug, Default)]
@@ -107,6 +113,7 @@ impl Session {
     pub fn demarrer(
         &mut self,
         tache_active: Option<&str>,
+        t0_ms: u64,
         id: impl FnOnce() -> String,
     ) -> Result<&EpisodeOuvert, Refus> {
         if self.episode.is_some() {
@@ -120,6 +127,7 @@ impl Session {
         self.episode = Some(EpisodeOuvert {
             id: id(),
             task_slug: slug.to_string(),
+            t0_ms,
         });
         Ok(self.episode.as_ref().expect("vient d etre pose"))
     }
@@ -187,6 +195,9 @@ impl Session {
 mod tests {
     use super::*;
 
+    /// 2026-01-01T00:00:00Z, comme l'horloge simulee.
+    const T0: u64 = 1_767_225_600_000;
+
     fn id_fixe() -> String {
         "01JGXAAAAAAAAAAAAAAAAAAAAA".to_string()
     }
@@ -195,7 +206,7 @@ mod tests {
     fn sans_tache_active_le_demarrage_est_refuse() {
         let mut s = Session::nouvelle();
         assert_eq!(
-            s.demarrer(None, id_fixe).unwrap_err(),
+            s.demarrer(None, T0, id_fixe).unwrap_err(),
             Refus::AucuneTacheActive
         );
         assert!(s.episode().is_none(), "rien ne doit avoir ete ouvert");
@@ -210,18 +221,21 @@ mod tests {
     #[test]
     fn avec_une_tache_active_l_episode_s_ouvre_et_porte_le_slug() {
         let mut s = Session::nouvelle();
-        let ep = s.demarrer(Some("maj-crm-post-echange"), id_fixe).unwrap();
+        let ep = s
+            .demarrer(Some("maj-crm-post-echange"), T0, id_fixe)
+            .unwrap();
         assert_eq!(ep.task_slug, "maj-crm-post-echange");
         assert_eq!(ep.id, id_fixe());
+        assert_eq!(ep.t0_ms, T0, "R1.1 : l episode porte sa borne d ouverture");
         assert_eq!(s.etat_tray(), EtatTray::Observe);
     }
 
     #[test]
     fn deux_demarrages_de_suite_sont_refuses() {
         let mut s = Session::nouvelle();
-        s.demarrer(Some("a-faire"), id_fixe).unwrap();
+        s.demarrer(Some("a-faire"), T0, id_fixe).unwrap();
         assert_eq!(
-            s.demarrer(Some("a-faire"), id_fixe).unwrap_err(),
+            s.demarrer(Some("a-faire"), T0, id_fixe).unwrap_err(),
             Refus::EpisodeDejaOuvert
         );
     }
@@ -235,7 +249,7 @@ mod tests {
     #[test]
     fn arreter_rend_l_episode_et_ferme_la_capture() {
         let mut s = Session::nouvelle();
-        s.demarrer(Some("a-faire"), id_fixe).unwrap();
+        s.demarrer(Some("a-faire"), T0, id_fixe).unwrap();
         let ep = s.arreter().unwrap();
         assert_eq!(ep.task_slug, "a-faire");
         assert!(s.episode_capturable().is_none(), "R1.2 apres cloture");
@@ -245,7 +259,7 @@ mod tests {
     #[test]
     fn la_pause_rend_l_episode_incapturable_sans_le_fermer() {
         let mut s = Session::nouvelle();
-        s.demarrer(Some("a-faire"), id_fixe).unwrap();
+        s.demarrer(Some("a-faire"), T0, id_fixe).unwrap();
 
         assert!(s.basculer_pause());
         assert!(
@@ -264,7 +278,7 @@ mod tests {
     fn demarrer_leve_une_pause_heritee() {
         let mut s = Session::nouvelle();
         s.basculer_pause();
-        s.demarrer(Some("a-faire"), id_fixe).unwrap();
+        s.demarrer(Some("a-faire"), T0, id_fixe).unwrap();
         assert!(
             s.episode_capturable().is_some(),
             "sinon on croirait capturer sans que rien ne passe"
@@ -274,7 +288,7 @@ mod tests {
     #[test]
     fn la_question_l_emporte_sur_les_deux_autres_etats() {
         let mut s = Session::nouvelle();
-        s.demarrer(Some("a-faire"), id_fixe).unwrap();
+        s.demarrer(Some("a-faire"), T0, id_fixe).unwrap();
         s.poser_question();
         assert_eq!(s.etat_tray(), EtatTray::Question);
         s.repondre_question();

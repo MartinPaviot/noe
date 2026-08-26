@@ -7,6 +7,9 @@
 
 mod config;
 mod etat;
+mod horloge;
+mod moteur;
+mod source;
 
 use std::sync::Mutex;
 
@@ -20,6 +23,8 @@ use tauri_plugin_notification::NotificationExt;
 
 use config::Config;
 use etat::{EtatTray, Session};
+use horloge::{Horloge, HorlogeReelle};
+use moteur::Moteur;
 
 /// Ctrl+Alt+D commence, Ctrl+Alt+F clôt. D comme début, F comme fin.
 ///
@@ -42,6 +47,12 @@ const PREFIXE_TACHE: &str = "tache:";
 struct Etat {
     session: Mutex<Session>,
     config: Mutex<Config>,
+    /// Une seule horloge pour toute la vie du processus : le monotone n'a de
+    /// sens que rapporte a une meme origine.
+    horloge: std::sync::Arc<dyn Horloge>,
+    /// Le moteur n'existe QUE pendant un episode. C'est la meme garantie que
+    /// `Session` porte cote etat : hors episode, il n'y a rien ou ecrire.
+    moteur: Mutex<Option<Moteur>>,
 }
 
 /// Le dossier de données du poste. Tout ce que Noe écrit vit dessous.
@@ -115,12 +126,16 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
 
     let resultat = {
         let mut s = e.session.lock().expect("session empoisonnee");
-        s.demarrer(active.as_deref(), || ulid::Ulid::new().to_string())
-            .map(|ep| (ep.id.clone(), ep.task_slug.clone()))
+        s.demarrer(active.as_deref(), e.horloge.mural_ms(), || {
+            ulid::Ulid::new().to_string()
+        })
+        .map(|ep| (ep.id.clone(), ep.task_slug.clone()))
     };
 
     match resultat {
         Ok((id, slug)) => {
+            *e.moteur.lock().expect("moteur empoisonne") =
+                Some(Moteur::ouvrir(e.horloge.clone(), "poste"));
             notifier(
                 app,
                 "Noe observe",
@@ -146,15 +161,29 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
         let mut s = e.session.lock().expect("session empoisonnee");
         s.arreter()
     };
+    // Le moteur se clot AVANT d'etre rendu : un delai d'inactivite deja expire
+    // appartient a l'episode, et le laisser tomber perdrait un snapshot exige
+    // par R2.3.
+    let bilan = {
+        let mut m = e.moteur.lock().expect("moteur empoisonne");
+        m.take().map(|mut moteur| {
+            moteur.clore();
+            (moteur.journal().len(), moteur.unresolved())
+        })
+    };
+
     match resultat {
-        Ok(ep) => notifier(
-            app,
-            "Noe a borne l'episode",
-            &format!(
-                "{} — tache « {} ». Assemblage et grade : tache 8.",
-                ep.id, ep.task_slug
-            ),
-        ),
+        Ok(ep) => {
+            let (entrees, unresolved) = bilan.unwrap_or((0, 0));
+            notifier(
+                app,
+                "Noe a borne l'episode",
+                &format!(
+                    "{} — tache « {} » · {entrees} entrees, {unresolved} non resolues.                      Assemblage et grade : tache 8.",
+                    ep.id, ep.task_slug
+                ),
+            );
+        }
         Err(refus) => notifier(app, "Rien a clore", refus.message()),
     }
     rafraichir_tray(app);
@@ -313,6 +342,8 @@ pub fn run() {
             app.manage(Etat {
                 session: Mutex::new(Session::nouvelle()),
                 config: Mutex::new(cfg.clone()),
+                horloge: std::sync::Arc::new(HorlogeReelle::new()),
+                moteur: Mutex::new(None),
             });
 
             let menu = construire_menu(&handle, &cfg)?;
