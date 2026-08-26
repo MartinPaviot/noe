@@ -4,6 +4,10 @@
 > Les chiffres viennent de la mesure ; la décision reste à signer.
 >
 > Application cible : **Salesforce Lightning (org de demo)**
+>
+> ⚠️ **Occurrences scriptées Playwright — banc capteur, pas donnée
+> comportementale.** Ces chiffres mesurent le capteur face à une application, pas
+> la façon dont un humain travaille. Mention obligatoire, `docs/decisions.md` D11.
 
 ## 1. Question tranchée
 

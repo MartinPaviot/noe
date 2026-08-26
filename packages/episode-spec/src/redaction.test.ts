@@ -11,7 +11,7 @@ import { Episode, gradeOf } from './schema.js';
 
 /** Sous noUncheckedIndexedAccess, un index peut etre undefined. On le refuse ici. */
 function requis<T>(v: T | undefined, quoi: string): T {
-  if (v === undefined) throw new Error('fixture invalide : ' + quoi + ' manquant');
+  if (v === undefined) throw new Error(`fixture invalide : ${quoi} manquant`);
   return v;
 }
 

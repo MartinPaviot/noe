@@ -27,17 +27,15 @@ type Migrateur = (ancien: Record<string, unknown>) => Record<string, unknown>;
  * champs réellement touchés, et le second en rejouant les règles de grade.
  */
 const de0vers1: Migrateur = (ancien) => {
-  const events = Array.isArray(ancien['events'])
-    ? (ancien['events'] as Record<string, unknown>[])
-    : [];
-  const entities = Array.isArray(ancien['entities'])
-    ? (ancien['entities'] as Record<string, unknown>[])
+  const events = Array.isArray(ancien.events) ? (ancien.events as Record<string, unknown>[]) : [];
+  const entities = Array.isArray(ancien.entities)
+    ? (ancien.entities as Record<string, unknown>[])
     : [];
 
   const champs = new Set<string>();
   for (const ev of events) {
-    if (ev['kind'] === 'api_change' && Array.isArray(ev['fields_changed'])) {
-      for (const f of ev['fields_changed'] as string[]) champs.add(f);
+    if (ev.kind === 'api_change' && Array.isArray(ev.fields_changed)) {
+      for (const f of ev.fields_changed as string[]) champs.add(f);
     }
   }
 
@@ -78,7 +76,7 @@ export function load(brut: unknown): Episode {
   }
 
   let courant = brut as Record<string, unknown>;
-  const versionInitiale = courant['schema_v'];
+  const versionInitiale = courant.schema_v;
 
   if (typeof versionInitiale !== 'number' || !Number.isInteger(versionInitiale)) {
     throw new MigrationError(
@@ -107,7 +105,7 @@ export function load(brut: unknown): Episode {
       );
     }
     courant = migrateur(courant);
-    const suivante = courant['schema_v'];
+    const suivante = courant.schema_v;
     if (suivante !== v + 1) {
       throw new MigrationError(
         `le migrateur ${v} -> ${v + 1} n a pas produit la version attendue (obtenu : ${String(suivante)})`,
