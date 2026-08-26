@@ -29,7 +29,9 @@ windows = { version = "0.58", features = ["Win32_Security_Cryptography",
     # R3.3 : GetTickCount64 et QueryUnbiasedInterruptTime, dont l ecart donne
     # exactement le temps passe en veille.
     "Win32_System_SystemInformation",
-    "Win32_System_WindowsProgramming",] }
+    "Win32_System_WindowsProgramming",
+    # D27 : GetClipboardSequenceNumber, un entier qui ne revele aucun contenu.
+    "Win32_System_DataExchange",] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ulid = "1"

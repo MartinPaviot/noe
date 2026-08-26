@@ -13,13 +13,14 @@
 use crate::horloge::Horloge;
 use crate::journal::Journal;
 use crate::redaction::Redacteur;
+use crate::snapshot::{self, Noeud, Snapshot};
 use crate::source::{GenreEvenement, RawEvent, Source};
 
 /// Les instants où la spec exige un snapshot (R2.3).
 ///
-/// Le moteur les DÉTECTE ; la capture du snapshot elle-même est la tâche 7. La
-/// détection est ce qui a besoin d'une horloge injectable, donc c'est elle qui
-/// se teste maintenant.
+/// Le moteur les DÉTECTE et demande la photo à un [`Snapshotteur`] ; c'est la
+/// source qui sait regarder l'écran. Cette séparation garde toute la logique
+/// temporelle testable en temps simulé, sans bureau.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Declencheur {
@@ -27,6 +28,8 @@ pub enum Declencheur {
     SaisiePuisInactivite,
     BasculeAvecRetour,
     PausePuisAction,
+    /// Le cinquième : un collage dont la copie a eu lieu pendant l'épisode.
+    CopierColler,
 }
 
 /// Les causes de trou. Miroir de `Gap.cause` d'`episode-spec` après l'extension
@@ -72,6 +75,17 @@ pub enum EntreeJournal {
         debut_ms: u64,
         fin_ms: u64,
     },
+    /// R2.3 : la photo du conteneur actif, prise sur un déclencheur.
+    ///
+    /// `Box` : cette variante est bien plus grosse que les autres, et une
+    /// énumération se dimensionne sur sa plus grande. Sans la boîte, chaque
+    /// entrée de journal — y compris les milliers d'actions — paierait la taille
+    /// d'un snapshot.
+    Snapshot {
+        seq: u64,
+        monotone_ms: u64,
+        photo: Box<Snapshot>,
+    },
     /// R1.3 : la borne oubliée.
     ClotureAuto { seq: u64, monotone_ms: u64 },
 }
@@ -82,6 +96,7 @@ impl EntreeJournal {
             Self::UiAction { seq, .. }
             | Self::Declencheur { seq, .. }
             | Self::Gap { seq, .. }
+            | Self::Snapshot { seq, .. }
             | Self::ClotureAuto { seq, .. } => *seq,
         }
     }
@@ -91,6 +106,7 @@ impl EntreeJournal {
             Self::UiAction { monotone_ms, .. }
             | Self::Declencheur { monotone_ms, .. }
             | Self::Gap { monotone_ms, .. }
+            | Self::Snapshot { monotone_ms, .. }
             | Self::ClotureAuto { monotone_ms, .. } => *monotone_ms,
         }
     }
@@ -104,6 +120,16 @@ pub const RETOUR_MAX_MS: u64 = 60_000;
 pub const PAUSE_MIN_MS: u64 = 10_000;
 /// Durée maximale d'un épisode (R1.3).
 pub const TIMEOUT_MS: u64 = 3_600_000;
+
+/// Ce qui sait photographier le conteneur actif.
+///
+/// Le moteur ne connaît ni UIA ni le DOM : il décide QUAND photographier, la
+/// source sait COMMENT. Sans cette séparation, la logique des déclencheurs —
+/// tout ce que la tâche 2 a rendu testable en temps simulé — redeviendrait
+/// dépendante d'un bureau.
+pub trait Snapshotteur: Send + Sync {
+    fn photographier(&self) -> Option<Noeud>;
+}
 
 pub struct Moteur {
     horloge: std::sync::Arc<dyn Horloge>,
@@ -130,6 +156,10 @@ pub struct Moteur {
     journal: Option<Journal>,
     /// R3.4 : une ecriture qui echoue n'est PAS une perte silencieuse.
     echecs_ecriture: u64,
+    /// Ce qui sait photographier, quand quelqu'un sait.
+    snapshotteur: Option<std::sync::Arc<dyn Snapshotteur>>,
+    /// Combien de photos ont réellement été prises (R2.3).
+    snapshots_pris: u64,
 }
 
 impl Moteur {
@@ -160,7 +190,17 @@ impl Moteur {
             pause_depuis: None,
             journal: None,
             echecs_ecriture: 0,
+            snapshotteur: None,
+            snapshots_pris: 0,
         }
+    }
+
+    /// Branche ce qui sait photographier. Sans lui, les déclencheurs se
+    /// consignent quand même — ils sont l'information ; le snapshot est le
+    /// détail qu'on peut perdre sans perdre la chronologie.
+    pub fn avec_snapshotteur(mut self, s: std::sync::Arc<dyn Snapshotteur>) -> Self {
+        self.snapshotteur = Some(s);
+        self
     }
 
     /// Branche un writer. Sans lui, le moteur ne fait que tenir un journal en
@@ -195,6 +235,44 @@ impl Moteur {
             monotone_ms,
             quoi,
         });
+        self.photographier(quoi, monotone_ms);
+    }
+
+    /// R2.3 : chaque déclencheur persiste un snapshot canonisé.
+    ///
+    /// La photo est prise APRÈS l'entrée de déclenchement, et porte le même
+    /// instant : à la relecture, on voit d'abord pourquoi on a photographié,
+    /// puis ce qu'on a vu.
+    fn photographier(&mut self, quoi: Declencheur, monotone_ms: u64) {
+        let Some(s) = self.snapshotteur.clone() else {
+            return;
+        };
+        let Some(racine) = s.photographier() else {
+            return;
+        };
+        let photo = snapshot::construire(quoi, monotone_ms, &racine, &self.redacteur);
+        self.snapshots_pris += 1;
+        let seq = self.prochain_seq();
+        self.pousser(EntreeJournal::Snapshot {
+            seq,
+            monotone_ms,
+            photo: Box::new(photo),
+        });
+    }
+
+    /// R2.3 — le cinquième déclencheur.
+    ///
+    /// Seul un collage APPARIÉ déclenche : un collage venu d'ailleurs est un
+    /// événement de l'épisode, pas une preuve que quelque chose de l'épisode a
+    /// été réutilisé.
+    fn collage(&mut self, apparie: bool, monotone_ms: u64) {
+        if apparie {
+            self.declencher(Declencheur::CopierColler, monotone_ms);
+        }
+    }
+
+    pub fn snapshots_pris(&self) -> u64 {
+        self.snapshots_pris
     }
 
     fn trou(&mut self, cause: CauseGap, debut_ms: u64, fin_ms: u64) {
@@ -291,6 +369,10 @@ impl Moteur {
             }
             GenreEvenement::Saisie(_) => {
                 self.derniere_saisie = Some(maintenant);
+            }
+            GenreEvenement::Collage { apparie } => {
+                let apparie = *apparie;
+                self.collage(apparie, maintenant);
             }
             GenreEvenement::Soumission(_) => {
                 self.declencher(Declencheur::Soumission, maintenant);
@@ -1090,5 +1172,261 @@ mod tests {
         let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
         m.reprendre();
         assert!(m.gaps().is_empty(), "un trou invente salirait le corpus");
+    }
+
+    // ---------------------------------------------------------------------
+    // Tache 7 : les snapshots et le cinquieme declencheur (R2.3).
+    // ---------------------------------------------------------------------
+
+    /// Un photographe de test : il rend toujours le meme ecran, et compte.
+    struct PhotographeFaux {
+        prises: std::sync::atomic::AtomicUsize,
+        contenu: String,
+    }
+
+    impl PhotographeFaux {
+        fn new(contenu: &str) -> std::sync::Arc<Self> {
+            std::sync::Arc::new(Self {
+                prises: std::sync::atomic::AtomicUsize::new(0),
+                contenu: contenu.to_string(),
+            })
+        }
+        fn prises(&self) -> usize {
+            self.prises.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl Snapshotteur for PhotographeFaux {
+        fn photographier(&self) -> Option<Noeud> {
+            self.prises
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some(Noeud::feuille("document", "Fiche").avec(vec![
+                Noeud::feuille("textbox", "Contact").valant(&self.contenu),
+            ]))
+        }
+    }
+
+    /// Un photographe qui n'a rien a montrer — ecran verrouille, fenetre partie.
+    struct PhotographeAveugle;
+    impl Snapshotteur for PhotographeAveugle {
+        fn photographier(&self) -> Option<Noeud> {
+            None
+        }
+    }
+
+    fn moteur_avec(
+        photo: std::sync::Arc<dyn Snapshotteur>,
+    ) -> (Moteur, std::sync::Arc<HorlogeSimulee>) {
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let m = Moteur::ouvrir(h.clone(), redacteur(), "chrome").avec_snapshotteur(photo);
+        (m, h)
+    }
+
+    fn snapshots(m: &Moteur) -> Vec<&Snapshot> {
+        m.journal()
+            .iter()
+            .filter_map(|e| match e {
+                EntreeJournal::Snapshot { photo, .. } => Some(photo.as_ref()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn une_soumission_declenche_un_snapshot() {
+        let photo = PhotographeFaux::new("rien de sensible");
+        let (mut m, _h) = moteur_avec(photo.clone());
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 100,
+            genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
+        });
+        assert_eq!(photo.prises(), 1);
+        assert_eq!(m.snapshots_pris(), 1);
+        assert_eq!(snapshots(&m).len(), 1);
+    }
+
+    #[test]
+    fn le_snapshot_suit_son_declencheur_dans_le_journal() {
+        // A la relecture, on doit voir d'abord POURQUOI on a photographie,
+        // puis ce qu'on a vu.
+        let (mut m, _h) = moteur_avec(PhotographeFaux::new("x"));
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 10,
+            genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
+        });
+        let genres: Vec<&str> = m
+            .journal()
+            .iter()
+            .map(|e| match e {
+                EntreeJournal::Declencheur { .. } => "declencheur",
+                EntreeJournal::Snapshot { .. } => "snapshot",
+                EntreeJournal::UiAction { .. } => "action",
+                _ => "autre",
+            })
+            .collect();
+        let i = genres.iter().position(|g| *g == "declencheur").unwrap();
+        assert_eq!(genres[i + 1], "snapshot", "{genres:?}");
+    }
+
+    #[test]
+    fn les_cinq_declencheurs_photographient() {
+        // R2.3 nomme cinq declencheurs. Aucun ne doit rester sans photo.
+        let photo = PhotographeFaux::new("x");
+        let (mut m, h) = moteur_avec(photo.clone());
+
+        // 1. soumission
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 0,
+            genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
+        });
+        // 2. saisie puis 2 s d inactivite
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 1_000,
+            genre: GenreEvenement::Saisie(cible("textbox", "Note")),
+        });
+        h.avancer(Duration::from_secs(3));
+        m.battre();
+        // 3. bascule avec retour
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 5_000,
+            genre: GenreEvenement::BasculeApplication {
+                vers: "outlook".into(),
+            },
+        });
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 10_000,
+            genre: GenreEvenement::BasculeApplication {
+                vers: "chrome".into(),
+            },
+        });
+        // 4. pause > 10 s puis action
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 30_000,
+            genre: GenreEvenement::Invocation(cible("button", "Ouvrir")),
+        });
+        // 5. copier-coller apparie
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 31_000,
+            genre: GenreEvenement::Collage { apparie: true },
+        });
+
+        let d = m.declencheurs();
+        for attendu in [
+            Declencheur::Soumission,
+            Declencheur::SaisiePuisInactivite,
+            Declencheur::BasculeAvecRetour,
+            Declencheur::PausePuisAction,
+            Declencheur::CopierColler,
+        ] {
+            assert!(d.contains(&attendu), "{attendu:?} manque dans {d:?}");
+        }
+        assert_eq!(
+            photo.prises(),
+            d.len(),
+            "chaque declencheur photographie exactement une fois"
+        );
+    }
+
+    #[test]
+    fn un_collage_non_apparie_ne_declenche_pas() {
+        // Un collage venu d'ailleurs est un evenement de l'episode, pas une
+        // preuve que quelque chose de l'episode a ete reutilise.
+        let photo = PhotographeFaux::new("x");
+        let (mut m, _h) = moteur_avec(photo.clone());
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 100,
+            genre: GenreEvenement::Collage { apparie: false },
+        });
+        assert!(!m.declencheurs().contains(&Declencheur::CopierColler));
+        assert_eq!(photo.prises(), 0);
+    }
+
+    #[test]
+    fn sans_photographe_les_declencheurs_se_consignent_quand_meme() {
+        // Le declencheur EST l'information ; le snapshot est le detail qu'on
+        // peut perdre sans perdre la chronologie.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(h, redacteur(), "chrome");
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 0,
+            genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
+        });
+        assert!(m.declencheurs().contains(&Declencheur::Soumission));
+        assert_eq!(m.snapshots_pris(), 0);
+    }
+
+    #[test]
+    fn un_photographe_aveugle_ne_produit_pas_de_snapshot_vide() {
+        // Un snapshot vide ferait croire a un ecran vide, ce qui est faux et
+        // pire que pas de snapshot du tout.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(h, redacteur(), "chrome")
+            .avec_snapshotteur(std::sync::Arc::new(PhotographeAveugle));
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 0,
+            genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
+        });
+        assert!(m.declencheurs().contains(&Declencheur::Soumission));
+        assert_eq!(m.snapshots_pris(), 0);
+        assert!(snapshots(&m).is_empty());
+    }
+
+    #[test]
+    fn le_snapshot_est_redacte_avant_d_entrer_au_journal() {
+        // Le report explicite de la tache 3 : R4.5 se prouve ICI, ou les
+        // snapshots apparaissent.
+        let (mut m, _h) = moteur_avec(PhotographeFaux::new("jean.dupont@exemple.fr"));
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 0,
+            genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
+        });
+        let serialise = serde_json::to_string(m.journal()).expect("serialisable");
+        assert!(
+            crate::motifs::chercher(&serialise).is_empty(),
+            "R4.5 : PII dans le journal — {serialise}"
+        );
+        assert!(serialise.contains("EMAIL_"));
+    }
+
+    #[test]
+    fn les_seq_restent_croissants_avec_les_snapshots() {
+        let (mut m, h) = moteur_avec(PhotographeFaux::new("x"));
+        for i in 0..5u64 {
+            m.traiter(RawEvent {
+                source: Source::Fake,
+                monotone_ms: i * 100,
+                genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
+            });
+        }
+        h.avancer(Duration::from_secs(1));
+        for paire in m.journal().windows(2) {
+            assert!(paire[1].seq() > paire[0].seq(), "R3.1");
+        }
+    }
+
+    #[test]
+    fn apres_cloture_aucun_snapshot_n_est_pris() {
+        let photo = PhotographeFaux::new("x");
+        let (mut m, _h) = moteur_avec(photo.clone());
+        m.clore();
+        let avant = photo.prises();
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 10,
+            genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
+        });
+        assert_eq!(photo.prises(), avant, "R1.2 : rien apres la cloture");
     }
 }

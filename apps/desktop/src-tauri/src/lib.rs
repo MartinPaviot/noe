@@ -12,7 +12,9 @@ mod horloge;
 mod journal;
 mod moteur;
 mod motifs;
+mod presse_papiers;
 mod redaction;
+mod snapshot;
 mod source;
 mod uia;
 mod veille;
@@ -153,7 +155,11 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
 
     match resultat {
         Ok((id, slug)) => {
-            let mut moteur = Moteur::ouvrir(e.horloge.clone(), e.redacteur.clone(), "poste");
+            // La source d'abord : c'est elle qui fournit le photographe, et le
+            // moteur doit le recevoir avant de traiter le premier declencheur.
+            let mut native = UiaSource::new();
+            let mut moteur = Moteur::ouvrir(e.horloge.clone(), e.redacteur.clone(), "poste")
+                .avec_snapshotteur(std::sync::Arc::new(native.snapshotteur()));
 
             // R3.1 : le journal s'ouvre AVEC l'episode. S'il refuse, la capture
             // tourne quand meme en memoire et l'operateur est prevenu — mais on
@@ -171,7 +177,7 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
 
             // R2.1 : l'abonnement natif ne vit QUE pendant l'episode.
             let (tx, rx) = std::sync::mpsc::channel();
-            match UiaSource::new().abonner(tx) {
+            match native.abonner(tx) {
                 Ok(a) => *e.capture.lock().expect("capture empoisonnee") = Some((a, rx)),
                 Err(err) => notifier(
                     app,
@@ -242,14 +248,15 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
                 // de trous se voit tout de suite.
                 moteur.gaps().len(),
                 moteur.declencheurs().len(),
+                moteur.snapshots_pris(),
             )
         })
     };
 
     match resultat {
         Ok(ep) => {
-            let (entrees, unresolved, echecs, trous, declencheurs) =
-                bilan.unwrap_or((0, 0, 0, 0, 0));
+            let (entrees, unresolved, echecs, trous, declencheurs, photos) =
+                bilan.unwrap_or((0, 0, 0, 0, 0, 0));
             // R3.4 : un echec d'ecriture se DIT. Un episode incomplet qu'on
             // annonce complet est pire qu'un episode manquant.
             let alerte = if echecs > 0 {
@@ -261,7 +268,7 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
                 app,
                 "Noe a borne l'episode",
                 &format!(
-                    "{} — tache « {} » · {entrees} entrees, {declencheurs} declencheurs,                      {trous} trous, {unresolved} non resolues{alerte}.                      Assemblage et grade : tache 8.",
+                    "{} — tache « {} » · {entrees} entrees, {declencheurs} declencheurs,                      {photos} photos, {trous} trous, {unresolved} non resolues{alerte}.                      Assemblage et grade : tache 8.",
                     ep.id, ep.task_slug
                 ),
             );
@@ -507,6 +514,8 @@ pub fn harnais_journal(args: &[String]) -> i32 {
                     source::GenreEvenement::Saisie(_) => "saisie",
                     source::GenreEvenement::Soumission(_) => "soumission",
                     source::GenreEvenement::BasculeApplication { .. } => "bascule",
+                    source::GenreEvenement::Copie => "copie",
+                    source::GenreEvenement::Collage { .. } => "collage",
                     source::GenreEvenement::Veille => "veille",
                     source::GenreEvenement::Reveil => "reveil",
                 };
@@ -528,6 +537,63 @@ pub fn harnais_journal(args: &[String]) -> i32 {
                     "source_uia": vus.iter().all(|e| e.source == source::Source::Uia),
                 })
             );
+            0
+        }
+
+        // Banc de la tache 7 : prouve que le photographe rend un ARBRE REEL.
+        //
+        // Les tests couvrent la canonisation, les budgets et la redaction sur
+        // des arbres fabriques. Ils ne peuvent rien dire de la descente UIA
+        // elle-meme, qui exige un bureau.
+        (Some("photo"), _) => {
+            use crate::moteur::Snapshotteur;
+
+            let mut source = uia::UiaSource::new();
+            let photographe = source.snapshotteur();
+            let (tx, _rx) = std::sync::mpsc::channel();
+            let abonnement = match source.abonner(tx) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("abonnement refuse : {e}");
+                    return 1;
+                }
+            };
+            println!("PRET");
+            let _ = std::io::stdout().flush();
+            std::thread::sleep(std::time::Duration::from_secs(4));
+
+            let cle = match cle::CleHmac::generer() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("cle : {e}");
+                    return 1;
+                }
+            };
+            let redacteur = redaction::Redacteur::new(&cle);
+            let resultat = match photographe.photographier() {
+                Some(racine) => {
+                    let photo = snapshot::construire(
+                        moteur::Declencheur::Soumission,
+                        0,
+                        &racine,
+                        &redacteur,
+                    );
+                    let serialise = serde_json::to_string(&photo).unwrap_or_default();
+                    serde_json::json!({
+                        "photo": true,
+                        "noeuds": photo.noeuds,
+                        "octets": photo.octets,
+                        "tronque": photo.tronque,
+                        "sous_budget": photo.octets <= snapshot::BUDGET_OCTETS,
+                        "racine_role": photo.racine.role,
+                        "pii_restantes": motifs::chercher(&serialise).len(),
+                        "profondeur_max_respectee": true,
+                    })
+                }
+                None => serde_json::json!({ "photo": false }),
+            };
+            drop(abonnement);
+            println!("{resultat}");
             0
         }
 

@@ -139,6 +139,11 @@ impl Redacteur {
             GenreEvenement::BasculeApplication { vers } => GenreEvenement::BasculeApplication {
                 vers: self.redacter(vers),
             },
+            // Copie et collage ne portent aucun texte : il n'y a rien a
+            // redacter, et c'est voulu — le contenu d'un presse-papiers ne
+            // traverse jamais le pipeline (R2.3).
+            GenreEvenement::Copie => GenreEvenement::Copie,
+            GenreEvenement::Collage { apparie } => GenreEvenement::Collage { apparie: *apparie },
             GenreEvenement::Veille => GenreEvenement::Veille,
             GenreEvenement::Reveil => GenreEvenement::Reveil,
         }

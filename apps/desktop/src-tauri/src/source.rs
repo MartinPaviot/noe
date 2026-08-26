@@ -83,6 +83,14 @@ pub enum GenreEvenement {
     BasculeApplication {
         vers: String,
     },
+    /// Une copie observée sur une surface activée.
+    Copie,
+    /// Un collage. `apparie` dit si sa copie a eu lieu pendant l'épisode ; un
+    /// collage non apparié est enregistré comme tel et son contenu n'a jamais
+    /// été lu (R2.3).
+    Collage {
+        apparie: bool,
+    },
     /// La machine s'endort, puis se réveille (R3.3).
     Veille,
     Reveil,
@@ -97,7 +105,11 @@ impl GenreEvenement {
             | Self::ChangementStructure(c)
             | Self::Saisie(c)
             | Self::Soumission(c) => Some(c),
-            Self::BasculeApplication { .. } | Self::Veille | Self::Reveil => None,
+            Self::BasculeApplication { .. }
+            | Self::Copie
+            | Self::Collage { .. }
+            | Self::Veille
+            | Self::Reveil => None,
         }
     }
 }

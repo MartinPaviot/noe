@@ -1,4 +1,4 @@
-//! L'adaptateur de capture des applications natives (spec 002, tâche 6a).
+//! L'adaptateur de capture des applications natives (spec 002, tâches 6a, 7).
 //!
 //! Stratégie **globale filtrée**, fixée par le verdict du spike (design §2 a) :
 //! un abonnement unique sur le bureau entier, filtré à quelques types
@@ -9,19 +9,22 @@
 //!
 //! - **le vocabulaire** (types d'événements, rôles, résolution) est pur, et se
 //!   teste intégralement en CI ;
-//! - **l'abonnement** exige un bureau Windows et ne se teste qu'en session.
+//! - **l'abonnement et la photographie** exigent un bureau Windows et ne se
+//!   vérifient qu'en session.
 //!
 //! Tous les appels UIA vivent sur **un seul thread**, celui que `abonner` lance.
 //! L'API est à cloisonnement de thread : un `UIElement` touché depuis un autre
 //! thread se solde par une erreur COM difficile à diagnostiquer, et le spike y a
-//! déjà perdu une itération.
+//! déjà perdu une itération. C'est pourquoi les demandes de photo transitent par
+//! un canal au lieu d'être servies sur place.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
+use crate::snapshot::Noeud;
 use crate::source::{Abonnement, CaptureSource, Cible, ErreurSource, GenreEvenement, RawEvent};
-// `Source` n'apparait que dans la boucle reelle, absente du binaire de test.
+// `Source` n'apparaît que dans la boucle réelle, absente du binaire de test.
 #[cfg(not(test))]
 use crate::source::Source;
 
@@ -117,15 +120,65 @@ pub fn cible_de(type_controle: &str, nom: &str, region: Option<&str>) -> Cible {
     c
 }
 
+/// Une demande de photo : le canal par lequel la réponse doit revenir.
+type Demande = Sender<Option<Noeud>>;
+
+/// Au-delà, on renonce à la photo.
+///
+/// Un écran qui met une demi-seconde à se décrire est un écran en train de se
+/// recharger : la photo serait fausse. Mieux vaut un déclencheur sans photo
+/// qu'un moteur bloqué par un bureau qui ne répond plus.
+const DELAI_PHOTO_MS: u64 = 500;
+
+/// Le photographe natif (R2.3).
+///
+/// **Il ne regarde pas l'écran lui-même.** Le moteur appelle `photographier()`
+/// depuis le thread qui traite les événements, pas depuis celui qui parle à UIA.
+/// La demande transite donc par un canal jusqu'au thread de capture, qui la sert
+/// et répond.
+pub struct SnapshotteurUia {
+    demandes: Sender<Demande>,
+}
+
+impl crate::moteur::Snapshotteur for SnapshotteurUia {
+    fn photographier(&self) -> Option<Noeud> {
+        let (repondre, reponse) = std::sync::mpsc::channel();
+        self.demandes.send(repondre).ok()?;
+        reponse
+            .recv_timeout(std::time::Duration::from_millis(DELAI_PHOTO_MS))
+            .ok()
+            .flatten()
+    }
+}
+
 /// La source native. Ne vit qu'avec un bureau Windows en face.
-#[derive(Default)]
 pub struct UiaSource {
     actif: Arc<AtomicBool>,
+    demandes: Sender<Demande>,
+    reception: Option<std::sync::mpsc::Receiver<Demande>>,
+}
+
+impl Default for UiaSource {
+    fn default() -> Self {
+        let (demandes, reception) = std::sync::mpsc::channel();
+        Self {
+            actif: Arc::new(AtomicBool::new(false)),
+            demandes,
+            reception: Some(reception),
+        }
+    }
 }
 
 impl UiaSource {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Le photographe branché sur cette source. À passer au moteur.
+    pub fn snapshotteur(&self) -> SnapshotteurUia {
+        SnapshotteurUia {
+            demandes: self.demandes.clone(),
+        }
     }
 }
 
@@ -134,6 +187,7 @@ impl CaptureSource for UiaSource {
         if self.actif.load(Ordering::SeqCst) {
             return Err(ErreurSource::DejaAbonne);
         }
+        let reception = self.reception.take().ok_or(ErreurSource::DejaAbonne)?;
         let actif = self.actif.clone();
         let abonnement = Abonnement::nouveau(actif.clone());
 
@@ -141,7 +195,7 @@ impl CaptureSource for UiaSource {
         // cloisonnement de thread d'UIA.
         std::thread::Builder::new()
             .name("noe-uia".into())
-            .spawn(move || boucle_uia(&puits, &actif))
+            .spawn(move || boucle_uia(&puits, &actif, &reception))
             .map_err(|_| ErreurSource::DejaAbonne)?;
 
         Ok(abonnement)
@@ -150,7 +204,11 @@ impl CaptureSource for UiaSource {
 
 /// La boucle réelle. Compilée seulement hors test — elle exige un bureau.
 #[cfg(not(test))]
-fn boucle_uia(puits: &Sender<RawEvent>, actif: &Arc<AtomicBool>) {
+fn boucle_uia(
+    puits: &Sender<RawEvent>,
+    actif: &Arc<AtomicBool>,
+    demandes: &std::sync::mpsc::Receiver<Demande>,
+) {
     use uiautomation::events::{
         CustomEventHandlerFn, CustomFocusChangedEventHandlerFn, UIEventHandler, UIEventType,
         UIFocusChangedEventHandler,
@@ -206,9 +264,9 @@ fn boucle_uia(puits: &Sender<RawEvent>, actif: &Arc<AtomicBool>) {
         poignees.push(h);
     }
 
-    // R2.1 nomme le focus au meme rang que l'invocation et le changement de
+    // R2.1 nomme le focus au même rang que l'invocation et le changement de
     // valeur. Il passe par un handler d'un AUTRE type — c'est ce que le spike
-    // avait rate en croyant qu'un abonnement ordinaire suffisait.
+    // avait raté en croyant qu'un abonnement ordinaire suffisait.
     let focus: Option<UIFocusChangedEventHandler> = {
         let puits = puits.clone();
         let auto = automation.clone();
@@ -247,9 +305,17 @@ fn boucle_uia(puits: &Sender<RawEvent>, actif: &Arc<AtomicBool>) {
     );
 
     // Les poignées doivent rester vivantes tant que l'abonnement l'est : les
-    // relâcher désabonnerait aussitôt. Le thread se contente donc d'attendre.
+    // relâcher désabonnerait aussitôt. Le thread sert entre-temps les demandes
+    // de photo — c'est le SEUL endroit d'où l'arbre UIA peut être lu.
     while actif.load(Ordering::SeqCst) {
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        match demandes.recv_timeout(std::time::Duration::from_millis(200)) {
+            Ok(repondre) => {
+                let _ = repondre.send(photographier_actif(&automation));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            // Plus personne pour demander : la source a été relâchée.
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
     }
     let _ = automation.remove_all_event_handlers();
 }
@@ -257,9 +323,6 @@ fn boucle_uia(puits: &Sender<RawEvent>, actif: &Arc<AtomicBool>) {
 /// Remonte l'arbre pour trouver la région, dans les budgets du spike.
 #[cfg(not(test))]
 fn cible_depuis(automation: &uiautomation::UIAutomation, el: &uiautomation::UIElement) -> Cible {
-    /// Profondeur de remontée. Le spike a mesuré 12 comme plafond tenable.
-    const PROFONDEUR: usize = 12;
-
     let type_controle = el
         .get_control_type()
         .map(|c| format!("{c:?}"))
@@ -269,7 +332,7 @@ fn cible_depuis(automation: &uiautomation::UIAutomation, el: &uiautomation::UIEl
     let mut region = None;
     if let Ok(walker) = automation.create_tree_walker() {
         let mut courant = el.clone();
-        for _ in 0..PROFONDEUR {
+        for _ in 0..crate::snapshot::PROFONDEUR_MAX {
             let Ok(parent) = walker.get_parent(&courant) else {
                 break;
             };
@@ -289,17 +352,100 @@ fn cible_depuis(automation: &uiautomation::UIAutomation, el: &uiautomation::UIEl
     cible_de(&type_controle, &nom, region.as_deref())
 }
 
-/// En test, il n'y a pas de bureau : la boucle ne fait qu'honorer le drapeau.
+/// Photographie le conteneur au premier plan (R2.3).
+///
+/// On part de la **fenêtre qui porte le focus**, pas de la racine du bureau : un
+/// snapshot du bureau entier dépasserait tous les budgets et décrirait surtout
+/// des choses qui n'ont rien à voir avec la tâche.
+#[cfg(not(test))]
+fn photographier_actif(automation: &uiautomation::UIAutomation) -> Option<Noeud> {
+    let focalise = automation.get_focused_element().ok()?;
+    let walker = automation.create_tree_walker().ok()?;
+
+    // Remonte jusqu'à la fenêtre qui contient l'élément focalisé.
+    let mut racine = focalise.clone();
+    for _ in 0..crate::snapshot::PROFONDEUR_MAX {
+        let r = racine
+            .get_control_type()
+            .map(|c| role_normalise(&format!("{c:?}")))
+            .unwrap_or_else(|_| "generic".into());
+        if r == "window" {
+            break;
+        }
+        match walker.get_parent(&racine) {
+            Ok(p) => racine = p,
+            Err(_) => break,
+        }
+    }
+
+    let mut budget = crate::snapshot::NOEUDS_MAX;
+    Some(descendre(&walker, &racine, 0, &mut budget))
+}
+
+/// Descente bornée par la profondeur et le budget de nœuds du spike.
+#[cfg(not(test))]
+fn descendre(
+    walker: &uiautomation::UITreeWalker,
+    el: &uiautomation::UIElement,
+    profondeur: usize,
+    budget: &mut usize,
+) -> Noeud {
+    let role = el
+        .get_control_type()
+        .map(|c| role_normalise(&format!("{c:?}")))
+        .unwrap_or_else(|_| "generic".into());
+    let nom = el.get_name().unwrap_or_default();
+    let mut noeud = Noeud::feuille(&role, &nom);
+
+    // La valeur est ce qui distingue deux états du même écran : sans elle, un
+    // diff entre deux snapshots ne verrait jamais un champ changer.
+    if let Ok(v) = el.get_property_value(uiautomation::types::UIProperty::ValueValue) {
+        let v = v.to_string();
+        if !v.trim().is_empty() {
+            noeud = noeud.valant(&v);
+        }
+    }
+
+    *budget = budget.saturating_sub(1);
+    if profondeur + 1 >= crate::snapshot::PROFONDEUR_MAX || *budget == 0 {
+        return noeud;
+    }
+
+    let mut enfants = Vec::new();
+    let mut courant = walker.get_first_child(el).ok();
+    while let Some(c) = courant {
+        if *budget == 0 {
+            break;
+        }
+        enfants.push(descendre(walker, &c, profondeur + 1, budget));
+        courant = walker.get_next_sibling(&c).ok();
+    }
+    noeud.avec(enfants)
+}
+
+/// En test, il n'y a pas de bureau : la boucle honore le drapeau et répond
+/// « rien à montrer » plutôt que de laisser l'appelant attendre son délai.
 #[cfg(test)]
-fn boucle_uia(_puits: &Sender<RawEvent>, actif: &Arc<AtomicBool>) {
+fn boucle_uia(
+    _puits: &Sender<RawEvent>,
+    actif: &Arc<AtomicBool>,
+    demandes: &std::sync::mpsc::Receiver<Demande>,
+) {
     while actif.load(Ordering::SeqCst) {
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        match demandes.recv_timeout(std::time::Duration::from_millis(10)) {
+            Ok(repondre) => {
+                let _ = repondre.send(None);
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::moteur::Snapshotteur;
 
     // -- Le vocabulaire partagé par les deux sources -------------------------
 
@@ -436,5 +582,39 @@ mod tests {
 
         drop(abonnement);
         assert!(!drapeau.load(Ordering::SeqCst), "coupe apres relachement");
+    }
+
+    // -- Le photographe ------------------------------------------------------
+
+    #[test]
+    fn une_demande_de_photo_sans_thread_ne_bloque_pas() {
+        // Personne ne sert le canal : l'appelant doit repartir sans photo, pas
+        // attendre. Un moteur bloque sur un declencheur perdrait toute la suite
+        // de l'episode.
+        let s = UiaSource::new();
+        let photographe = s.snapshotteur();
+        drop(s); // le recepteur tombe avec la source
+
+        let debut = std::time::Instant::now();
+        assert_eq!(photographe.photographier(), None);
+        assert!(
+            debut.elapsed() < std::time::Duration::from_millis(DELAI_PHOTO_MS),
+            "l appel doit echouer vite, pas attendre le delai complet"
+        );
+    }
+
+    #[test]
+    fn le_photographe_repond_par_le_thread_de_capture() {
+        // Sans bureau, la boucle de test repond « rien a montrer ». Ce qui est
+        // verifie ici, c'est l'aller-retour : la demande part, une reponse
+        // revient, et l'appelant n'a pas touche a UIA lui-meme.
+        let mut s = UiaSource::new();
+        let photographe = s.snapshotteur();
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let _abonnement = s.abonner(tx).expect("abonnement");
+
+        let debut = std::time::Instant::now();
+        assert_eq!(photographe.photographier(), None);
+        assert!(debut.elapsed() < std::time::Duration::from_millis(DELAI_PHOTO_MS));
     }
 }

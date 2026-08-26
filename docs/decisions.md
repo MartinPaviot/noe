@@ -874,3 +874,57 @@ Il n'y a pas encore de pixels produit. Jusqu'à la tâche 8, l'evidence
 quotidienne montre ce qui existe réellement : les **trois états de l'icône de
 barre d'état** et l'état de démarrage de l'application. C'est peu, c'est vrai, et
 c'est mieux qu'une case cochée sans image.
+
+## 2026-08-27 — D27 : la détection du collage attend un arbitrage, la copie non
+
+**Spec :** 002 · **Tâches :** 6a, 7 · **Statut : EN ATTENTE d'une ligne de l'opérateur**
+
+**Le constat.** R2.3 fait du copier-coller apparié l'un des cinq déclencheurs de
+snapshot. La logique d'appariement est livrée et testée — y compris son point
+délicat, l'interdiction absolue de lire un presse-papiers dont la copie vient
+d'ailleurs, que l'implémentation garantit par construction (numéro de séquence,
+jamais de contenu).
+
+Il reste à savoir **comment le système d'exploitation nous dit qu'un collage a eu
+lieu**. Et il n'y a pas de bonne réponse gratuite.
+
+**Ce qui est fait sans rien demander : la copie.** `GetClipboardSequenceNumber`
+change à chaque écriture dans le presse-papiers. On l'interroge au battement ;
+c'est un entier, il ne révèle aucun contenu, et il ne demande aucune capacité
+particulière. Une copie survenue pendant l'épisode est donc détectable
+proprement.
+
+**Ce qui coince : le collage.** Windows n'émet aucun événement « l'utilisateur a
+collé ». Les trois voies possibles :
+
+| Voie | Ce qu'elle coûte |
+| --- | --- |
+| **Hook clavier bas niveau** (`WH_KEYBOARD_LL`) | fiable, et donne au produit la capacité de voir **toutes les frappes du poste** |
+| Sondage de `GetAsyncKeyState` | pas de hook, mais un sondage à 50 ms en permanence, et des collages manqués |
+| Heuristique sur `Text_TextChanged` | aucune capacité nouvelle, mais des faux positifs et des faux négatifs |
+
+**Pourquoi je ne tranche pas seul.** Le hook clavier est techniquement le bon
+choix et je l'aurais pris sans hésiter sur un autre produit. Ici, il ajoute au
+binaire une capacité de **journalisation de frappe à l'échelle du système** — la
+chose exacte contre laquelle la promesse de Noe est écrite. Même utilisé
+honnêtement (installé pendant l'épisode seulement, ne lisant que l'état des
+modificateurs, n'enregistrant aucune touche), il déplace ce que le produit *peut*
+faire, et pas seulement ce qu'il fait. C'est le genre de frontière qui se
+franchit une fois et ne se referme jamais.
+
+Ce n'est ni un captcha, ni une dépense, ni un engagement juridique : ça ne rentre
+dans aucune des quatre exceptions du protocole. Je le pose donc **sans bloquer** —
+le reste de la tâche 7 est livré, et le déclencheur copier-coller est le seul des
+cinq à rester en attente.
+
+**La ligne attendue**, au choix :
+
+1. « hook clavier, installé pendant l'épisode seulement » → je l'implémente, avec
+   le test qui prouve qu'aucune touche n'est lue ;
+2. « pas de hook » → j'implémente l'heuristique `Text_TextChanged` et j'assume
+   ses faux négatifs, documentés ;
+3. « laisse tomber ce déclencheur » → quatre déclencheurs sur cinq, noté au
+   jalon.
+
+En attendant, la copie est détectée, le collage ne l'est pas, et le journal le
+dit plutôt que de faire comme si.
