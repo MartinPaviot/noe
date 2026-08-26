@@ -366,8 +366,10 @@ avant le verdict.
 Le fichier annoncé comme « fourni à côté » est **introuvable** : recherche par
 nom et par contenu sur tout `C:\Users\marti`, dossier `noe/` initialement vide.
 
-En conséquence, `features.json` et `docs/invariants.md` ont été dérivés du brief
-de session 0 et sont marqués **PROVISOIRE**. Il manque notamment les **5 critères
+En conséquence, `features.json` et `docs/invariants.md` avaient été dérivés du
+brief de session 0. **Le prompt maître a été déposé le 2026-08-26** (22 569
+octets) : les marqueurs PROVISOIRE sont levés, et l'alignement réel est arbitré
+dans `docs/decisions.md`. Il manquait notamment les **5 critères
 de choix du terrain**, que le template de verdict laisse en blanc.
 
 - [ ] Déposer le contenu dans `docs/prompt-maitre-v0.md`

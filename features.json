@@ -2,7 +2,7 @@
   "projet": "noe",
   "version_schema": 1,
   "source_de_verite": "docs/prompt-maitre-v0.md",
-  "statut_source": "La spec 001 (specs/001-socle-de-preuve/) fait autorite sur F02-F04 et les a reordonnes AVANT F01 : le harness ne depend de rien, tout depend de lui.",
+  "statut_source": "Prompt maitre depose le 2026-08-26 (docs/prompt-maitre-v0.md, 22569 octets). Marqueur PROVISOIRE leve. Ecarts d alignement en cours d arbitrage — voir docs/decisions.md.",
   "regle": "Une feature par session, verifiee de bout en bout. Seul le juge mecanique fait passer passes a true.",
   "features": [
     {
