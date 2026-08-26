@@ -1,0 +1,6 @@
+- generic [active] [ref=f20e1]:
+  - generic [ref=f20e4]:
+    - generic [ref=f20e5]: Connexion à Salesforce
+    - heading "Prêt pour un nouveau mot de passe ?" [level=2] [ref=f20e9]
+    - button "Réinitialiser le mot de passe" [ref=f20e12] [cursor=pointer]
+  - generic [ref=f20e13]: © 2026 Salesforce, Inc. Tous droits réservés.

@@ -1,0 +1,397 @@
+- generic [active] [ref=f5e1]:
+  - banner [ref=f5e4]:
+    - generic [ref=f5e6]:
+      - link [ref=f5e9] [cursor=pointer]:
+        - /url: https://www.salesforce.com/
+        - img "Salesforce Home" [ref=f5e10]
+      - navigation "Site tools":
+        - list
+  - generic [ref=f5e11]:
+    - main [ref=f5e12]:
+      - article [ref=f5e16]:
+        - generic [ref=f5e62]:
+          - generic [ref=f5e63]:
+            - generic [ref=f5e64]:
+              - heading "Build for the Agentic Enterprise. Sign up for your Developer Edition." [level=1] [ref=f5e65]
+              - generic [ref=f5e66]: The entire Salesforce platform - exposed as APIs, MCP tools, and CLI commands. Build apps, ship agents, and let coding agents do the heavy lifting with Salesforce Headless 360.
+            - list [ref=f5e68]:
+              - listitem [ref=f5e69]: Build AI agents with Agentforce, grounded in your data with Data 36O
+              - listitem [ref=f5e70]: Connect Claude Code, Cursor, or Codex to your org with hosted MCP
+              - listitem [ref=f5e71]: Build in the browser with the Agentforce Vibes IDE - no setup required
+              - listitem [ref=f5e72]: Drag-and-drop when you want it, Apex when you need it
+              - listitem [ref=f5e73]: 60+ MCP tools and 30+ coding skills, ready out of the box
+            - figure [ref=f5e75]
+          - generic [ref=f5e78]:
+            - generic [ref=f5e79]:
+              - generic [ref=f5e80]: Sign up for your Developer Edition
+              - generic [ref=f5e81]: A free Salesforce Platform environment with Agentforce and Data 360
+            - generic [ref=f5e82]:
+              - generic:
+                - generic: Form is submitting
+                - generic:
+                  - generic:
+                    - generic: First name
+                    - generic:
+                      - textbox "First name":
+                        - /placeholder: ""
+                        - text: Martin
+                      - img "check"
+                  - generic:
+                    - generic: Last name
+                    - generic:
+                      - textbox "Last name":
+                        - /placeholder: ""
+                        - text: Paviot
+                      - img "check"
+                  - generic:
+                    - generic: Job title
+                    - generic:
+                      - textbox "Job title":
+                        - /placeholder: ""
+                        - text: Founder
+                      - img "check"
+                  - generic:
+                    - generic: Company
+                    - generic:
+                      - textbox "Company":
+                        - /placeholder: ""
+                        - text: Noe Spike
+                      - img "check"
+                  - generic:
+                    - generic: Country/region
+                    - generic:
+                      - combobox "Country/region":
+                        - option "Select country/region" [disabled]
+                        - option "United States"
+                        - option "Afghanistan"
+                        - option "Aland Islands"
+                        - option "Albania"
+                        - option "Algeria"
+                        - option "American Samoa"
+                        - option "Andorra"
+                        - option "Angola"
+                        - option "Anguilla"
+                        - option "Antarctica"
+                        - option "Antigua And Barbuda"
+                        - option "Argentina"
+                        - option "Armenia"
+                        - option "Aruba"
+                        - option "Australia"
+                        - option "Austria"
+                        - option "Azerbaijan"
+                        - option "Bahamas"
+                        - option "Bahrain"
+                        - option "Bangladesh"
+                        - option "Barbados"
+                        - option "Belarus"
+                        - option "Belgium"
+                        - option "Belize"
+                        - option "Benin"
+                        - option "Bermuda"
+                        - option "Bhutan"
+                        - option "Bolivia, Plurinational State of"
+                        - option "Bonaire, Sint Eustatius and Saba"
+                        - option "Bosnia and Herzegovina"
+                        - option "Botswana"
+                        - option "Bouvet Island"
+                        - option "Brazil"
+                        - option "British Indian Ocean Territory"
+                        - option "Brunei Darussalam"
+                        - option "Bulgaria"
+                        - option "Burkina Faso"
+                        - option "Burundi"
+                        - option "Cambodia"
+                        - option "Cameroon"
+                        - option "Canada"
+                        - option "Cape Verde"
+                        - option "Cayman Islands"
+                        - option "Central African Republic"
+                        - option "Chad"
+                        - option "Chile"
+                        - option "China"
+                        - option "Christmas Island"
+                        - option "Cocos (Keeling) Islands"
+                        - option "Colombia"
+                        - option "Comoros"
+                        - option "Congo"
+                        - option "Congo, the Democratic Republic of the"
+                        - option "Cook Islands"
+                        - option "Costa Rica"
+                        - option "Cote D'Ivoire"
+                        - option "Croatia"
+                        - option "Curaçao"
+                        - option "Cyprus"
+                        - option "Czech Republic"
+                        - option "Denmark"
+                        - option "Djibouti"
+                        - option "Dominica"
+                        - option "Dominican Republic"
+                        - option "Ecuador"
+                        - option "Egypt"
+                        - option "El Salvador"
+                        - option "Equatorial Guinea"
+                        - option "Eritrea"
+                        - option "Estonia"
+                        - option "Ethiopia"
+                        - option "Falkland Islands (Malvinas)"
+                        - option "Faroe Islands"
+                        - option "Fiji"
+                        - option "Finland"
+                        - option "France" [selected]
+                        - option "French Guiana"
+                        - option "French Polynesia"
+                        - option "French Southern Territories"
+                        - option "Gabon"
+                        - option "Gambia"
+                        - option "Georgia"
+                        - option "Germany"
+                        - option "Ghana"
+                        - option "Gibraltar"
+                        - option "Greece"
+                        - option "Greenland"
+                        - option "Grenada"
+                        - option "Guadeloupe"
+                        - option "Guam"
+                        - option "Guatemala"
+                        - option "Guernsey"
+                        - option "Guinea"
+                        - option "Guinea-Bissau"
+                        - option "Guyana"
+                        - option "Haiti"
+                        - option "Heard and McDonald Islands"
+                        - option "Holy See (Vatican City State)"
+                        - option "Honduras"
+                        - option "Hong Kong"
+                        - option "Hungary"
+                        - option "Iceland"
+                        - option "India"
+                        - option "Indonesia"
+                        - option "Iraq"
+                        - option "Ireland"
+                        - option "Isle of Man"
+                        - option "Israel"
+                        - option "Italy"
+                        - option "Jamaica"
+                        - option "Japan"
+                        - option "Jersey"
+                        - option "Jordan"
+                        - option "Kazakhstan"
+                        - option "Kenya"
+                        - option "Kiribati"
+                        - option "Korea, Republic of"
+                        - option "Kuwait"
+                        - option "Kyrgyzstan"
+                        - option "Lao People's Democratic Republic"
+                        - option "Latvia"
+                        - option "Lebanon"
+                        - option "Lesotho"
+                        - option "Liberia"
+                        - option "Libya"
+                        - option "Liechtenstein"
+                        - option "Lithuania"
+                        - option "Luxembourg"
+                        - option "Macao"
+                        - option "Macedonia, the former Yugoslav Republic of"
+                        - option "Madagascar"
+                        - option "Malawi"
+                        - option "Malaysia"
+                        - option "Maldives"
+                        - option "Mali"
+                        - option "Malta"
+                        - option "Marshall Islands"
+                        - option "Martinique"
+                        - option "Mauritania"
+                        - option "Mauritius"
+                        - option "Mayotte"
+                        - option "Mexico"
+                        - option "Micronesia"
+                        - option "Moldova, Republic of"
+                        - option "Monaco"
+                        - option "Mongolia"
+                        - option "Montenegro"
+                        - option "Montserrat"
+                        - option "Morocco"
+                        - option "Mozambique"
+                        - option "Myanmar"
+                        - option "Namibia"
+                        - option "Nauru"
+                        - option "Nepal"
+                        - option "Netherlands"
+                        - option "Netherlands Antilles"
+                        - option "New Caledonia"
+                        - option "New Zealand"
+                        - option "Nicaragua"
+                        - option "Niger"
+                        - option "Nigeria"
+                        - option "Niue"
+                        - option "Norfolk Island"
+                        - option "Northern Mariana Islands"
+                        - option "Norway"
+                        - option "Oman"
+                        - option "Pakistan"
+                        - option "Palau"
+                        - option "Palestine"
+                        - option "Panama"
+                        - option "Papua New Guinea"
+                        - option "Paraguay"
+                        - option "Peru"
+                        - option "Philippines"
+                        - option "Pitcairn"
+                        - option "Poland"
+                        - option "Portugal"
+                        - option "Puerto Rico"
+                        - option "Qatar"
+                        - option "Reunion"
+                        - option "Romania"
+                        - option "Rwanda"
+                        - option "Saint Barthélemy"
+                        - option "Saint Helena, Ascension and Tristan da Cunha"
+                        - option "Saint Kitts And Nevis"
+                        - option "Saint Lucia"
+                        - option "Saint Martin (French part)"
+                        - option "Saint Pierre and Miquelon"
+                        - option "Saint Vincent And The Grenadines"
+                        - option "Samoa"
+                        - option "San Marino"
+                        - option "Sao Tome and Principe"
+                        - option "Saudi Arabia"
+                        - option "Senegal"
+                        - option "Serbia"
+                        - option "Seychelles"
+                        - option "Sierra Leone"
+                        - option "Singapore"
+                        - option "Sint Maarten (Dutch part)"
+                        - option "Slovakia"
+                        - option "Slovenia"
+                        - option "Solomon Islands"
+                        - option "Somalia"
+                        - option "South Africa"
+                        - option "South Georgia and the South Sandwich Islands"
+                        - option "South Sudan"
+                        - option "Spain"
+                        - option "Sri Lanka"
+                        - option "Suriname"
+                        - option "Svalbard And Jan Mayen"
+                        - option "Swaziland"
+                        - option "Sweden"
+                        - option "Switzerland"
+                        - option "Taiwan"
+                        - option "Tajikistan"
+                        - option "Tanzania, United Republic of"
+                        - option "Thailand"
+                        - option "Timor-Leste"
+                        - option "Togo"
+                        - option "Tokelau"
+                        - option "Tonga"
+                        - option "Trinidad And Tobago"
+                        - option "Tunisia"
+                        - option "Turkey"
+                        - option "Turkmenistan"
+                        - option "Turks and Caicos Islands"
+                        - option "Tuvalu"
+                        - option "Uganda"
+                        - option "Ukraine"
+                        - option "United Arab Emirates"
+                        - option "United Kingdom"
+                        - option "United States Minor Outlying Islands"
+                        - option "Uruguay"
+                        - option "Uzbekistan"
+                        - option "Vanuatu"
+                        - option "Venezuela, Bolivarian Republic of"
+                        - option "Vietnam"
+                        - option "Virgin Islands, British"
+                        - option "Virgin Islands (US)"
+                        - option "Wallis And Futuna"
+                        - option "Western Sahara"
+                        - option "Yemen"
+                        - option "Zambia"
+                        - option "Zimbabwe"
+                      - img "check"
+                      - img "down"
+                  - generic:
+                    - generic: Work email
+                    - generic:
+                      - textbox "Work email":
+                        - /placeholder: ""
+                        - text: contact+noespike@elevay.app
+                      - img "check"
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - checkbox "I agree to the Main Services Agreement — Developer Services, Salesforce Program Agreement, and API Terms of Service" [checked]
+                        - generic:
+                          - generic:
+                            - paragraph:
+                              - generic:
+                                - paragraph:
+                                  - text: I agree to the
+                                  - link "Main Services Agreement — Developer Services":
+                                    - /url: https://www.salesforce.com/content/dam/web/en_us/www/documents/legal/salesforce_Developer_MSA.pdf
+                                  - text: ","
+                                  - link "Salesforce Program Agreement":
+                                    - /url: https://www.salesforce.com/company/program-agreement/
+                                  - text: ", and"
+                                  - link "API Terms of Service":
+                                    - /url: https://www.salesforce.com/company/legal/sfdc-api-terms-of-service/
+                    - generic:
+                      - generic:
+                        - checkbox "Yes, I consent to tracking pixels being included in email communications. I can unsubscribe at any time."
+                        - generic:
+                          - generic:
+                            - paragraph: Yes, I consent to tracking pixels being included in email communications. I can unsubscribe at any time.
+                    - generic:
+                      - paragraph: Your free trial may be provisioned on or migrated to Hyperforce, Salesforce's public cloud infrastructure.
+                    - generic:
+                      - paragraph: "I acknowledge, as described in the Developer Documentation: (1) the Developer Edition includes autonomous and other generative AI features; and (2) Salesforce may limit use of those features and the org, and may terminate any org that has been inactive for 45 days."
+                    - generic:
+                      - paragraph:
+                        - generic:
+                          - text: We value your privacy. To learn more, visit our
+                          - link "Privacy Statement":
+                            - /url: https://www.salesforce.com/company/legal/privacy/
+                          - text: .
+                - generic:
+                  - generic:
+                    - button "Sign me up" [disabled]:
+                      - generic: Please wait..
+                      - img "Loading"
+    - contentinfo [ref=f5e33]:
+      - generic [ref=f5e35]:
+        - button "Worldwide" [ref=f5e142]:
+          - generic [ref=f5e143] [cursor=pointer]:
+            - generic [ref=f5e144]: 
+            - text: Worldwide
+            - generic [ref=f5e145]: 
+        - generic [ref=f5e36]:
+          - navigation [ref=f5e37]:
+            - list [ref=f5e38]:
+              - listitem [ref=f5e39]:
+                - link "Legal" [ref=f5e40] [cursor=pointer]:
+                  - /url: https://www.salesforce.com/company/legal/
+              - listitem [ref=f5e41]:
+                - link "Terms of Service" [ref=f5e42] [cursor=pointer]:
+                  - /url: https://www.salesforce.com/company/legal/sfdc-website-terms-of-service/
+              - listitem [ref=f5e43]:
+                - link "Privacy Information" [ref=f5e44] [cursor=pointer]:
+                  - /url: https://www.salesforce.com/company/privacy/
+              - listitem [ref=f5e45]:
+                - link "Responsible Disclosure" [ref=f5e46] [cursor=pointer]:
+                  - /url: https://www.salesforce.com/company/disclosure/
+              - listitem [ref=f5e47]:
+                - link "Trust" [ref=f5e48] [cursor=pointer]:
+                  - /url: https://trust.salesforce.com/en/
+              - listitem [ref=f5e49]:
+                - link "Contact" [ref=f5e50] [cursor=pointer]:
+                  - /url: https://www.salesforce.com/company/contact-us/?d=cta-glob-footer-11
+              - listitem [ref=f5e51]:
+                - link "Cookie Preferences" [ref=f5e52] [cursor=pointer]:
+                  - /url: "#"
+              - listitem [ref=f5e53]:
+                - link "Your Privacy Choices" [ref=f5e54] [cursor=pointer]:
+                  - /url: https://www.salesforce.com/form/other/privacy-request/?d=cta-footer-1
+          - paragraph [ref=f5e57]:
+            - text: © Copyright 2026 Salesforce, Inc.
+            - link "All rights reserved" [ref=f5e58] [cursor=pointer]:
+              - /url: https://www.salesforce.com/company/legal/tmcusageguidelines/
+            - text: . Various trademarks held by their respective owners. Salesforce, Inc. Salesforce Tower, 415 Mission Street, 3rd Floor, San Francisco, CA 94105, United States

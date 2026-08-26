@@ -1,0 +1,35 @@
+- generic [active] [ref=f24e1]:
+  - generic [ref=f24e4]:
+    - generic [ref=f24e5]: Connexion à Salesforce
+    - heading "Changer votre mot de passe" [level=2] [ref=f24e9]
+    - generic [ref=f24e12]:
+      - paragraph [ref=f24e13]: "Saisissez un nouveau mot de passe pour contact+noespike.09cd56be5bda@agentforce.com. Assurez-vous d'inclure au moins :"
+      - list [ref=f24e16]:
+        - listitem [ref=f24e17]:
+          - img "Ne remplit pas les exigences" [ref=f24e18]
+          - text: 8 caractères
+        - listitem [ref=f24e19]:
+          - img "Ne remplit pas les exigences" [ref=f24e20]
+          - text: 1 lettre
+        - listitem [ref=f24e21]:
+          - img "Ne remplit pas les exigences" [ref=f24e22]
+          - text: 1 chiffre
+      - generic [ref=f24e23]: "* Nouveau mot de passe"
+      - textbox "* Nouveau mot de passe" [ref=f24e25]
+      - generic [ref=f24e26]: "* Confirmer le nouveau mot de passe"
+      - textbox "* Confirmer le nouveau mot de passe" [ref=f24e28]
+      - generic [ref=f24e29]: "* Nouvelle question de sécurité"
+      - combobox "* Nouvelle question de sécurité" [ref=f24e31]:
+        - option "Dans quelle ville êtes-vous né(e) ?" [selected]
+        - option "Quel est le nom de jeune fille de votre mère ?"
+        - option "Quel est le nom de votre animal de compagnie ?"
+        - option "Quel était votre surnom d'enfant ?"
+        - option "Dans quelle ville avez-vous rencontré votre conjoint(e) ?"
+        - option "Quel est le nom de votre meilleur ami d'enfance ?"
+        - option "Dans quelle ville avez-vous obtenu votre premier emploi ?"
+      - generic [ref=f24e32]: "* Nouvelle réponse"
+      - textbox "* Nouvelle réponse" [ref=f24e34]
+      - generic [ref=f24e35]: "*=obligatoire"
+      - button "Changer le mot de passe" [disabled] [ref=f24e37]
+      - paragraph [ref=f24e38]: La dernière modification du mot de passe date du 26/08/2026 17:17.
+  - generic [ref=f24e39]: © 2026 Salesforce, Inc. Tous droits réservés.

@@ -295,3 +295,123 @@ tout le corpus.
 **Le chiffrement at-rest reste un item de durcissement**, pas un abandon.
 
 **Amendement.** Le bloc structure dit « clair en local, export chiffré ».
+
+---
+
+## 2026-08-26 — D11 : l'irréductible « mes gestes sont la donnée » ne couvre pas les bancs d'essai
+
+**Corrige :** `docs/doctrine-execution.md`, irréductible #1.
+
+**L'erreur.** J'avais écrit que les gestes de l'opérateur sont irréductibles
+« quand ils SONT la donnée mesurée », et j'en avais conclu que les occurrences du
+spike devaient être humaines. La conclusion ne suit pas de la prémisse.
+
+**La distinction.** Deux choses différentes portent le mot « occurrence » :
+
+| | Ce qu'on mesure | Qui doit agir |
+| --- | --- | --- |
+| **Corpus d'épisodes** | le **comportement** à apprendre : quels champs l'opérateur touche, dans quel ordre, avec quelles règles implicites | **l'opérateur, irréductiblement.** Un script rejouerait mes hypothèses sur son travail, pas son travail. |
+| **Banc d'essai du capteur** | le **capteur** face à une application : stabilité des signatures, couverture des événements, coût CPU | **le script, et c'est mieux.** |
+
+**Pourquoi le script est *préférable* ici, pas seulement toléré.** Le spike compare
+deux stratégies d'abonnement. Si l'humain rejoue ses cinq occurrences en
+« globale » puis cinq en « focus », il introduit sa propre variance entre les deux
+phases — et l'écart mesuré mélange l'effet de la stratégie avec l'effet de sa
+fatigue, de son apprentissage, de son humeur. **Un script rejoue exactement la
+même chose des deux côtés.** La comparabilité, qui est tout l'objet du spike, ne
+tient qu'à cette reproductibilité.
+
+**Ce que ça change.** Les occurrences du spike sortent de la liste des
+irréductibles. Elles y étaient à tort : je m'étais interdit une automatisation qui
+produit une mesure *meilleure*, pas seulement plus rapide.
+
+**Ce que ça ne change pas.** Le corpus d'épisodes de la spec 002 reste
+irréductiblement humain. Le jour où on capture pour apprendre — et non plus pour
+mesurer le capteur — c'est l'opérateur qui travaille, sans script.
+
+**Obligation de transparence.** Tout verdict issu d'occurrences scriptées doit le
+dire, en toutes lettres, dans le verdict lui-même : *« occurrences scriptées
+Playwright — banc capteur, pas donnée comportementale »*. Un chiffre dont on
+ignore la provenance est un chiffre qui finira par être mal lu.
+
+---
+
+## 2026-08-26 — D12 : autonomie d'exécution étendue
+
+**Remplace** la doctrine du même jour. Détail complet dans
+`docs/doctrine-execution.md`.
+
+**Identité opérationnelle.** Adresse `contact+<projet>@elevay.app`, dont je lis
+les courriels via le MCP Gmail. Coffre local `~/.noe/coffre/`, chiffré **DPAPI**,
+où je génère et stocke les identifiants des comptes que je crée. TOTP activé
+partout où c'est proposé.
+
+**Budget pré-autorisé : ≤ 30 €/mois cumulés.** Je souscris, je journalise, je
+continue. Engagement en cours : Supabase `noe-prod`, ~10 $/mois. Reste ~20 €.
+
+**Permission permanente** sur les créations de comptes, apps OAuth,
+configurations, déploiements, Playwright. J'annonce, je ne demande pas.
+
+**Quatre irréductibles**, remontés en une ligne actionnable : captcha
+infranchissable après 3 tentatives · vérification SMS vers le téléphone de
+l'opérateur · dépense hors budget · engagement juridique (banque, signature
+légale, Stripe live).
+
+**Règle anti-échouage.** Un blocage met l'item en attente avec l'action préparée,
+je réordonne, je continue. Immobilisation totale seulement si tout est bloqué ou
+sur gate facturable/irréversible.
+
+### La réserve que je maintiens sur les graines TOTP
+
+Pour les comptes **jetables** que je crée de bout en bout, garder la graine TOTP
+à côté du mot de passe est sans conséquence.
+
+Pour les comptes qui **touchent à de l'argent ou à l'entreprise** — Stripe,
+facturation Azure, Supabase de production — **je n'y co-loge pas le second
+facteur.** Deux facteurs rangés au même endroit n'en font pas deux : ils en font
+un seul, plus long. Je configure, j'active, je prépare ; c'est la *garde* de la
+graine que je ne prends pas, sur ce périmètre précis.
+
+---
+
+## 2026-08-26 — D13 : le terrain de construction est une org Salesforce Developer Edition
+
+**Contexte.** Deux placeholders du brief sont restés vides — l'outil réel de
+traitement des leads n'a pas été nommé. La consigne prévoyait ce cas : à défaut,
+Salesforce Developer Edition.
+
+**Décision.** Le **terrain de construction** est une org Salesforce Developer
+Edition, créée par l'agent avec son identité opérationnelle.
+
+```
+org          orgfarm-7d442f390a-dev-ed.develop.my.salesforce.com
+utilisateur  contact+noespike.09cd56be5bda@agentforce.com
+courriel     contact+noespike@elevay.app
+identifiants coffre DPAPI ~/.noe/coffre/salesforce-de.dpapi
+coût         0 € — édition gratuite, expire après 45 j d'inactivité
+```
+
+**Motif du choix.** Lightning est le **pire cas** d'arbre d'accessibilité — c'est
+précisément le risque que le spike doit chiffrer. Mesurer sur une application
+légère aurait produit un chiffre rassurant et sans valeur.
+
+**Le terrain de preuve reste à fixer par l'opérateur** : le CRM réel de sa
+campagne. Demandé en une ligne, sans attendre dessus.
+
+### Exposition acceptée, et déclarée
+
+Le mot de passe de cette org **est apparu en clair dans la conversation** :
+l'automatisation d'un formulaire exige de transmettre la valeur, et l'outil
+recopie le code exécuté. J'ai réduit ce que je pouvais — la réponse à la question
+de sécurité a été générée **dans la page** et n'existe nulle part, puisque je
+contrôle la boîte mail et peux toujours réinitialiser.
+
+L'exposition est acceptée pour **cette org précise** : jetable, gratuite, ne
+contenant que des données fictives que je crée moi-même. Elle ne le serait pas
+pour un compte adossé à de l'argent ou à l'entreprise — et le coffre DPAPI existe
+justement pour que ce cas-là ne se présente pas.
+
+### Note d'obligation
+
+Le spike tournera sur des **occurrences scriptées Playwright**. Le verdict devra
+le dire en toutes lettres : *banc capteur, pas donnée comportementale* (D11).

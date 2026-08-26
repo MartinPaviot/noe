@@ -1,0 +1,59 @@
+- generic [active]:
+  - generic [ref=f27e2]:
+    - generic [ref=f27e3]:
+      - link "Aller à la navigation" [ref=f27e4] [cursor=pointer]:
+        - /url: javascript:void(0);
+      - link "Aller au contenu principal" [ref=f27e5] [cursor=pointer]:
+        - /url: javascript:void(0);
+      - generic [ref=f27e9]:
+        - generic [ref=f27e13]:
+          - button "Toggle Panel" [ref=f27e17] [cursor=pointer]:
+            - generic [ref=f27e24]: Menu
+          - generic [ref=f27e25]: Developer Edition
+        - button "Show menu" [ref=f27e45] [cursor=pointer]
+      - generic [ref=f27e51]:
+        - button "Rechercher" [ref=f27e57]: Rechercher...
+        - navigation "En-tête global" [ref=f27e62]:
+          - list [ref=f27e64]:
+            - listitem [ref=f27e65]:
+              - group [ref=f27e66]:
+                - button "Ajouter aux favoris" [ref=f27e68] [cursor=pointer]:
+                  - generic [ref=f27e69]:
+                    - tooltip "Ajouter aux favoris"
+                - button [ref=f27e77] [cursor=pointer]:
+                  - generic [ref=f27e78]:
+                    - tooltip "Liste de favoris"
+            - listitem [ref=f27e85]:
+              - button "Actions globales" [ref=f27e87]
+            - listitem [ref=f27e94]:
+              - button [ref=f27e97] [cursor=pointer]:
+                - generic [ref=f27e98]:
+                  - tooltip "Aide de Salesforce"
+            - listitem [ref=f27e105]:
+              - button [ref=f27e111] [cursor=pointer]:
+                - generic [ref=f27e112]:
+                  - tooltip "Configuration"
+            - listitem [ref=f27e119]:
+              - button [ref=f27e122] [cursor=pointer]:
+                - generic [ref=f27e123]:
+                  - tooltip "Notifications"
+            - listitem [ref=f27e132]:
+              - button [ref=f27e135] [cursor=pointer]:
+                - generic [ref=f27e136]:
+                  - tooltip "Afficher le profil"
+    - generic [ref=f27e138]:
+      - generic [ref=f27e141]:
+        - generic [ref=f27e143]:
+          - navigation "Application" [ref=f27e144]:
+            - button "Lanceur d'application" [ref=f27e146] [cursor=pointer]
+          - heading "Developer Edition" [level=1] [ref=f27e158]
+        - navigation "Global" [ref=f27e162]:
+          - list [ref=f27e163]:
+            - listitem [ref=f27e164] [cursor=pointer]:
+              - link "Welcome" [ref=f27e165]:
+                - /url: /lightning/n/devedapp__Welcome
+      - main [ref=f27e168]:
+        - iframe [ref=f27e175]:
+          
+  - generic:
+    - status

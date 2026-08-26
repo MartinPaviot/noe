@@ -1,0 +1,45 @@
+- generic [active] [ref=f5e1]:
+  - banner [ref=f5e4]:
+    - generic [ref=f5e6]:
+      - link [ref=f5e9] [cursor=pointer]:
+        - /url: https://www.salesforce.com/
+        - img "Salesforce Home" [ref=f5e10]
+      - navigation "Site tools":
+        - list
+  - generic [ref=f5e11]:
+    - main [ref=f5e12]:
+      - article [ref=f5e16]:
+        - status [ref=f5e18]
+    - contentinfo [ref=f5e33]:
+      - generic [ref=f5e36]:
+        - navigation [ref=f5e37]:
+          - list [ref=f5e38]:
+            - listitem [ref=f5e39]:
+              - link "Legal" [ref=f5e40] [cursor=pointer]:
+                - /url: https://www.salesforce.com/company/legal/
+            - listitem [ref=f5e41]:
+              - link "Terms of Service" [ref=f5e42] [cursor=pointer]:
+                - /url: https://www.salesforce.com/company/legal/sfdc-website-terms-of-service/
+            - listitem [ref=f5e43]:
+              - link "Privacy Information" [ref=f5e44] [cursor=pointer]:
+                - /url: https://www.salesforce.com/company/privacy/
+            - listitem [ref=f5e45]:
+              - link "Responsible Disclosure" [ref=f5e46] [cursor=pointer]:
+                - /url: https://www.salesforce.com/company/disclosure/
+            - listitem [ref=f5e47]:
+              - link "Trust" [ref=f5e48] [cursor=pointer]:
+                - /url: https://trust.salesforce.com/en/
+            - listitem [ref=f5e49]:
+              - link "Contact" [ref=f5e50] [cursor=pointer]:
+                - /url: https://www.salesforce.com/company/contact-us/?d=cta-glob-footer-11
+            - listitem [ref=f5e51]:
+              - link "Cookie Preferences" [ref=f5e52] [cursor=pointer]:
+                - /url: "#"
+            - listitem [ref=f5e53]:
+              - link "Your Privacy Choices" [ref=f5e54] [cursor=pointer]:
+                - /url: https://www.salesforce.com/form/other/privacy-request/?d=cta-footer-1
+        - paragraph [ref=f5e57]:
+          - text: © Copyright 2026 Salesforce, Inc.
+          - link "All rights reserved" [ref=f5e58] [cursor=pointer]:
+            - /url: https://www.salesforce.com/company/legal/tmcusageguidelines/
+          - text: . Various trademarks held by their respective owners. Salesforce, Inc. Salesforce Tower, 415 Mission Street, 3rd Floor, San Francisco, CA 94105, United States
