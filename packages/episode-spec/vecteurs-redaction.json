@@ -1,0 +1,122 @@
+{
+  "version": 2,
+  "note": "Sorties de reference. Toute implementation doit rendre exactement ceci.",
+  "cas": [
+    {
+      "entree": "Rappeler jean.dupont@exemple.fr avant vendredi",
+      "occurrences": [
+        {
+          "type": "EMAIL",
+          "index": 9
+        }
+      ]
+    },
+    {
+      "entree": "Ligne directe 06 12 34 56 78",
+      "occurrences": [
+        {
+          "type": "TEL_FR",
+          "index": 14
+        }
+      ]
+    },
+    {
+      "entree": "Ligne directe 0612345678",
+      "occurrences": [
+        {
+          "type": "TEL_FR",
+          "index": 14
+        }
+      ]
+    },
+    {
+      "entree": "Ligne directe +33 6 12 34 56 78",
+      "occurrences": [
+        {
+          "type": "TEL_FR",
+          "index": 14
+        }
+      ]
+    },
+    {
+      "entree": "Numero belge +32 471 12 34 56",
+      "occurrences": [
+        {
+          "type": "TEL_INTL",
+          "index": 13
+        }
+      ]
+    },
+    {
+      "entree": "Virement sur FR7630006000011234567890189",
+      "occurrences": [
+        {
+          "type": "IBAN",
+          "index": 13
+        },
+        {
+          "type": "TEL_FR",
+          "index": 20
+        }
+      ]
+    },
+    {
+      "entree": "Carte 4970 1234 5678 9012",
+      "occurrences": [
+        {
+          "type": "CARTE",
+          "index": 6
+        }
+      ]
+    },
+    {
+      "entree": "Deux a la fois : a@b.fr et 06.12.34.56.78",
+      "occurrences": [
+        {
+          "type": "EMAIL",
+          "index": 17
+        },
+        {
+          "type": "TEL_FR",
+          "index": 27
+        }
+      ]
+    },
+    {
+      "entree": "Reference interne 2026-08-26",
+      "occurrences": []
+    },
+    {
+      "entree": "Version 1.2.3 du connecteur",
+      "occurrences": []
+    },
+    {
+      "entree": "Montant 1 234,56 EUR",
+      "occurrences": []
+    },
+    {
+      "entree": "Piste ouverte il y a 12 jours",
+      "occurrences": []
+    },
+    {
+      "entree": "Code postal 75011 Paris",
+      "occurrences": []
+    },
+    {
+      "entree": "SIRET 12345678900011",
+      "occurrences": []
+    },
+    {
+      "entree": "",
+      "occurrences": []
+    },
+    {
+      "entree": "arobase sans domaine : jean@exemple",
+      "occurrences": []
+    },
+    {
+      "entree": "presque un IBAN : FR76 mais trop court",
+      "occurrences": []
+    }
+  ]
+}

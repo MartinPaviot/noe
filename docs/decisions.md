@@ -682,3 +682,46 @@ pour le prompt maître.
 progression de la spec devient vérifiable au lieu d'être racontée. Tâches 0 et
 0bis cochées ; tâche 6 dédoublée en 6a (natif) / 6b (web), plus 6c (changement de
 valeur, le trou laissé par le spike DOM) et 6d (frontière de source).
+
+## 2026-08-26 — D24 : la bibliothèque de motifs passe en v2, un numéro fuyait
+
+**Spec :** 002 · **Tâche :** 3 · **Impact inter-specs :** oui, `VERSION_MOTIFS`
+
+**Constat.** En construisant les vecteurs de test partagés — ceux-là même que la
+décision « la bibliothèque vit dans `episode-spec` » exigeait avant la tâche 3 —
+un numéro de téléphone français est passé en clair :
+
+```
+« +33 6 12 34 56 78 »   →   AUCUNE DÉTECTION
+```
+
+Le trou vivait **exactement entre deux motifs**. `TEL_FR` s'écrivait
+`(?:\+33|0)[1-9]…`, donc exigeait le chiffre collé à l'indicatif. `TEL_INTL`
+s'écrivait `\+(?!33)…`, donc excluait explicitement l'indicatif français. Un
+numéro écrit avec un espace après `+33` n'était réclamé par personne — et c'est
+la graphie la plus courante d'un mobile français à l'international.
+
+**Décision.** `TEL_FR` devient `(?:\+33[ .-]?|0)[1-9](?:[ .-]?\d{2}){4}` et
+`VERSION_MOTIFS` passe à **2**. Neuf graphies réellement écrites par des humains
+sont désormais énumérées dans un test, avec cinq contre-exemples qui ne doivent
+jamais déclencher (dates ISO, versions, montants, codes postaux, durées
+relatives).
+
+**Pourquoi la version bouge.** Le champ existait précisément pour ça : « un
+corpus jugé sous v1 reste interprétable même si v2 durcit les motifs ». Aucun
+corpus réel n'existe encore, donc le coût est nul aujourd'hui — mais l'habitude
+de bumper se prend maintenant, pas le jour où il y aura des données à
+réinterpréter. Le test qui épinglait `VERSION_MOTIFS` à 1 a rougi et forcé cette
+entrée : c'est son travail, il l'a fait.
+
+**Ce que ça dit de la méthode.** Ce défaut n'a été trouvé ni par relecture ni par
+les 79 tests existants — dont plusieurs testaient déjà `TEL_FR` — mais par
+l'énumération systématique des **formes d'entrée** qu'exigeait la construction
+des vecteurs partagés. Les tests précédents vérifiaient les graphies auxquelles
+l'auteur avait pensé. Un tableau de graphies réelles vérifie celles auxquelles il
+n'a pas pensé.
+
+**Non traité ici, volontairement.** Les bancs de mesure (`spikes/capteur-uia`,
+`spikes/dom`) embarquent une copie de l'ancien motif dans leur normalisation de
+noms. Ils ne sont pas le produit, leurs verdicts sont déjà consignés, et les
+modifier invaliderait des mesures publiées. Ils restent en l'état, datés.

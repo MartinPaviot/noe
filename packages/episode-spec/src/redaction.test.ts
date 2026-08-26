@@ -16,8 +16,11 @@ function requis<T>(v: T | undefined, quoi: string): T {
 }
 
 describe('bibliotheque de motifs', () => {
-  it('est versionnee — un corpus juge sous v1 reste interpretable', () => {
-    expect(VERSION_MOTIFS).toBe(1);
+  // La version est ÉPINGLÉE, à dessein : la bumper doit être une décision, pas
+  // un effet de bord. Ce test a fait son travail — il a rougi quand la v2 a
+  // corrigé le trou téléphonique, et a forcé l'entrée dans `decisions.md`.
+  it('est versionnee — un corpus juge sous une version anterieure reste interpretable', () => {
+    expect(VERSION_MOTIFS).toBe(2);
   });
 
   it('couvre les quatre familles exigees par R4.1', () => {
@@ -167,4 +170,48 @@ describe('effet sur le grade (R4.6 branche sur la spec 001)', () => {
     };
     expect(Episode.safeParse(pollue).success).toBe(false);
   });
+});
+
+/**
+ * Les formes d'un meme numero francais.
+ *
+ * Le trou de la v1 vivait exactement entre deux motifs : TEL_FR refusait un
+ * separateur apres l'indicatif, TEL_INTL excluait l'indicatif francais. Un
+ * numero ecrit « +33 6 12 34 56 78 » n'etait donc reclame par personne. Ce
+ * tableau enumere les formes qu'un humain ecrit reellement, parce que c'est la
+ * seule facon de ne pas re-creuser le meme trou ailleurs.
+ */
+describe('TEL_FR couvre les formes reellement ecrites (v2)', () => {
+  const formes = [
+    '+33 6 12 34 56 78',
+    '+33612345678',
+    '+33-6-12-34-56-78',
+    '+33.6.12.34.56.78',
+    '06 12 34 56 78',
+    '0612345678',
+    '06.12.34.56.78',
+    '06-12-34-56-78',
+    '+33 1 45 67 89 01',
+  ];
+
+  for (const forme of formes) {
+    it(`detecte « ${forme} »`, () => {
+      const trouvees = chercherPii(`Ligne directe ${forme} merci`);
+      expect(trouvees.map((o) => o.type)).toContain('TEL_FR');
+    });
+  }
+
+  const jamais = [
+    'Reference interne 2026-08-26',
+    'Version 1.2.3 du connecteur',
+    'Montant 1 234,56 EUR',
+    'Code postal 75011 Paris',
+    'Piste ouverte il y a 12 jours',
+  ];
+
+  for (const texte of jamais) {
+    it(`ne se declenche pas sur « ${texte} »`, () => {
+      expect(chercherPii(texte).map((o) => o.type)).not.toContain('TEL_FR');
+    });
+  }
 });

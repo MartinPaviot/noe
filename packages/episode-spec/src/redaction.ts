@@ -10,7 +10,14 @@
  * interprétable même si `v2` durcit les motifs.
  */
 
-export const VERSION_MOTIFS = 1;
+/**
+ * Version 2 : `TEL_FR` accepte un séparateur après `+33`.
+ *
+ * La v1 laissait passer « +33 6 12 34 56 78 » en clair. Le numéro de version
+ * existe précisément pour ça — un corpus jugé sous v1 reste interprétable, et on
+ * sait que sa redaction téléphonique était plus faible.
+ */
+export const VERSION_MOTIFS = 2;
 
 export type MotifPii = {
   readonly type: string;
@@ -33,9 +40,18 @@ export const MOTIFS_PII: readonly MotifPii[] = [
   },
   {
     type: 'TEL_FR',
-    source: '(?:\\+33|0)[1-9](?:[ .-]?\\d{2}){4}',
+    // Le séparateur après `+33` est OPTIONNEL mais doit être permis.
+    //
+    // La v1 écrivait `(?:\+33|0)[1-9]`, qui exige le chiffre collé à l'indicatif.
+    // Or « +33 6 12 34 56 78 » — la façon la plus courante d'écrire un mobile
+    // français à l'international — tombait alors dans un trou : TEL_FR le
+    // refusait faute de séparateur permis, et TEL_INTL l'excluait explicitement
+    // par son `(?!33)`. Le numéro traversait la redaction en clair.
+    //
+    // Trouvé par les vecteurs partagés avant qu'aucune capture réelle ne tourne.
+    source: '(?:\\+33[ .-]?|0)[1-9](?:[ .-]?\\d{2}){4}',
     drapeaux: 'g',
-    note: 'numero francais, avec ou sans separateurs',
+    note: 'numero francais, indicatif +33 ou 0, avec ou sans separateurs',
   },
   {
     type: 'TEL_INTL',
