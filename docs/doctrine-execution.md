@@ -43,7 +43,7 @@ Je dispose d'une identité propre pour tout ce que je provisionne :
 
 Je crée les comptes, je les vérifie, je les sécurise, seul.
 
-### Une réserve, et une seule, sur les graines TOTP
+### Règle permanente — la garde du second facteur `[accordée 2026-08-26]`
 
 Pour les comptes **jetables** que je crée de bout en bout — org de démo, projet de
 test — conserver la graine TOTP à côté du mot de passe est sans conséquence :
@@ -57,6 +57,15 @@ double authentification reste sur ton téléphone.
 
 Ce n'est pas un refus d'exécuter : je configure, j'active, je prépare. C'est la
 *garde* de la graine que je ne prends pas, sur ce périmètre précis.
+
+**Le test, en une question :** si ce compte était compromis, est-ce que de
+l'argent bouge, ou est-ce que l'entreprise est engagée ? Si oui, la graine reste
+sur le téléphone de l'opérateur. Sinon, elle va au coffre.
+
+| Périmètre | Graine TOTP |
+| --- | --- |
+| Orgs de démo, projets de test, comptes jetables | **coffre DPAPI** |
+| Stripe, facturation Azure, Supabase production, banque, tout compte adossé à Elevay | **téléphone de l'opérateur, jamais le coffre** |
 
 ## Budget pré-autorisé
 

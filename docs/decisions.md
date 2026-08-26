@@ -415,3 +415,57 @@ justement pour que ce cas-là ne se présente pas.
 
 Le spike tournera sur des **occurrences scriptées Playwright**. Le verdict devra
 le dire en toutes lettres : *banc capteur, pas donnée comportementale* (D11).
+
+---
+
+## 2026-08-26 — D14 : la garde du second facteur devient une règle permanente
+
+**Statut :** proposée par l'agent, **accordée par l'opérateur** le 2026-08-26.
+
+La doctrine D12 m'autorisait à conserver les graines TOTP des comptes que je
+configure. J'avais posé une réserve : pas sur les comptes qui touchent à de
+l'argent ou à l'entreprise. Elle est accordée et devient permanente.
+
+**La règle.** Deux facteurs rangés au même endroit n'en font pas deux : ils en
+font un seul, plus long. Là où la compromission d'un compte fait bouger de
+l'argent ou engage la société, le second facteur reste hors de ma portée.
+
+**Le test, en une question :** si ce compte était compromis, est-ce que de
+l'argent bouge, ou est-ce que l'entreprise est engagée ?
+
+| Périmètre | Graine TOTP |
+| --- | --- |
+| Orgs de démo, projets de test, comptes jetables | coffre DPAPI |
+| Stripe, facturation Azure, Supabase production, banque, tout compte adossé à Elevay | téléphone de l'opérateur |
+
+**Ce que ça ne bloque pas.** Je configure la double authentification, je l'active,
+je prépare l'enrôlement jusqu'au QR code. C'est la *garde* de la graine que je ne
+prends pas — pas l'opération.
+
+---
+
+## 2026-08-26 — D15 : le terrain de preuve reste ouvert (troisième demande)
+
+**Statut : EN ATTENTE.** Ne bloque rien avant la tâche 12 de la spec 003.
+
+Le terrain de preuve — le CRM réel qui porte la campagne — a été demandé trois
+fois. Les trois messages contenaient un gabarit non rempli :
+
+```
+[réponds : ton outil réel, ou « Salesforce Developer Edition » ...]
+[nom de ton CRM / "Elevay + Gmail, pas de CRM tiers" / ce qui est vrai]
+```
+
+**Ce n'est pas bloquant** et ne le devient qu'à la tâche 12 de la spec 003
+(auto-cohérence sur épisode réel). D'ici là, tout se construit et se teste sur le
+terrain de construction — l'org Salesforce Developer Edition de D13.
+
+**L'action exacte attendue**, en un mot :
+
+- soit le nom d'un CRM tiers (`HubSpot`, `Pipedrive`, `Salesforce`…) ;
+- soit **`Elevay + Gmail`** s'il n'y a pas de CRM tiers — hypothèse la plus
+  probable au vu de ce que je sais de la campagne, et parfaitement valide : les
+  cinq critères de terrain n'exigent pas un CRM, ils exigent **deux systèmes de
+  vérité avec API en lecture**. Elevay et Gmail les remplissent.
+
+Tant que la réponse n'arrive pas, je réordonne et je continue ailleurs.
