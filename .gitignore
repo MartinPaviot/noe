@@ -17,3 +17,10 @@ coverage/
 
 # Artefacts de build Rust
 target/
+
+# Artefacts transitoires de Playwright : sorties d'echec, rapports, traces.
+# Les BASELINES, elles, sont versionnees (tests/visuel/__screenshots__).
+test-results/
+playwright-report/
+blob-report/
+.playwright/
