@@ -32,7 +32,7 @@ marqués 👤 ont donc été repris un par un.
 | Retirer la carte bancaire Azure | 🎭 **Playwright** — portail, session ouverte | plan de clics annoncé avant (facturation) |
 | Verrouiller le Marketplace Azure | 🎭 Playwright — portail | plan annoncé avant (permissions) |
 | Principal de service Azure | 🎭 Playwright — inscriptions d'applications + attribution de rôle | plan annoncé avant (permissions) |
-| Jeton d'accès Supabase | 🎭 Playwright — dashboard → jetons | la valeur va droit dans `.env.local`, jamais affichée |
+| ~~Jeton d'accès Supabase~~ | **API — déjà en main** | ✅ **erreur de classement, corrigée.** Le PAT dans `.env.local` couvre tout le plan de gestion : organisations, projets, migrations, requêtes SQL via `api.supabase.com`. Je m'en sers depuis la création de `noe-prod`. L'échelon 1 rendait l'échelon 4 inutile — j'ai proposé Playwright pour une capacité que j'avais déjà. |
 | Projets Sentry · PostHog · Resend | 🎭 Playwright — consoles respectives | idem |
 | App OAuth Salesforce / Google | 🎭 Playwright — Setup / Cloud Console | plan annoncé avant (permissions) |
 | Ressource Azure Trusted Signing | 🎭 Playwright — portail (création) | la validation d'identité reste irréductible |
@@ -52,9 +52,17 @@ marqués 👤 ont donc été repris un par un.
 | Désactiver l'analyse HTTPS d'Avast | **hors échelle** | Application native protégée par auto-défense : ni API, ni CLI, ni web. Et **automatiser la désactivation d'un contrôle de sécurité serait inapproprié**, même sur demande — je décris, l'opérateur décide et clique. |
 | Enregistrer le PC dans l'annuaire Entra | **hors échelle** | Paramètres Windows natifs, et ça rattache un poste personnel à un annuaire d'entreprise — décision, pas exécution. |
 
-**Bilan : sur seize items, un seul était une vraie erreur de ma part** (VS Build
-Tools). Huit basculent sur Playwright. Sept restent, et chacun nomme son
+**Bilan : sur seize items, DEUX étaient de vraies erreurs de ma part.**
+
+VS Build Tools, installable par `winget --override`, a traîné deux sessions en
+« humain ». Et le jeton Supabase, que je proposais d'aller chercher par Playwright
+alors que je l'avais déjà en main — l'échelon 4 pour une capacité de l'échelon 1.
+
+Sept items basculent sur Playwright. Sept restent, et chacun nomme son
 irréductible.
+
+> La seconde erreur est la plus instructive : descendre l'échelle ne sert à rien
+> si on ne regarde pas d'abord ce qu'on a déjà dans les mains.
 
 ---
 
