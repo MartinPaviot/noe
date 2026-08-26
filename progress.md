@@ -151,3 +151,68 @@ socle : le spike est une mesure, pas une feature, et le harness ne l'attend pas.
 `specs/002-capture/requirements.md`, nourrie du verdict du spike.
 
 ---
+
+## Session — 2026-08-26 · Spike DOM (D20) et amendement de la spec 002
+
+### Fait
+
+Le **spike DOM** est construit, mesuré, et son verdict est consigné dans
+`docs/spike-verdict-dom.md`. Zone **VERT** de la grille pré-enregistrée : trois
+exécutions indépendantes contre l'org de démo donnent **100 %** de stabilité
+post-pipeline (seuil 90), **100 %** de couverture, **0,02 %** de surcoût CPU
+in-page (seuil 5).
+
+Le résultat qui commande la conception : **l'enrichissement dégrade la
+stabilité**, comme au spike UIA. Le nom accessible normalisé tient 100 % partout ;
+ajouter les `data-*` en bloc fait tomber à 80 %. L'analyse clé par clé nomme le
+responsable, `data-aura-rendered-by` (81,8 %), un identifiant de rendu qui
+traverse la normalisation intact. Les `data-*` entreront donc dans l'ancrage par
+**liste blanche sémantique**, jamais en bloc.
+
+La **spec 002 existe enfin en fichiers**. Son texte ne vivait que dans un
+message : on la citait de mémoire depuis des sessions. Extraite de la
+transcription, déposée sans reformulation, puis amendée D19/D20 — `DomSource` à
+côté de `UiaSource`, tâche 0bis, tâche 6 dédoublée en 6a/6b + 6c/6d, R2.5 à R2.7,
+section Impact inter-specs complétée. Tâches 0 et 0bis cochées.
+
+### Ce que la mesure m'a contredit
+
+Quatre défauts trouvés **par** le spike, dont trois étaient les miens :
+
+- Mon banc témoin fabriquait un `change` avec `composed: true`, ce qu'aucun
+  navigateur ne fait. Il validait au vert un capteur **aveugle** aux changements
+  de valeur. Depuis : événements natifs uniquement.
+- J'ai affirmé que les racines shadow fermées empêchaient la capture. **Faux** :
+  270 racines, **270 ouvertes, 0 fermée**. J'avais bâti l'hypothèse sur une
+  absence d'événements sans la vérifier.
+- Le ciblage par index dérivait à chaque clic — **76,9 % puis 7,7 %** sur le même
+  protocole. Je mesurais mon propre script.
+- Un tampon in-page ne survit pas à une navigation : la première phase large a
+  perdu **100 %** de ses observations.
+
+D22 reclasse un chiffre qui aurait mal vieilli : les **34,5 %** d'UIA ont été
+mesurés sur Salesforce **dans un navigateur**, soit la classe de surface que D19
+lui retire. Ils justifient le repli ; ils ne caractérisent pas le `UiaSource`,
+dont la stabilité sur applications natives reste **non mesurée**.
+
+### Vert
+
+`pnpm verify` — 129 tests, 12 fichiers. Deux commits : `51c9309` (spike +
+verdict), `1fd0e05` (spec 002 + D22/D23).
+
+### Prochaine tâche
+
+Spec 002, **tâche 1** — squelette Tauri v2 : tray 3 états, menu, hotkeys globaux
+début/fin, CI `windows-latest` verte. Puis tâche 2 (traits `CaptureSource` +
+`Clock`, `FakeSource` + `FakeClock`), qui débloque tout R1-R6 en CI.
+
+### En attente
+
+Rien. Aucun des quatre irréductibles n'a été touché.
+
+### Coûts
+
+Inchangés : Supabase `noe-prod` ~10 €/mois, Azure sur crédits. Le spike DOM n'a
+rien coûté — org de démo, Chrome local, aucun appel modèle.
+
+---
