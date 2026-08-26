@@ -28,7 +28,7 @@ Les regles longues vivent dans `docs/invariants.md` ; ci-dessous le strict neces
 3. **Une feature par session, verifiee de bout en bout, commit a chaque vert.**
 4. **Les episodes sont immuables ; tout trou de capture est un evenement de
    premiere classe.** On ne rebouche jamais un trou en silence : on l'enregistre.
-5. **Jamais un secret dans un fichier suivi.** `.env` local uniquement ;
+5. **Jamais un secret dans un fichier suivi.** `.env.local` uniquement ;
    `.env.example` documente les noms de cles, jamais les valeurs.
 
 ## Etat

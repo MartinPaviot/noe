@@ -47,7 +47,7 @@ dégrade honnêtement un verdict ; un trou invisible le falsifie.
 
 ## V. Jamais un secret dans un fichier suivi
 
-`.env` est local et ignoré. `.env.example` documente les noms de clés avec des
+`.env.local` est local et ignoré. `.env.example` documente les noms de clés avec des
 valeurs factices. `gitleaks` tourne sur l'historique complet à chaque push.
 En cas de fuite : révoquer chez l'émetteur d'abord, réécrire l'historique ensuite.
 

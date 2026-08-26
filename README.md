@@ -38,7 +38,7 @@ pnpm install
 pnpm verify        # lint + typecheck + tests, ce que la CI exécute
 ```
 
-Puis copiez `.env.example` en `.env` et suivez
+Puis copiez `.env.example` en `.env.local` et suivez
 [`docs/setup-checklist.md`](docs/setup-checklist.md).
 
 ## Les cinq règles

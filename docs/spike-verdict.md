@@ -46,7 +46,7 @@
 
 ## 6. Conséquences
 
-- [ ] `.env` mis à jour avec le déploiement retenu
+- [ ] `.env.local` mis à jour avec le déploiement retenu
 - [ ] `features.json` : F01 passe à `true` **si et seulement si** le juge est vert
 - [ ] Les features dépendantes sont réordonnées si le terrain a changé
 

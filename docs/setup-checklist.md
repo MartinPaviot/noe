@@ -113,45 +113,61 @@ te donne le lien et le code dans la foulée.
 > `NODE_EXTRA_CA_CERTS` posées pendant la session 0 restent inoffensives une fois
 > l'interception coupée : le bundle contient les 147 CA publics standard en plus.
 
-### 👤 B.0-bis — Aucun annuaire Azure sur l'identité (constaté 4×)
+### 👤 B.0-bis — `az` bloqué par une stratégie d'accès conditionnel
 
-L'interception TLS étant levée, `az login` **réussit**. Mais Azure Resource
-Manager répond vide, de façon reproductible (4 connexions, dont 2 avec
-`--allow-no-subscriptions`, qui existe pour enregistrer un compte au niveau
-annuaire justement quand il n'y a pas de souscription) :
+**Diagnostic final.** La souscription existe, l'identité est valide. C'est
+l'**accès programmatique** que l'annuaire refuse.
 
 ```
-identite      : martin.paviot@outlook.com   (confirmee par l'utilisateur)
-tenants       : 0
-subscriptions : 0
+souscription : ee682451-5956-49b0-8800-9e3d4a2eec03
+annuaire     : 05becca6-1dde-495f-a03c-4e0282f1a7c8  (Entra ID organisation, UE)
+identite     : martin.paviot@outlook.com  -> authentifiee avec succes
+blocage      : AADSTS530035, appareil "Unregistered"
+               puis "connexion reussie mais non autorise a acceder a cette ressource"
 ```
 
-**Zéro annuaire**, pas seulement zéro souscription. Le poste ne porte par
-ailleurs aucune trace d'Azure : pas de profil du module PowerShell `Az`, pas
-d'`azd`, aucun `.env` avec une variable Azure. L'historique shell montre
-`@ai-sdk/openai` et `npm install openai` — **l'autre projet utilise OpenAI en
-direct, pas Azure OpenAI.**
+L'annuaire a été découvert en interrogeant ARM **sans jeton** : la réponse 401
+porte un en-tête `WWW-Authenticate` contenant `authorization_uri`, donc l'ID du
+tenant. Technique réutilisable pour n'importe quelle souscription orpheline :
+
+```sh
+curl -i "https://management.azure.com/subscriptions/<SUB-ID>?api-version=2022-12-01"
+```
 
 **Hypothèses éliminées** — ne pas les retenter :
 
 | Hypothèse | Test | Résultat |
 | --- | --- | --- |
-| Interception TLS d'Avast | analyse HTTPS désactivée | levée, `az login` réussit |
-| Mauvais navigateur (Edge/Comet) | page ouverte explicitement dans **Chrome** | identique, `[]` |
-| Contexte non persisté | `msal_token_cache.bin` = 8,7 Ko | jeton bien persisté ; c'est `azureProfile.json` qui reste vide, faute de souscription à inscrire |
-| Extension `account` manquante | `use_dynamic_install=yes_without_prompt` | sans effet, ARM répond vide en amont |
-| Souscription désactivée | `az account list --all` | vide aussi |
+| Interception TLS d'Avast | analyse HTTPS désactivée | ✅ levée — c'était un vrai blocage, mais pas le dernier |
+| Mauvais navigateur | page ouverte dans Chrome, puis Chrome privé | identique |
+| Mauvais annuaire | `--tenant 05becca6-…` | bon annuaire, mais bloqué plus loin |
+| Flux device-code | `--use-device-code` | **refusé** — AADSTS530035 |
+| Broker WAM Windows | `core.enable_broker_on_windows=false` | contourne la fenêtre native, mais l'autorisation reste refusée |
+| Crédits non activés | — | ❌ **faux** : la souscription existe bel et bien |
 
-Founders Hub et Azure sont deux systèmes distincts : le premier gère un droit de
-tirage, le second des ressources. Les crédits peuvent exister sans qu'aucun
-annuaire n'ait jamais été créé — c'est la lecture cohérente avec tout ce qui
-précède.
+**La cause est une décision d'administrateur du tenant**, pas un défaut d'outil :
+l'accès programmatique depuis un appareil non enregistré est interdit. On ne la
+contourne pas — on utilise la voie prévue.
 
-- [ ] 👤 <https://www.microsoft.com/en-us/startups/dashboard> → **Benefits** →
-      carte **Azure credits** → s'il reste un bouton **Activate / Claim**, c'est
-      l'explication complète : cliquer, ce qui provisionne la souscription
-- [ ] 👤 *Ou*, si le portail montre bien une souscription : relever son **ID**
-      (ou celui de l'annuaire) et me le donner → `az login --tenant <id>`
+- [ ] 👤 **Principal de service** (voie recommandée, insensible aux stratégies
+      d'accès conditionnel des utilisateurs — c'est ainsi que fonctionne toute
+      CI/CD Azure). Dans le portail, qui lui fonctionne :
+      1. **Inscriptions d'applications** → **Nouvelle inscription** → `noe-cli`,
+         ce répertoire uniquement, pas d'URI de redirection
+      2. **Certificats et secrets** → **Nouveau secret client** → copier la valeur
+         *immédiatement* (elle ne se réaffiche jamais)
+      3. Souscription `ee682451-…` → **Contrôle d'accès (IAM)** → **Ajouter une
+         attribution de rôle** → **Contributeur** → membre `noe-cli`
+      4. `az login --service-principal -u <ID_CLIENT> -p <SECRET> --tenant 05becca6-1dde-495f-a03c-4e0282f1a7c8`
+- [ ] 👤 *Ou* enregistrer ce PC dans l'annuaire — **Paramètres Windows → Comptes →
+      Accès Professionnel ou Scolaire → Connecter**. Plus simple, mais rattache un
+      poste personnel à l'annuaire de la société.
+
+> **Rien de tout ceci n'est requis pour F01.** Le spike a besoin d'**appeler** des
+> modèles, pas d'en **provisionner**. Une clé d'API suffit — voir `.env.example`,
+> section « Étage d'exécution ». L'accès ARM ne redevient nécessaire que si le
+> verdict du spike désigne Azure OpenAI et qu'il faut alors créer une ressource
+> dédiée avec ses budgets.
 
 > ⚠️ **Rien de tout ceci n'est sur le chemin critique.** Azure ne sert qu'à F01,
 > et F01 est bloqué par l'absence du prompt maître. Le spike n'a pas non plus
@@ -207,7 +223,7 @@ az cognitiveservices account deployment create -n noe-openai -g noe-rg \
   --sku-name Standard --sku-capacity 20
 ```
 
-Endpoint et clé partent dans `.env`, **jamais** dans un fichier suivi.
+Endpoint et clé partent dans `.env.local`, **jamais** dans un fichier suivi.
 
 ### Anthropic — hors Azure, à dessein
 
@@ -227,7 +243,7 @@ avant le verdict.
 - App OAuth en **mode test**, sur ton compte réel
 - **Sous un domaine neutre** — jamais le domaine Elevay. C'est la seule pièce
   réellement collante du montage : elle se démêle très mal après coup.
-- Redirect URI en `localhost`, clés dans `.env` local, jamais commitées
+- Redirect URI en `localhost`, clés dans `.env.local` local, jamais commitées
 
 ### Variante A — Salesforce
 
@@ -251,7 +267,7 @@ avant le verdict.
 - [ ] Save → attendre ~10 min la propagation
 - [ ] App Manager → ta app → **View** → **Manage Consumer Details** →
       copier **Consumer Key** et **Consumer Secret**
-- [ ] Les coller dans `.env` : `SALESFORCE_CLIENT_ID` / `SALESFORCE_CLIENT_SECRET`
+- [ ] Les coller dans `.env.local` : `SALESFORCE_CLIENT_ID` / `SALESFORCE_CLIENT_SECRET`
 
 > ⏱️ ~20 min dont 10 min d'attente de propagation.
 
@@ -280,7 +296,7 @@ avant le verdict.
 - [ ] **Credentials** → **Create Credentials** → **OAuth client ID**
 - [ ] **Application type** : **Desktop app** · **Name** : `Noe desktop (dev)`
 - [ ] Créer → copier **Client ID** et **Client secret**
-- [ ] Les coller dans `.env` : `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
+- [ ] Les coller dans `.env.local` : `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
 - [ ] `GOOGLE_REDIRECT_URI=http://localhost:53683/callback`
 
 > ⏱️ ~20 min. Le mode *Testing* limite à 100 testeurs et force un
@@ -388,7 +404,7 @@ Seul le test subsiste. Un `stripe login` la réinstallera le jour du gate live.
 Comptes existants → **nouveaux projets et clés dédiés Noe**, jamais les clés Elevay.
 
 - [ ] 👤 Fournir les tokens d'API si tu veux que l'agent crée les projets par CLI
-- [ ] Sinon : créer les 3 projets à la main, coller les clés dans `.env`
+- [ ] Sinon : créer les 3 projets à la main, coller les clés dans `.env.local`
 
 ### 👤 E.5 — Signature Windows : Azure Trusted Signing
 

@@ -18,7 +18,7 @@ Concretement :
 
 ## Secrets
 
-Aucun secret n'est commite. `.env` est ignore par git ; `.env.example` documente
+Aucun secret n'est commite. `.env.local` est ignore par git ; `.env.example` documente
 les noms de variables avec des valeurs factices. La CI execute `gitleaks` sur
 l'historique complet a chaque push et chaque pull request, et echoue au premier
 hit.
