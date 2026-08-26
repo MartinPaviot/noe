@@ -37,7 +37,16 @@ const arg = (n, d) => {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : d;
 };
 
-const jour = new Date().toISOString().slice(0, 10);
+// Jour LOCAL, pas UTC.
+//
+// `toISOString` rend la date en temps universel : passe une certaine heure du
+// soir, la preuve du jour serait classee la veille. D26 parle de « journee de
+// build », c est-a-dire celle de l operateur.
+const jour = (() => {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+})();
 const sujet = arg('--sujet', 'etat');
 
 /** Lit une source de vérité du dépôt, jamais une valeur recopiée à la main. */
