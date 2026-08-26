@@ -89,3 +89,64 @@ déposé. Les modèles répondent, l'infrastructure est prête ; il manque les
 critères de décision.
 
 ---
+
+## Session 1 — Spec 001, le socle de preuve
+
+**Date :** 2026-08-26
+
+### Livré
+
+Les **15 tâches** de  sont vertes.
+
+- ** (MIT)** — schémas Zod du format d'épisode, invariants
+  au parse, règles de grade A/B/C avec motif, clôture gelante en profondeur,
+  , registre de migrateurs avec fixture v0.
+- ** (AGPL)** — normalisation, classement en cinq classes,
+  verdict, interface  sans I/O possible par construction, boucle de
+  rejeu déterministe, rapports texte et JSON, CLI .
+- **Corpus doré** — 5 épisodes écrits à la main, , fixture legacy.
+
+### Verdict mécanique
+
+\
+Gate de sortie vérifié sur un **clone frais** : Scope: all 6 workspace projects
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+packages/episode-spec prepare$ tsc -p tsconfig.build.json
+packages/episode-spec prepare: Done
+packages/harness prepare$ tsc -p tsconfig.build.json
+packages/harness prepare: Done
+Done in 6.3s using pnpm v10.15.1 produit
+le rapport attendu sans aucune autre commande.
+
+### Deux décisions de conception qui méritaient d'être prises
+
+** ne contient pas .** La politique parfaite doit
+rejouer le diff observé, mais lui donner la réponse par le contexte ouvrirait
+le même chemin à une vraie politique. Elle reçoit donc le corpus **à la
+construction**. L'absence d'I/O est garantie par le type, pas par la discipline.
+
+**Les rapports n'émettent jamais de valeur en clair.** Les chaînes sortent en
+empreinte . L'égalité reste visible — ce qu'un diff exige — sans que le
+contenu quitte le processus. Sans cela, le canary sweep aurait échoué à juste
+titre sur l'épisode (e).
+
+### Ce que les tests ont attrapé
+
+Le lint anti-contenu ratait les . Le corpus
+synthétique produisait des ULID de 25 caractères. Le binaire  n'existait
+pas sur un clone frais. Trois trous trouvés par des tests écrits avant de les
+constater.
+
+### État des features
+
+**F02, F03, F04 passent à ** — les premiers du projet, et ils viennent
+d'un verdict mécanique reproductible. F01 est réordonné après le socle : le
+spike est une mesure, pas une feature.
+
+### Prochaine session
+
+, nourrie du verdict du spike.
+
+---
