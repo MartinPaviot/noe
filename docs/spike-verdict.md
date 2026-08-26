@@ -1,55 +1,67 @@
-# Verdict du spike — F01
+# Verdict du spike — capteur UIA
 
-> **Template. Non rempli.** La session 1 remplit ce fichier ; tant qu'il porte
-> ce bandeau, `F01.passes` reste `false`.
+> **Pré-rempli automatiquement** depuis `spikes/capteur-uia/resultats/spike-{globale,focus}.json` le 2026-08-26.
+> Les chiffres viennent de la mesure ; la décision reste à signer.
 >
-> Règle : ce verdict s'appuie sur un rejeu chiffré et reproductible, pas sur une
-> impression. Les critères de choix du terrain sont dans `docs/prompt-maitre-v0.md`.
+> Application cible : **Salesforce Lightning (org de demo)**
 
 ## 1. Question tranchée
 
-<!-- Une phrase. Quelle décision ce spike ferme-t-il ? -->
+Laquelle des deux stratégies d'abonnement UIA tient le budget d'empreinte tout en
+produisant des signatures de ciblage stables — et avec quels paramètres de walker.
 
-## 2. Choix du terrain
+## 2. Les trois nombres
 
-| Critère | Poids | Terrain A (Salesforce) | Terrain B (Google Workspace) |
-| --- | --- | --- | --- |
-| _critère 1 du prompt maître_ | | | |
-| _critère 2_ | | | |
-| _critère 3_ | | | |
-| _critère 4_ | | | |
-| _critère 5_ | | | |
-| **Total** | | | |
-
-**Terrain retenu :** <!-- A ou B --> — **motif :** <!-- une phrase -->
-
-## 3. Étage exécution : protocole de comparaison
-
-- **Corpus utilisé :** <!-- chemin, empreinte, nombre d'épisodes -->
-- **Modèles comparés :** <!-- déploiements exacts, versions, dates -->
-- **Métriques :** <!-- ce que le juge mesure, avec les seuils -->
-- **Commande de reproduction :** <!-- la commande exacte, copiable -->
-
-## 4. Résultats
-
-| Modèle | Métrique 1 | Métrique 2 | Coût / épisode | Latence p50 | Latence p95 |
+| Stratégie | Stabilité rôle+nom | Couverture actions d'état | CPU p95 (fenêtres 30 s) | RAM max | Observé/déclaré |
 | --- | --- | --- | --- | --- | --- |
-| | | | | | |
+| **globale** | 37.0 % ❌ | 100.0 % ✅ | 4.39 % ✅ | 19.7 Mo | 187/15 |
+| **focus** | 0.0 % ❌ | 0.0 % ❌ | 5.75 % ❌ | 19.3 Mo | 0/15 |
 
-## 5. Verdict
+Seuils : CPU < 5 % (R7.1) · stabilité ≥ 90 % · couverture ≥ 100 %.
 
-**Étage exécution retenu :** <!-- modèle + déploiement -->
+**Stabilité** = part des signatures `rôle|nom` d'actions d'état communes à
+**toutes** les occurrences. Une signature qui n'apparaît que dans certaines
+répétitions n'est pas un point d'ancrage fiable.
 
-**Motif :** <!-- deux phrases maximum, appuyées sur le tableau ci-dessus -->
+**Couverture** = actions d'état observées ÷ actions d'état déclarées par
+l'opérateur à chaque occurrence.
 
-**Ce que ce verdict n'affirme pas :** <!-- les limites du spike, honnêtement -->
+## 3. Paramètres du walker
+
+| Stratégie | Nœuds p50 | Nœuds p95 | Profondeur max | Durée p95 | Tronqués |
+| --- | --- | --- | --- | --- | --- |
+| **globale** | 0 | 0 | 0 | 0 ms | 0 % |
+| **focus** | 1 | 228 | 9 | 429 ms | 0 % |
+
+Budgets éprouvés : profondeur max **12**, nœuds max **1500**.
+
+<!-- Si « tronqués » est élevé, le budget est trop serré pour cette application :
+     remonter le plafond de noeuds et remesurer avant de conclure. -->
+
+## 4. Recommandation du script
+
+**Stratégie : globale filtrée** — seule à tenir le budget CPU.
+
+> Ce n'est qu'une lecture mécanique des seuils. Si elle contredit ce que tu as
+> observé pendant la session, c'est ton observation qui tranche : note pourquoi
+> juste en dessous.
+
+**Ce que je retiens :**
+<!-- à remplir -->
+
+## 5. Ce que ce spike n'affirme pas
+
+- Une seule application cible, un seul poste, un seul opérateur.
+- La stabilité est mesurée sur des occurrences **consécutives** : elle ne dit rien
+  de la résistance à une mise à jour de l'application.
+- La couverture dépend d'un comptage déclaratif, donc faillible.
 
 ## 6. Conséquences
 
-- [ ] `.env.local` mis à jour avec le déploiement retenu
-- [ ] La tâche 0 de `specs/002-capture-bornee/tasks.md` est cochée
-- [ ] Les tâches dépendantes de la spec 002 sont réordonnées si le terrain a changé
+- [ ] Inscrire la stratégie retenue dans `specs/002-capture-bornee/design.md` §2
+- [ ] Inscrire les paramètres du walker dans le même §2
+- [ ] Cocher la tâche 0 de `specs/002-capture-bornee/tasks.md`
 
 ---
 
-**Date :** <!-- AAAA-MM-JJ -->  ·  **Signé :** <!-- nom -->
+**Date :** 2026-08-26  ·  **Signé :** <!-- ton nom -->

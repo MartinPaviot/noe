@@ -1,0 +1,92 @@
+- generic [active]:
+  - generic:
+    - generic [ref=f32e2]:
+      - generic [ref=f32e3]:
+        - link [ref=f32e238] [cursor=pointer]:
+          - /url: javascript:void(0);
+          - text: Aller à la navigation
+        - link [ref=f32e239] [cursor=pointer]:
+          - /url: javascript:void(0);
+          - text: Aller au contenu principal
+        - generic [ref=f32e9]:
+          - generic [ref=f32e13]:
+            - button [ref=f32e240] [cursor=pointer]:
+              - generic [ref=f32e24]: Menu
+            - generic [ref=f32e25]: Developer Edition
+          - button [ref=f32e241] [cursor=pointer]:
+            - generic [ref=f32e50]: Show menu
+        - generic [ref=f32e51]:
+          - button [ref=f32e242]: Rechercher...
+          - navigation [ref=f32e243]:
+            - list [ref=f32e64]:
+              - listitem [ref=f32e65]:
+                - group [ref=f32e66]:
+                  - button [ref=f32e244] [cursor=pointer]
+                  - button [ref=f32e245] [cursor=pointer]
+              - listitem [ref=f32e85]:
+                - button [ref=f32e250] [cursor=pointer]
+              - listitem [ref=f32e258]:
+                - button [ref=f32e260] [cursor=pointer]
+              - listitem [ref=f32e94]:
+                - button [ref=f32e268] [cursor=pointer]
+              - listitem [ref=f32e105]:
+                - button [ref=f32e269] [cursor=pointer]
+              - listitem [ref=f32e119]:
+                - button [ref=f32e270] [cursor=pointer]
+              - listitem [ref=f32e132]:
+                - button [ref=f32e271] [cursor=pointer]
+      - generic [ref=f32e138]:
+        - generic [ref=f32e141]:
+          - generic [ref=f32e143]:
+            - navigation [ref=f32e274]:
+              - button [ref=f32e275] [cursor=pointer]:
+                - generic [ref=f32e147]: Lanceur d'application
+            - heading [level=1] [ref=f32e276]:
+              - generic [ref=f32e277]: Developer Edition
+          - navigation [ref=f32e278]:
+            - list [ref=f32e163]:
+              - listitem [ref=f32e164]:
+                - link [ref=f32e279] [cursor=pointer]:
+                  - /url: /lightning/n/devedapp__Welcome
+                  - generic [ref=f32e166]: Welcome
+        - main [ref=f32e168]
+    - 'dialog "Créer : piste" [ref=f32e280]':
+      - generic [ref=f32e178]:
+        - button "Annuler et fermer" [ref=f32e179] [cursor=pointer]
+        - generic [ref=f32e185]:
+          - generic [ref=f32e192]:
+            - 'heading "Créer : piste" [level=2] [ref=f32e282]'
+            - generic [ref=f32e194]:
+              - generic [ref=f32e283]: "* = Informations requises"
+              - generic [ref=f32e772]:
+                - generic "Annuler" [ref=f32e773]:
+                  - generic [ref=f32e776]:
+                    - generic:
+                      - button "Annuler" [disabled]
+                - generic "Enregistrer et Nouveau" [ref=f32e777]:
+                  - generic [ref=f32e780]:
+                    - generic:
+                      - button "Enregistrer et Nouveau" [disabled]
+                - generic "Enregistrer" [ref=f32e781]:
+                  - generic [ref=f32e784]:
+                    - generic:
+                      - button "Enregistrer" [disabled]
+          - status [ref=f32e237]
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: Réussi notification.
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - text: Piste «
+                    - link "Camille Berthier":
+                      - /url: javascript:void(0)
+                    - text: » a été créé(e).
+              - generic: Appuyez sur Ctrl + F6 pour accéder à la notification toast ou région focalisable suivante.
+            - generic:
+              - button "Fermer"
+    - status

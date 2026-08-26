@@ -1,0 +1,278 @@
+- generic:
+  - generic [ref=f32e2]:
+    - generic [ref=f32e3]:
+      - link "Aller à la navigation" [ref=f32e785] [cursor=pointer]:
+        - /url: javascript:void(0);
+      - link "Aller au contenu principal" [ref=f32e786] [cursor=pointer]:
+        - /url: javascript:void(0);
+      - generic [ref=f32e9]:
+        - generic [ref=f32e13]:
+          - button "Toggle Panel" [ref=f32e787] [cursor=pointer]:
+            - generic [ref=f32e24]: Menu
+          - generic [ref=f32e25]: Developer Edition
+        - button "Show menu" [ref=f32e788] [cursor=pointer]
+      - generic [ref=f32e51]:
+        - button "Rechercher" [ref=f32e789]: Rechercher...
+        - navigation "En-tête global" [ref=f32e790]:
+          - list [ref=f32e64]:
+            - listitem [ref=f32e65]:
+              - group [ref=f32e66]:
+                - button "Ajouter aux favoris" [ref=f32e791] [cursor=pointer]:
+                  - generic [ref=f32e69]:
+                    - tooltip "Ajouter aux favoris"
+                - button [ref=f32e792] [cursor=pointer]:
+                  - generic [ref=f32e78]:
+                    - tooltip "Liste de favoris"
+            - listitem [ref=f32e85]:
+              - button [ref=f32e793] [cursor=pointer]:
+                - generic [ref=f32e251]:
+                  - tooltip "Actions globales"
+            - listitem [ref=f32e258]:
+              - button [ref=f32e794] [cursor=pointer]:
+                - generic [ref=f32e261]:
+                  - tooltip "Guide de configuration"
+            - listitem [ref=f32e94]:
+              - button [ref=f32e795] [cursor=pointer]:
+                - generic [ref=f32e98]:
+                  - tooltip "Aide de Salesforce"
+            - listitem [ref=f32e105]:
+              - button [ref=f32e796] [cursor=pointer]:
+                - generic [ref=f32e112]:
+                  - tooltip "Configuration"
+            - listitem [ref=f32e119]:
+              - button [ref=f32e797] [cursor=pointer]:
+                - generic [ref=f32e123]:
+                  - tooltip "Notifications"
+            - listitem [ref=f32e132]:
+              - button "Afficher le profil" [ref=f32e798] [cursor=pointer]:
+                - generic [ref=f32e136]:
+                  - tooltip "Afficher le profil"
+    - generic [ref=f32e138]:
+      - generic [ref=f32e141]:
+        - generic [ref=f32e143]:
+          - navigation "Application" [ref=f32e799]:
+            - button "Lanceur d'application" [ref=f32e800] [cursor=pointer]
+          - heading "Developer Edition" [level=1] [ref=f32e801]
+        - navigation "Global" [ref=f32e803]:
+          - list [ref=f32e163]:
+            - listitem [ref=f32e164]:
+              - link "Welcome" [ref=f32e804] [cursor=pointer]:
+                - /url: /lightning/n/devedapp__Welcome
+      - main [ref=f32e168]:
+        - generic [ref=f32e815]:
+          - generic [ref=f32e824]:
+            - generic [ref=f32e825]:
+              - heading "Piste Camille Berthier" [level=1] [ref=f32e833]:
+                - generic [ref=f32e834]: Piste
+                - generic [ref=f32e836]: Camille Berthier
+              - button "S'abonner" [ref=f32e841] [cursor=pointer]
+              - generic [ref=f32e851]:
+                - generic "Nouvelle requête" [ref=f32e852]:
+                  - button "Nouvelle requête" [ref=f32e857] [cursor=pointer]
+                - generic "Nouvelle note" [ref=f32e858]:
+                  - button "Nouvelle note" [ref=f32e863] [cursor=pointer]
+                - generic "Soumettre pour approbation" [ref=f32e864]:
+                  - button "Soumettre pour approbation" [ref=f32e869] [cursor=pointer]
+                - button "Afficher plus d'actions" [ref=f32e871] [cursor=pointer]
+            - generic [ref=f32e877]:
+              - generic [ref=f32e879]:
+                - paragraph [ref=f32e880]: Fonction
+                - paragraph [ref=f32e881]:
+                  - generic [ref=f32e882]: Directrice des operations
+              - generic [ref=f32e884]:
+                - paragraph [ref=f32e885]: Société
+                - paragraph [ref=f32e886]:
+                  - generic [ref=f32e887]: Atelier Nordwind
+              - generic [ref=f32e889]:
+                - button [ref=f32e890] [cursor=pointer]:
+                  - paragraph [ref=f32e891]: Téléphone (2)
+                - list [ref=f32e899]:
+                  - generic [ref=f32e902]:
+                    - paragraph
+              - generic [ref=f32e904]:
+                - paragraph [ref=f32e905]: Adresse e-mail
+                - paragraph [ref=f32e906]:
+                  - link "camille.berthier@nordwind.example" [ref=f32e911] [cursor=pointer]:
+                    - /url: mailto:camille.berthier@nordwind.example
+          - article [ref=f32e920]:
+            - generic [ref=f32e921]:
+              - heading "Chemin" [level=2] [ref=f32e922]
+              - generic [ref=f32e925]:
+                - listbox "Options de chemin" [ref=f32e930]:
+                  - option "Open - Not Contacted" [selected] [ref=f32e931] [cursor=pointer]
+                  - option "Working - Contacted" [ref=f32e933] [cursor=pointer]
+                  - option "Closed - Not Converted" [ref=f32e935] [cursor=pointer]
+                  - option "Converti" [ref=f32e937] [cursor=pointer]
+                - button "Marquer Statut comme terminé(e)" [ref=f32e941] [cursor=pointer]
+          - generic [ref=f32e949]:
+            - generic [ref=f32e955]:
+              - heading "Onglets" [level=2] [ref=f32e956]
+              - generic "Onglets" [ref=f32e957]:
+                - generic [ref=f32e958]:
+                  - heading "Onglets" [level=2] [ref=f32e959]
+                  - tablist "Onglets" [ref=f32e961]:
+                    - tab "Activité" [ref=f32e962] [cursor=pointer]
+                    - tab "Détails" [active] [selected] [ref=f32e963] [cursor=pointer]
+                    - tab "Chatter" [ref=f32e964] [cursor=pointer]
+                  - tabpanel "Détails" [ref=f32e967]:
+                    - generic [ref=f32e980]:
+                      - list [ref=f32e984]:
+                        - generic [ref=f32e985]:
+                          - generic [ref=f32e987]:
+                            - listitem [ref=f32e989]:
+                              - generic [ref=f32e990]:
+                                - generic [ref=f32e991]: Propriétaire de la piste
+                                - generic [ref=f32e996]:
+                                  - generic [ref=f32e1003]:
+                                    - link "Martin Paviot" [ref=f32e1004] [cursor=pointer]:
+                                      - /url: /lightning/r/Name/005aj00000cF3MHAA0/view
+                                    - button "Prévisualiser" [ref=f32e1010] [cursor=pointer]
+                                  - button "Modifier le propriétaire" [ref=f32e1017] [cursor=pointer]
+                            - listitem [ref=f32e1024]:
+                              - generic [ref=f32e1025]:
+                                - generic [ref=f32e1026]: Téléphone
+                                - button "Modifier Téléphone" [ref=f32e1028] [cursor=pointer]
+                          - generic [ref=f32e1032]:
+                            - listitem [ref=f32e1034]:
+                              - generic [ref=f32e1035]:
+                                - generic [ref=f32e1036]: Nom complet
+                                - generic [ref=f32e1037]:
+                                  - generic [ref=f32e1038]: Camille Berthier
+                                  - button "Modifier Nom complet" [ref=f32e1040] [cursor=pointer]
+                            - listitem [ref=f32e1044]:
+                              - generic [ref=f32e1045]:
+                                - generic [ref=f32e1046]: Téléphone mobile
+                                - button "Modifier Téléphone mobile" [ref=f32e1048] [cursor=pointer]
+                          - generic [ref=f32e1052]:
+                            - listitem [ref=f32e1054]:
+                              - generic [ref=f32e1055]:
+                                - generic [ref=f32e1056]: Société
+                                - generic [ref=f32e1057]:
+                                  - generic [ref=f32e1058]: Atelier Nordwind
+                                  - button "Modifier Société" [ref=f32e1060] [cursor=pointer]
+                            - listitem [ref=f32e1064]:
+                              - generic [ref=f32e1065]:
+                                - generic [ref=f32e1066]: Télécopie
+                                - button "Modifier Télécopie" [ref=f32e1068] [cursor=pointer]
+                          - generic [ref=f32e1072]:
+                            - listitem [ref=f32e1074]:
+                              - generic [ref=f32e1075]:
+                                - generic [ref=f32e1076]: Fonction
+                                - generic [ref=f32e1077]:
+                                  - generic [ref=f32e1078]: Directrice des operations
+                                  - button "Modifier Fonction" [ref=f32e1080] [cursor=pointer]
+                            - listitem [ref=f32e1084]:
+                              - generic [ref=f32e1085]:
+                                - generic [ref=f32e1086]: Adresse e-mail
+                                - generic [ref=f32e1087]:
+                                  - link "camille.berthier@nordwind.example" [ref=f32e1093] [cursor=pointer]:
+                                    - /url: mailto:camille.berthier@nordwind.example
+                                  - button "Modifier Adresse e-mail" [ref=f32e1094] [cursor=pointer]
+                          - generic [ref=f32e1098]:
+                            - listitem [ref=f32e1100]:
+                              - generic [ref=f32e1101]:
+                                - generic [ref=f32e1102]: Origine de la piste
+                                - button "Modifier Origine de la piste" [ref=f32e1104] [cursor=pointer]
+                            - listitem [ref=f32e1108]:
+                              - generic [ref=f32e1109]:
+                                - generic [ref=f32e1110]: Site Web
+                                - button "Modifier Site Web" [ref=f32e1112] [cursor=pointer]
+                          - generic [ref=f32e1116]:
+                            - listitem [ref=f32e1118]:
+                              - generic [ref=f32e1119]:
+                                - generic [ref=f32e1120]: Secteur d'activité
+                                - button "Modifier Secteur d'activité" [ref=f32e1122] [cursor=pointer]
+                            - listitem [ref=f32e1126]:
+                              - generic [ref=f32e1127]:
+                                - generic [ref=f32e1128]: Statut de la piste
+                                - generic [ref=f32e1129]:
+                                  - generic [ref=f32e1130]: Open - Not Contacted
+                                  - button "Modifier Statut de la piste" [ref=f32e1132] [cursor=pointer]
+                          - generic [ref=f32e1136]:
+                            - listitem [ref=f32e1138]:
+                              - generic [ref=f32e1139]:
+                                - generic [ref=f32e1140]: Chiffre d'affaires annuel
+                                - button "Modifier Chiffre d'affaires annuel" [ref=f32e1142] [cursor=pointer]
+                            - listitem [ref=f32e1146]:
+                              - generic [ref=f32e1147]:
+                                - generic [ref=f32e1148]: Cote
+                                - button "Modifier Cote" [ref=f32e1150] [cursor=pointer]
+                          - listitem [ref=f32e1157]:
+                            - generic [ref=f32e1158]:
+                              - generic [ref=f32e1159]: Nombre d'employés
+                              - button "Modifier Nombre d'employés" [ref=f32e1161] [cursor=pointer]
+                      - list [ref=f32e1167]:
+                        - listitem [ref=f32e1172]:
+                          - generic [ref=f32e1173]:
+                            - generic [ref=f32e1174]: Adresse
+                            - button "Modifier Adresse" [ref=f32e1176] [cursor=pointer]
+                      - list [ref=f32e1183]:
+                        - generic [ref=f32e1184]:
+                          - generic [ref=f32e1186]:
+                            - listitem [ref=f32e1188]:
+                              - generic [ref=f32e1189]:
+                                - generic [ref=f32e1190]: Product Interest
+                                - button "Modifier Product Interest" [ref=f32e1192] [cursor=pointer]
+                            - listitem [ref=f32e1196]:
+                              - generic [ref=f32e1197]:
+                                - generic [ref=f32e1198]: Current Generator(s)
+                                - button "Modifier Current Generator(s)" [ref=f32e1200] [cursor=pointer]
+                          - generic [ref=f32e1204]:
+                            - listitem [ref=f32e1206]:
+                              - generic [ref=f32e1207]:
+                                - generic [ref=f32e1208]: SIC Code
+                                - button "Modifier SIC Code" [ref=f32e1210] [cursor=pointer]
+                            - listitem [ref=f32e1214]:
+                              - generic [ref=f32e1215]:
+                                - generic [ref=f32e1216]: Primary
+                                - button "Modifier Primary" [ref=f32e1218] [cursor=pointer]
+                          - listitem [ref=f32e1224]:
+                            - generic [ref=f32e1225]:
+                              - generic [ref=f32e1226]: Number of Locations
+                              - button "Modifier Number of Locations" [ref=f32e1228] [cursor=pointer]
+                      - list [ref=f32e1235]:
+                        - generic [ref=f32e1238]:
+                          - listitem [ref=f32e1240]:
+                            - generic [ref=f32e1241]:
+                              - generic [ref=f32e1242]: Créé par
+                              - generic [ref=f32e1246]:
+                                - generic [ref=f32e1252]:
+                                  - link "Martin Paviot" [ref=f32e1253] [cursor=pointer]:
+                                    - /url: /lightning/r/User/005aj00000cF3MHAA0/view
+                                  - button "Prévisualiser" [ref=f32e1259] [cursor=pointer]
+                                - text: ", 26/08/2026 17:47"
+                          - listitem [ref=f32e1266]:
+                            - generic [ref=f32e1267]:
+                              - generic [ref=f32e1268]: Dernière modification par
+                              - generic [ref=f32e1272]:
+                                - generic [ref=f32e1278]:
+                                  - link "Martin Paviot" [ref=f32e1279] [cursor=pointer]:
+                                    - /url: /lightning/r/User/005aj00000cF3MHAA0/view
+                                  - button "Prévisualiser" [ref=f32e1285] [cursor=pointer]
+                                - text: ", 26/08/2026 17:47"
+                      - list [ref=f32e1294]:
+                        - listitem [ref=f32e1299]:
+                          - generic [ref=f32e1300]:
+                            - generic [ref=f32e1301]: Description
+                            - button "Modifier Description" [ref=f32e1303] [cursor=pointer]
+            - generic [ref=f32e1311]:
+              - heading "Onglets" [level=2] [ref=f32e1312]
+              - generic "Onglets" [ref=f32e1313]:
+                - generic [ref=f32e1314]:
+                  - heading "Onglets" [level=2] [ref=f32e1315]
+                  - tablist "Onglets" [ref=f32e1317]:
+                    - tab "Associé" [selected] [ref=f32e1318] [cursor=pointer]
+                  - tabpanel "Associé" [ref=f32e1321]:
+                    - generic [ref=f32e1322]:
+                      - article [ref=f32e1327]:
+                        - generic "Nous n'avons trouvé aucun doublon potentiel pour cette piste." [ref=f32e1338]
+                      - article "Historique de la campagne" [ref=f32e1350]:
+                        - generic [ref=f32e1351]:
+                          - heading [level=2] [ref=f32e1357]:
+                            - link "Historique de la campagne (0)" [ref=f32e1358] [cursor=pointer]:
+                              - /url: /lightning/r/Lead/00Qaj00000uTdnJEAS/related/CampaignMembers/view
+                              - generic "Historique de la campagne" [ref=f32e1359]
+                              - generic "(0)" [ref=f32e1360]
+                          - button "Afficher les actions pour Historique de la campagne" [ref=f32e1364] [cursor=pointer]
+  - generic:
+    - status

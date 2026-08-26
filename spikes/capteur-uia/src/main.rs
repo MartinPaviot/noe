@@ -258,17 +258,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let debut = Instant::now();
 
     // --- abonnements : c'est ICI que les deux strategies different ----------
-    let portee = if strategie == "globale" {
-        TreeScope::Descendants
-    } else {
-        TreeScope::Element
-    };
-
-    let mut poignees: Vec<(UIEventType, UIEventHandler)> = Vec::new();
-    for &ev in EVENEMENTS_ETAT.iter().chain(&[UIEventType::StructureChanged]) {
-        let c = Arc::clone(&collecte);
-        let occ = Arc::clone(&occurrence);
-        let handler: UIEventHandler = (Box::new(move |sender: &UIElement, kind: UIEventType| {
+    //
+    // « globale » : un abonnement unique sur TOUT le bureau (Descendants).
+    // « focus »   : un abonnement sur le SOUS-ARBRE de la fenetre active, refait
+    //               quand la fenetre change. C'est la vraie difference — et c'est
+    //               ce que la v1 ratait : TreeScope::Element sur la racine ne
+    //               s'abonne qu'a la racine elle-meme, donc a rien.
+    //
+    // La (re)souscription vit dans la boucle principale, pas dans un handler :
+    // tous les appels UIA restent ainsi sur le meme thread.
+    let fabriquer = |c: Arc<Mutex<Collecte>>, occ: Arc<AtomicU64>| -> UIEventHandler {
+        (Box::new(move |sender: &UIElement, kind: UIEventType| {
             let (role, sig, resolu) = signature(sender);
             let nom_len = sender.get_name().unwrap_or_default().chars().count();
             if let Ok(mut g) = c.lock() {
@@ -284,10 +284,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Ok(())
         }) as Box<CustomEventHandlerFn>)
-            .into();
-        automation.add_automation_event_handler(ev, &racine, portee, None, &handler)?;
-        poignees.push((ev, handler));
+            .into()
+    };
+
+    // Abonnements courants : (evenement, handler, element sur lequel il porte).
+    let mut poignees: Vec<(UIEventType, UIEventHandler, UIElement)> = Vec::new();
+
+    if strategie == "globale" {
+        for &ev in EVENEMENTS_ETAT.iter().chain(&[UIEventType::StructureChanged]) {
+            let h = fabriquer(Arc::clone(&collecte), Arc::clone(&occurrence));
+            automation.add_automation_event_handler(
+                ev,
+                &racine,
+                TreeScope::Descendants,
+                None,
+                &h,
+            )?;
+            poignees.push((ev, h, racine.clone()));
+        }
     }
+    // Fenetre actuellement couverte par la strategie « focus ».
+    let mut fenetre_courante: isize = 0;
 
     let focus_handler: Option<UIFocusChangedEventHandler> = if strategie == "focus" {
         let c = Arc::clone(&collecte);
@@ -362,7 +379,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut occurrences_closes = 0usize;
     let limite = Duration::from_secs(max_minutes * 60);
 
+    let mut tours = 0u64;
     loop {
+        // Strategie « focus » : suivre la fenetre active et y (re)poser les
+        // abonnements. Verifie chaque seconde, pas a chaque tour de boucle.
+        tours += 1;
+        if strategie == "focus" && tours % 4 == 1 {
+            if let Ok(focus) = automation.get_focused_element() {
+                let hwnd = focus.get_native_window_handle().map(|h| h.into()).unwrap_or(0isize);
+                if hwnd != 0 && hwnd != fenetre_courante {
+                    // Retirer les abonnements de la fenetre precedente.
+                    for (ev, h, el) in &poignees {
+                        let _ = automation.remove_automation_event_handler(*ev, el, h);
+                    }
+                    poignees.clear();
+
+                    // Remonter au conteneur de haut niveau, puis s'y abonner.
+                    let mut conteneur = focus.clone();
+                    if let Ok(walker) = automation.create_tree_walker() {
+                        for _ in 0..20 {
+                            match walker.get_parent(&conteneur) {
+                                Ok(p) => {
+                                    let racine_atteinte = p
+                                        .get_runtime_id()
+                                        .ok()
+                                        .zip(racine.get_runtime_id().ok())
+                                        .map(|(a, b)| a == b)
+                                        .unwrap_or(false);
+                                    if racine_atteinte {
+                                        break;
+                                    }
+                                    conteneur = p;
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                    }
+
+                    for &ev in EVENEMENTS_ETAT.iter().chain(&[UIEventType::StructureChanged]) {
+                        let h = fabriquer(Arc::clone(&collecte), Arc::clone(&occurrence));
+                        if automation
+                            .add_automation_event_handler(ev, &conteneur, TreeScope::Subtree, None, &h)
+                            .is_ok()
+                        {
+                            poignees.push((ev, h, conteneur.clone()));
+                        }
+                    }
+                    fenetre_courante = hwnd;
+                    println!(
+                        "  abonnement deplace sur « {} » ({} handlers)",
+                        conteneur.get_name().unwrap_or_default().chars().take(40).collect::<String>(),
+                        poignees.len()
+                    );
+                }
+            }
+        }
+
         for ligne in lignes_nouvelles(&controle, &mut curseur) {
             let mut mots = ligne.split_whitespace();
             match mots.next() {
@@ -393,8 +465,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let _ = sampler.join();
-    for (ev, h) in &poignees {
-        let _ = automation.remove_automation_event_handler(*ev, &racine, h);
+    for (ev, h, el) in &poignees {
+        let _ = automation.remove_automation_event_handler(*ev, el, h);
     }
     if let Some(h) = &focus_handler {
         let _ = automation.remove_focus_changed_event_handler(h);

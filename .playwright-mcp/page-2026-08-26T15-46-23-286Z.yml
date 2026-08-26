@@ -1,0 +1,227 @@
+- generic [active]:
+  - generic:
+    - generic [ref=f32e2]:
+      - generic [ref=f32e3]:
+        - link [ref=f32e238] [cursor=pointer]:
+          - /url: javascript:void(0);
+          - text: Aller à la navigation
+        - link [ref=f32e239] [cursor=pointer]:
+          - /url: javascript:void(0);
+          - text: Aller au contenu principal
+        - generic [ref=f32e9]:
+          - generic [ref=f32e13]:
+            - button [ref=f32e240] [cursor=pointer]:
+              - generic [ref=f32e24]: Menu
+            - generic [ref=f32e25]: Developer Edition
+          - button [ref=f32e241] [cursor=pointer]:
+            - generic [ref=f32e50]: Show menu
+        - generic [ref=f32e51]:
+          - button [ref=f32e242]: Rechercher...
+          - navigation [ref=f32e243]:
+            - list [ref=f32e64]:
+              - listitem [ref=f32e65]:
+                - group [ref=f32e66]:
+                  - button [ref=f32e244] [cursor=pointer]
+                  - button [ref=f32e245] [cursor=pointer]
+              - listitem [ref=f32e85]:
+                - button [ref=f32e250] [cursor=pointer]
+              - listitem [ref=f32e258]:
+                - button [ref=f32e260] [cursor=pointer]
+              - listitem [ref=f32e94]:
+                - button [ref=f32e268] [cursor=pointer]
+              - listitem [ref=f32e105]:
+                - button [ref=f32e269] [cursor=pointer]
+              - listitem [ref=f32e119]:
+                - button [ref=f32e270] [cursor=pointer]
+              - listitem [ref=f32e132]:
+                - button [ref=f32e271] [cursor=pointer]
+      - generic [ref=f32e138]:
+        - generic [ref=f32e141]:
+          - generic [ref=f32e143]:
+            - navigation [ref=f32e274]:
+              - button [ref=f32e275] [cursor=pointer]:
+                - generic [ref=f32e147]: Lanceur d'application
+            - heading [level=1] [ref=f32e276]:
+              - generic [ref=f32e277]: Developer Edition
+          - navigation [ref=f32e278]:
+            - list [ref=f32e163]:
+              - listitem [ref=f32e164]:
+                - link [ref=f32e279] [cursor=pointer]:
+                  - /url: /lightning/n/devedapp__Welcome
+                  - generic [ref=f32e166]: Welcome
+        - main [ref=f32e168]
+    - 'dialog "Créer : piste" [ref=f32e280]':
+      - generic [ref=f32e178]:
+        - button "Annuler et fermer" [ref=f32e179] [cursor=pointer]
+        - generic [ref=f32e185]:
+          - generic [ref=f32e192]:
+            - 'heading "Créer : piste" [level=2] [ref=f32e282]'
+            - generic [ref=f32e194]:
+              - generic [ref=f32e283]: "* = Informations requises"
+              - generic [ref=f32e285]:
+                - generic [ref=f32e290]:
+                  - generic [ref=f32e292]:
+                    - heading "Informations sur la piste" [level=3] [ref=f32e293]
+                    - list [ref=f32e296]:
+                      - generic [ref=f32e297]:
+                        - generic [ref=f32e299]:
+                          - listitem [ref=f32e301]:
+                            - generic [ref=f32e302]:
+                              - generic [ref=f32e303]: Propriétaire de la piste
+                              - generic [ref=f32e304]: Martin Paviot
+                          - listitem [ref=f32e317]:
+                            - generic [ref=f32e322]:
+                              - generic [ref=f32e323]: Téléphone
+                              - textbox "Téléphone" [ref=f32e325]
+                        - generic [ref=f32e327]:
+                          - listitem [ref=f32e329]:
+                            - group "Nom complet obligatoire" [ref=f32e334]:
+                              - generic [ref=f32e335]:
+                                - text: "*Nom complet"
+                                - generic "obligatoire" [ref=f32e336]
+                              - generic [ref=f32e338]:
+                                - generic [ref=f32e342]:
+                                  - generic [ref=f32e343]: Civilité
+                                  - combobox "Civilité" [ref=f32e349] [cursor=pointer]:
+                                    - generic [ref=f32e350]: "- Aucun -"
+                                  - status
+                                - generic [ref=f32e360]:
+                                  - generic [ref=f32e361]: Prénom
+                                  - textbox "Prénom" [ref=f32e363]
+                                - generic [ref=f32e367]:
+                                  - generic [ref=f32e368]: "*Nom"
+                                  - textbox "Nom" [ref=f32e370]
+                          - listitem [ref=f32e372]:
+                            - generic [ref=f32e377]:
+                              - generic [ref=f32e378]: Téléphone mobile
+                              - textbox "Téléphone mobile" [ref=f32e380]
+                        - generic [ref=f32e382]:
+                          - listitem [ref=f32e384]:
+                            - generic [ref=f32e390]:
+                              - generic [ref=f32e391]: "*Société"
+                              - textbox "Société" [ref=f32e393]
+                          - listitem [ref=f32e395]:
+                            - generic [ref=f32e400]:
+                              - generic [ref=f32e401]: Télécopie
+                              - textbox "Télécopie" [ref=f32e403]
+                        - generic [ref=f32e405]:
+                          - listitem [ref=f32e407]:
+                            - generic [ref=f32e413]:
+                              - generic [ref=f32e414]: Fonction
+                              - textbox "Fonction" [ref=f32e416]
+                          - listitem [ref=f32e418]:
+                            - generic [ref=f32e423]:
+                              - generic [ref=f32e424]: Adresse e-mail
+                              - textbox "Adresse e-mail" [ref=f32e426]
+                        - generic [ref=f32e428]:
+                          - listitem [ref=f32e430]:
+                            - generic [ref=f32e437]:
+                              - generic [ref=f32e438]: Origine de la piste
+                              - combobox "Origine de la piste" [ref=f32e444] [cursor=pointer]:
+                                - generic [ref=f32e445]: "- Aucun -"
+                              - status
+                          - listitem [ref=f32e453]:
+                            - generic [ref=f32e458]:
+                              - generic [ref=f32e459]: Site Web
+                              - textbox "Site Web" [ref=f32e461]
+                        - generic [ref=f32e463]:
+                          - listitem [ref=f32e465]:
+                            - generic [ref=f32e472]:
+                              - generic [ref=f32e473]: Secteur d'activité
+                              - combobox "Secteur d'activité" [ref=f32e479] [cursor=pointer]:
+                                - generic [ref=f32e480]: "- Aucun -"
+                              - status
+                          - listitem [ref=f32e488]:
+                            - generic [ref=f32e495]:
+                              - generic [ref=f32e496]: "*Statut de la piste"
+                              - combobox "Statut de la piste" [ref=f32e502] [cursor=pointer]:
+                                - generic [ref=f32e503]: Open - Not Contacted
+                              - status
+                        - generic [ref=f32e511]:
+                          - listitem [ref=f32e513]:
+                            - generic [ref=f32e519]:
+                              - generic [ref=f32e520]: Chiffre d'affaires annuel
+                              - spinbutton "Chiffre d'affaires annuel" [ref=f32e522]
+                          - listitem [ref=f32e524]:
+                            - generic [ref=f32e531]:
+                              - generic [ref=f32e532]: Cote
+                              - combobox "Cote" [ref=f32e538] [cursor=pointer]:
+                                - generic [ref=f32e539]: "- Aucun -"
+                              - status
+                        - listitem [ref=f32e550]:
+                          - generic [ref=f32e555]:
+                            - generic [ref=f32e556]: Nombre d'employés
+                            - spinbutton "Nombre d'employés" [ref=f32e558]
+                  - generic [ref=f32e560]:
+                    - heading "Coordonnées" [level=3] [ref=f32e561]
+                    - list [ref=f32e564]:
+                      - listitem [ref=f32e569]:
+                        - group "Adresse" [ref=f32e574]:
+                          - generic [ref=f32e577]:
+                            - generic [ref=f32e581]:
+                              - generic [ref=f32e582]: Pays
+                              - combobox "Pays" [ref=f32e590]: "- Aucun -"
+                              - status
+                            - generic [ref=f32e598]:
+                              - generic [ref=f32e599]: Rue
+                              - textbox "Rue" [ref=f32e601]
+                              - status
+                            - generic [ref=f32e605]:
+                              - generic [ref=f32e606]: Code postal
+                              - textbox "Code postal" [ref=f32e608]
+                            - generic [ref=f32e609]:
+                              - generic [ref=f32e612]:
+                                - generic [ref=f32e613]: Ville
+                                - textbox "Ville" [ref=f32e615]
+                              - generic [ref=f32e618]:
+                                - generic [ref=f32e619]: Région/Province
+                                - combobox "Région/Province" [ref=f32e627]: "- Aucun -"
+                                - status
+                  - generic [ref=f32e636]:
+                    - heading "Informations supplémentaires" [level=3] [ref=f32e637]
+                    - list [ref=f32e640]:
+                      - generic [ref=f32e641]:
+                        - generic [ref=f32e643]:
+                          - listitem [ref=f32e645]:
+                            - generic [ref=f32e652]:
+                              - generic [ref=f32e653]: Product Interest
+                              - combobox "Product Interest" [ref=f32e659] [cursor=pointer]:
+                                - generic [ref=f32e660]: "- Aucun -"
+                              - status
+                          - listitem [ref=f32e668]:
+                            - generic [ref=f32e674]:
+                              - generic [ref=f32e675]: Current Generator(s)
+                              - textbox "Current Generator(s)" [ref=f32e677]
+                        - generic [ref=f32e679]:
+                          - listitem [ref=f32e681]:
+                            - generic [ref=f32e687]:
+                              - generic [ref=f32e688]: SIC Code
+                              - textbox "SIC Code" [ref=f32e690]
+                          - listitem [ref=f32e692]:
+                            - generic [ref=f32e699]:
+                              - generic [ref=f32e700]: Primary
+                              - combobox "Primary" [ref=f32e706] [cursor=pointer]:
+                                - generic [ref=f32e707]: "- Aucun -"
+                              - status
+                        - listitem [ref=f32e717]:
+                          - generic [ref=f32e722]:
+                            - generic [ref=f32e723]: Number of Locations
+                            - spinbutton "Number of Locations" [ref=f32e725]
+                  - generic [ref=f32e728]:
+                    - heading "Description" [level=3] [ref=f32e729]
+                    - list [ref=f32e732]:
+                      - listitem [ref=f32e737]:
+                        - generic [ref=f32e741]:
+                          - generic [ref=f32e742]: Description
+                          - textbox "Description" [ref=f32e744]
+                          - status
+                - generic [ref=f32e749]:
+                  - generic "Annuler" [ref=f32e750]:
+                    - button "Annuler" [ref=f32e755] [cursor=pointer]
+                  - generic "Enregistrer et Nouveau" [ref=f32e756]:
+                    - button "Enregistrer et Nouveau" [ref=f32e761] [cursor=pointer]
+                  - generic "Enregistrer" [ref=f32e762]:
+                    - button "Enregistrer" [ref=f32e767] [cursor=pointer]
+          - status [ref=f32e237]
+  - generic:
+    - status

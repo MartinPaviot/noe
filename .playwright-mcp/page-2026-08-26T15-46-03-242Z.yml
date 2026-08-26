@@ -1,0 +1,62 @@
+- generic [active]:
+  - generic:
+    - generic [ref=f32e2]:
+      - generic [ref=f32e3]:
+        - link "Aller à la navigation" [ref=f32e4] [cursor=pointer]:
+          - /url: javascript:void(0);
+        - link "Aller au contenu principal" [ref=f32e5] [cursor=pointer]:
+          - /url: javascript:void(0);
+        - generic [ref=f32e9]:
+          - generic [ref=f32e13]:
+            - button "Toggle Panel" [ref=f32e17] [cursor=pointer]:
+              - generic [ref=f32e24]: Menu
+            - generic [ref=f32e25]: Developer Edition
+          - button "Show menu" [ref=f32e45] [cursor=pointer]
+        - generic [ref=f32e51]:
+          - button "Rechercher" [ref=f32e57]: Rechercher...
+          - navigation "En-tête global" [ref=f32e62]:
+            - list [ref=f32e64]:
+              - listitem [ref=f32e65]:
+                - group [ref=f32e66]:
+                  - button "Cet élément ne prend pas en charge les favoris" [ref=f32e68] [cursor=pointer]:
+                    - generic [ref=f32e69]:
+                      - tooltip "Cet élément ne prend pas en charge les favoris"
+                  - button [ref=f32e77] [cursor=pointer]:
+                    - generic [ref=f32e78]:
+                      - tooltip "Liste de favoris"
+              - listitem [ref=f32e85]:
+                - button "Actions globales" [ref=f32e87]
+              - listitem [ref=f32e94]:
+                - button [ref=f32e97] [cursor=pointer]:
+                  - generic [ref=f32e98]:
+                    - tooltip "Aide de Salesforce"
+              - listitem [ref=f32e105]:
+                - button [ref=f32e111] [cursor=pointer]:
+                  - generic [ref=f32e112]:
+                    - tooltip "Configuration"
+              - listitem [ref=f32e119]:
+                - button [ref=f32e122] [cursor=pointer]:
+                  - generic [ref=f32e123]:
+                    - tooltip "Notifications"
+              - listitem [ref=f32e132]:
+                - button [ref=f32e135] [cursor=pointer]:
+                  - generic [ref=f32e136]:
+                    - tooltip "Afficher le profil"
+      - generic [ref=f32e138]:
+        - generic [ref=f32e141]:
+          - generic [ref=f32e143]:
+            - navigation "Application" [ref=f32e144]:
+              - button "Lanceur d'application" [ref=f32e146] [cursor=pointer]
+            - heading "Developer Edition" [level=1] [ref=f32e158]
+          - navigation "Global" [ref=f32e162]:
+            - list [ref=f32e163]:
+              - listitem [ref=f32e164]:
+                - link "Welcome" [ref=f32e165] [cursor=pointer]:
+                  - /url: /lightning/n/devedapp__Welcome
+        - main [ref=f32e168]
+    - dialog [ref=f32e177]:
+      - generic [ref=f32e178]:
+        - button "Annuler et fermer" [ref=f32e179] [cursor=pointer]
+        - status [ref=f32e237]
+  - generic:
+    - status
