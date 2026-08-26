@@ -66,9 +66,18 @@ export type VerdictEpisode = {
   readonly episode_id: string;
   readonly task_slug: string;
   readonly grade: 'A' | 'B' | 'C';
-  /** Seuls les grades A comptent dans les agrégats (R2.2). */
+  /** Seuls les grades A **jugeables** comptent dans les agrégats (R2.2). */
   readonly compte_dans_stats: boolean;
-  readonly verdict: 'accord' | 'desaccord';
+  /**
+   * Faux quand aucune entité ne porte à la fois `state_before` et `state_after` :
+   * il n'y a alors pas d'état API à comparer.
+   *
+   * C'est le cas normal d'un épisode de la spec 002, capturé avant que les
+   * connecteurs (spec 003) ne résolvent les entités. Sans cette distinction, un
+   * tel épisode rendrait « accord sur zéro champ » — un vert trompeur.
+   */
+  readonly jugeable: boolean;
+  readonly verdict: 'accord' | 'desaccord' | 'non_jugeable';
   readonly champs: readonly ChampJuge[];
   readonly totaux: Readonly<Record<Classe, number>>;
 };
@@ -168,12 +177,19 @@ export function juger(ep: Episode, calls: readonly ToolCall[]): VerdictEpisode {
 
   const echecs = totaux.desaccord + totaux.manque + totaux.excedent;
 
+  // Y a-t-il seulement quelque chose a juger ? Une entite resolue est une entite
+  // dont les DEUX etats sont connus ; sans cela, aucun diff n'existe.
+  const jugeable = ep.entities.some(
+    (e) => e.state_before !== undefined && e.state_after !== undefined,
+  );
+
   return {
     episode_id: ep.id,
     task_slug: ep.task_slug,
     grade: ep.grade,
-    compte_dans_stats: ep.grade === 'A',
-    verdict: echecs === 0 ? 'accord' : 'desaccord',
+    compte_dans_stats: ep.grade === 'A' && jugeable,
+    jugeable,
+    verdict: !jugeable ? 'non_jugeable' : echecs === 0 ? 'accord' : 'desaccord',
     champs,
     totaux,
   };

@@ -19,13 +19,27 @@ import { rapportJson, rapportTexte } from './report.js';
 
 const GOLDEN = 'packages/harness/golden';
 
-async function canaris(): Promise<string[]> {
-  const brut: unknown = JSON.parse(await readFile(join(GOLDEN, 'canaris.json'), 'utf8'));
-  const chaines = (brut as { chaines?: unknown }).chaines;
-  if (!Array.isArray(chaines) || chaines.length === 0) {
-    throw new Error('canaris.json ne contient aucune chaine — le sweep serait sans objet');
+type FichierCanaris = {
+  marqueurs: { chaines: string[] };
+  interdites: { chaines: string[] };
+};
+
+async function fichierCanaris(): Promise<FichierCanaris> {
+  const brut = JSON.parse(
+    await readFile(join(GOLDEN, 'canaris.json'), 'utf8'),
+  ) as Partial<FichierCanaris>;
+  const m = brut.marqueurs?.chaines;
+  const i = brut.interdites?.chaines;
+  if (!Array.isArray(m) || m.length === 0 || !Array.isArray(i) || i.length === 0) {
+    throw new Error('canaris.json incomplet — le sweep serait sans objet');
   }
-  return chaines as string[];
+  return { marqueurs: { chaines: m }, interdites: { chaines: i } };
+}
+
+/** Tout ce que le sweep traque, marqueurs et formes PII confondus. */
+async function canaris(): Promise<string[]> {
+  const f = await fichierCanaris();
+  return [...f.marqueurs.chaines, ...f.interdites.chaines];
 }
 
 /** Balaye récursivement tous les fichiers d'un dossier. */
@@ -39,17 +53,25 @@ async function tousLesFichiers(dossier: string): Promise<string[]> {
   return out;
 }
 
-describe('canaris — le corpus les contient bien (R5.1)', () => {
-  it('canaris.json declare des chaines temoins', async () => {
-    const c = await canaris();
-    expect(c.length).toBeGreaterThanOrEqual(4);
-    expect(c).toContain('CANARY_PII_001');
+describe('canaris — deux groupes, deux roles (R5.1)', () => {
+  it('canaris.json declare des marqueurs et des formes interdites', async () => {
+    const f = await fichierCanaris();
+    expect(f.marqueurs.chaines).toContain('CANARY_PII_001');
+    expect(f.interdites.chaines.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('au moins un episode dore les porte reellement — sinon le sweep ne prouve rien', async () => {
+  it('les MARQUEURS sont bien dans le corpus — sinon le sweep ne prouverait rien', async () => {
     const source = await readFile(join(GOLDEN, '005_canaris.json'), 'utf8');
-    for (const c of await canaris()) {
+    for (const c of (await fichierCanaris()).marqueurs.chaines) {
       expect(source).toContain(c);
+    }
+  });
+
+  it('les formes INTERDITES sont absentes du corpus — la redaction a fait son travail', async () => {
+    const { episodes } = await chargerCorpus(GOLDEN);
+    const serialise = JSON.stringify(episodes);
+    for (const c of (await fichierCanaris()).interdites.chaines) {
+      expect(serialise).not.toContain(c);
     }
   });
 });

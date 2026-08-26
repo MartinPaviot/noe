@@ -12,10 +12,7 @@
       "kind": "ui_action",
       "source": "ui",
       "action": "navigate",
-      "target": {
-        "role": "button",
-        "name": "Contacts"
-      }
+      "target": { "role": "button", "name": "Contacts" }
     },
     {
       "schema_v": 1,
@@ -24,11 +21,8 @@
       "kind": "ui_action",
       "source": "ui",
       "action": "paste",
-      "target": {
-        "role": "textbox",
-        "name": "Notes"
-      },
-      "payload": "coordonnees CANARY_PII_001 canary.pii@example.invalid +33600000000"
+      "target": { "role": "textbox", "name": "Notes" },
+      "payload": "coordonnees CANARY_PII_001 EMAIL_7f3a9c21 TEL_FR_4b81e0d2"
     },
     {
       "schema_v": 1,
@@ -37,10 +31,7 @@
       "kind": "ui_action",
       "source": "ui",
       "action": "submit",
-      "target": {
-        "role": "button",
-        "name": "Enregistrer"
-      }
+      "target": { "role": "button", "name": "Enregistrer" }
     },
     {
       "schema_v": 1,
@@ -56,18 +47,9 @@
   ],
   "entities": [
     {
-      "key": {
-        "type": "contact",
-        "value_pseudo": "PSEUDO_CONTACT_005"
-      },
+      "key": { "type": "contact", "value_pseudo": "PSEUDO_CONTACT_005" },
       "first_seen_seq": 0,
-      "api_refs": [
-        {
-          "connector": "crm",
-          "object": "contact",
-          "id": "c_005"
-        }
-      ],
+      "api_refs": [{ "connector": "crm", "object": "contact", "id": "c_005" }],
       "state_before": {
         "statut": "nouveau",
         "prochaine_action": "",
@@ -78,36 +60,19 @@
         "statut": "qualifie",
         "prochaine_action": "",
         "date_relance": null,
-        "notes": "RIB FR7630006000011234567890189 — contact CANARY_PII_001"
+        "notes": "RIB IBAN_e1c07a45 — contact CANARY_PII_001"
       }
     },
     {
-      "key": {
-        "type": "deal",
-        "value_pseudo": "PSEUDO_DEAL_001"
-      },
+      "key": { "type": "deal", "value_pseudo": "PSEUDO_DEAL_001" },
       "first_seen_seq": 1,
-      "api_refs": [
-        {
-          "connector": "crm",
-          "object": "deal",
-          "id": "d_001"
-        }
-      ],
-      "state_before": {
-        "statut": "ouvert"
-      },
-      "state_after": {
-        "statut": "ouvert"
-      }
+      "api_refs": [{ "connector": "crm", "object": "deal", "id": "d_001" }],
+      "state_before": { "statut": "ouvert" },
+      "state_after": { "statut": "ouvert" }
     }
   ],
   "grade": "A",
   "grade_reason": "sequence sans trou, toutes entites resolues, redaction validee",
   "scope_fields": ["statut", "prochaine_action", "date_relance", "notes"],
-  "completeness": {
-    "explained": 2,
-    "out_of_scope": 0,
-    "gaps": 0
-  }
+  "completeness": { "explained": 2, "out_of_scope": 0, "gaps": 0 }
 }

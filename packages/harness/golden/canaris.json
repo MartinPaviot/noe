@@ -1,9 +1,16 @@
 {
-  "description": "Chaines temoins. Aucune ne doit apparaitre en clair dans une sortie du socle. Voir R5.",
-  "chaines": [
-    "CANARY_PII_001",
-    "canary.pii@example.invalid",
-    "+33600000000",
-    "FR7630006000011234567890189"
-  ]
+  "description": "Chaines temoins du canary sweep. Deux groupes, deux roles distincts.",
+  "marqueurs": {
+    "role": "PRESENTES dans le corpus dore (episode 005). Elles ne matchent aucun motif PII, donc la redaction les laisse passer — c'est voulu : elles voyagent jusqu'au juge et prouvent qu'une valeur d'episode ne ressort jamais en clair dans un rapport.",
+    "chaines": ["CANARY_PII_001"]
+  },
+  "interdites": {
+    "role": "ABSENTES partout, et doivent le rester. Ce sont des formes PII reelles : si l'une apparait dans une sortie, la redaction (spec 002, R4.6) a echoue en amont. Garde permanente.",
+    "chaines": [
+      "canary.pii@example.invalid",
+      "+33600000000",
+      "FR7630006000011234567890189",
+      "4539148803436467"
+    ]
+  }
 }

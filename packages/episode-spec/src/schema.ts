@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { resumerOccurrences, validerRedaction } from './redaction.js';
 
 /** Version du format d'épisode. Tout épisode capturé porte ce numéro. */
 export const SCHEMA_V = 1;
@@ -19,7 +20,10 @@ export const Target = z.object({
  * silence, on enregistre ce qu'on a manqué et pourquoi.
  */
 export const Gap = z.object({
-  cause: z.enum(['crash', 'kill', 'sleep', 'seq_break', 'manual']),
+  // « pause » et « timeout » ajoutes par la spec 002 (voir docs/decisions.md) :
+  // une pause operateur et une cloture automatique a 60 min sont des trous de
+  // capture au meme titre qu un crash — declares, jamais silencieux.
+  cause: z.enum(['crash', 'kill', 'sleep', 'seq_break', 'manual', 'pause', 'timeout']),
   from_seq: z.number().int().nonnegative(),
   to_seq: z.number().int().nonnegative(),
 });
@@ -105,12 +109,24 @@ export function gradeOf(ep: EntreeGrade): GradeVerdict {
   const nonResolues = ep.entities.filter(
     (e) => e.state_before === undefined || e.state_after === undefined,
   ).length;
-  // La pseudonymisation est structurelle : une clé d'entité porte value_pseudo,
-  // jamais la valeur réelle. Une clé vide signale une redaction non appliquée.
-  const redactionOk = ep.entities.every((e) => e.key.value_pseudo.trim().length > 0);
 
-  if (!redactionOk) {
+  // Deux conditions distinctes, souvent confondues.
+  //
+  // La premiere est structurelle : une cle d entite porte `value_pseudo`, jamais
+  // la valeur reelle. Une cle vide signale que la pseudonymisation n a pas tourne.
+  const clesPseudonymisees = ep.entities.every((e) => e.key.value_pseudo.trim().length > 0);
+  if (!clesPseudonymisees) {
     return { grade: 'C', reason: 'redaction non validee : une cle d entite est vide' };
+  }
+
+  // La seconde est celle que la spec 002 (R4.6) definit mecaniquement : zero
+  // motif PII dans l episode entierement serialise.
+  const redaction = validerRedaction(ep);
+  if (!redaction.valide) {
+    return {
+      grade: 'C',
+      reason: `redaction non validee : ${resumerOccurrences(redaction.occurrences)} dans l episode serialise`,
+    };
   }
   if (gaps === 0 && nonResolues === 0) {
     return { grade: 'A', reason: 'sequence sans trou, toutes entites resolues, redaction validee' };

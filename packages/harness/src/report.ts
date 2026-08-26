@@ -88,9 +88,10 @@ export function rapportTexte(rapport: RapportRejeu): string {
   l.push('');
 
   for (const ep of rapport.episodes) {
-    const marque = ep.verdict === 'accord' ? '✓' : '✗';
+    const marque = ep.verdict === 'accord' ? '✓' : ep.verdict === 'non_jugeable' ? '~' : '✗';
     const exclu = ep.compte_dans_stats ? '' : '   [exclu des stats]';
     l.push(`${marque} ${ep.episode_id}  ${ep.task_slug}  grade ${ep.grade}${exclu}`);
+    if (!ep.jugeable) l.push('    ~ aucun etat API a juger (entites non resolues)');
 
     for (const c of ep.champs) {
       if (c.classe === 'accord') continue;
@@ -110,7 +111,7 @@ export function rapportTexte(rapport: RapportRejeu): string {
   l.push('');
   l.push('─'.repeat(64));
   l.push(
-    `episodes ${a.n_total}   comptes ${a.n_comptes}   exclus ${a.n_exclus}   accord ${a.n_accord}/${a.n_comptes}  (${a.taux_accord} %)`,
+    `episodes ${a.n_total}   comptes ${a.n_comptes}   exclus ${a.n_exclus}   non jugeables ${a.n_non_jugeables}   accord ${a.n_accord}/${a.n_comptes}  (${a.taux_accord} %)`,
   );
   l.push(
     `accord ${a.par_classe.accord}   desaccord ${a.par_classe.desaccord}   manque ${a.par_classe.manque}   excedent ${a.par_classe.excedent}   hors_perimetre ${a.par_classe.hors_perimetre}`,

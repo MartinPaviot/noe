@@ -76,3 +76,62 @@ export function episodeAvecTrou(): Episode {
     completeness: { explained: 1, out_of_scope: 0, gaps: 1 },
   };
 }
+
+/**
+ * Un episode tel que la CAPTURE de la spec 002 le produit : des evenements
+ * d'interface, des entites reperees mais **non resolues** (aucun connecteur ne
+ * les a encore rapprochees d'un etat API).
+ *
+ * Grade B attendu, et rien a juger — c'est le cas normal avant la spec 003.
+ */
+export function episodeCapture(): Episode {
+  return {
+    schema_v: 1,
+    id: ULID_B,
+    task_slug: 'maj-crm-post-echange',
+    t0: '2026-08-06T10:00:00.000Z',
+    t1: '2026-08-06T10:04:00.000Z',
+    events: [
+      {
+        schema_v: 1,
+        kind: 'ui_action',
+        seq: 0,
+        ts: '2026-08-06T10:00:30.000Z',
+        source: 'ui',
+        action: 'navigate',
+        target: { role: 'link', name: 'Contacts', region: 'Navigation principale' },
+      },
+      {
+        schema_v: 1,
+        kind: 'ui_action',
+        seq: 1,
+        ts: '2026-08-06T10:02:00.000Z',
+        source: 'ui',
+        action: 'input',
+        target: { role: 'textbox', name: 'Prochaine action', region: 'Fiche contact' },
+        payload: 'relancer EMAIL_7f3a9c21',
+      },
+      {
+        schema_v: 1,
+        kind: 'ui_action',
+        seq: 2,
+        ts: '2026-08-06T10:03:00.000Z',
+        source: 'ui',
+        action: 'submit',
+        target: { role: 'button', name: 'Enregistrer', region: 'Fiche contact' },
+      },
+    ],
+    entities: [
+      {
+        // Entite CANDIDATE : reperee par motif sur, sans api_refs ni etats.
+        key: { type: 'contact', value_pseudo: 'EMAIL_7f3a9c21' },
+        first_seen_seq: 1,
+        api_refs: [],
+      },
+    ],
+    grade: 'B',
+    grade_reason: 'declasse en B : 1 entite non resolue',
+    scope_fields: ['statut', 'prochaine_action', 'date_relance', 'notes'],
+    completeness: { explained: 0, out_of_scope: 0, gaps: 0 },
+  };
+}

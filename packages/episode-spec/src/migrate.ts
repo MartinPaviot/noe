@@ -41,7 +41,10 @@ const de0vers1: Migrateur = (ancien) => {
     }
   }
 
+  // On passe l objet COMPLET : le validateur de redaction (R4.6) balaye
+  // l episode serialise, pas seulement events + entities.
   const verdict = gradeOf({
+    ...(ancien as object),
     events: events as { kind: string }[],
     entities: entities as {
       key: { value_pseudo: string };

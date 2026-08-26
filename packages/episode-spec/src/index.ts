@@ -9,6 +9,17 @@
 export { cloturer, type EpisodeClos, estClos, remplacer } from './close.js';
 
 export { load, MigrationError, versionsMigrables } from './migrate.js';
+
+export {
+  chercherPii,
+  MOTIFS_PII,
+  type MotifPii,
+  type OccurrencePii,
+  resumerOccurrences,
+  VERSION_MOTIFS,
+  type VerdictRedaction,
+  validerRedaction,
+} from './redaction.js';
 export {
   Completeness,
   Entity,
@@ -26,3 +37,5 @@ export {
 
 /** Version du format. Conservée pour compatibilité avec la session 0. */
 export const EPISODE_FORMAT_VERSION = '1.0.0' as const;
+
+export { episodeAvecTrou, episodeCapture, episodeValide, ULID_A, ULID_B } from './fixtures.js';

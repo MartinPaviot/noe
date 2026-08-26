@@ -12,13 +12,14 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "pnpm -r --parallel typecheck",
-    "test": "vitest run",
+    "test": "pnpm build && vitest run",
     "secrets": "gitleaks detect --no-banner --redact -c .gitleaks.toml",
-    "verify": "pnpm build && pnpm lint && pnpm lint:sql && pnpm typecheck && pnpm test",
+    "verify": "pnpm lint && pnpm lint:sql && pnpm typecheck && pnpm test",
     "supabase": "supabase",
     "lint:sql": "node scripts/lint-anti-contenu-cli.mjs",
     "build": "pnpm -r build",
-    "replay": "noe replay packages/harness/golden"
+    "replay": "noe replay packages/harness/golden",
+    "test:only": "vitest run"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.0",

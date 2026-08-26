@@ -19,6 +19,8 @@ export type Agregat = {
   /** Épisodes de grade A — les seuls qui comptent (R2.2). */
   readonly n_comptes: number;
   readonly n_exclus: number;
+  /** Episodes sans etat API a juger — cas normal d une capture spec 002. */
+  readonly n_non_jugeables: number;
   readonly n_accord: number;
   /** Taux d'accord sur les A, en pourcentage, arrondi au dixième. */
   readonly taux_accord: number;
@@ -98,6 +100,7 @@ export function agreger(verdicts: readonly VerdictEpisode[]): Agregat {
     n_total: verdicts.length,
     n_comptes: comptes.length,
     n_exclus: verdicts.length - comptes.length,
+    n_non_jugeables: verdicts.filter((v) => !v.jugeable).length,
     n_accord: accord,
     taux_accord: comptes.length === 0 ? 0 : Math.round((accord / comptes.length) * 1000) / 10,
     par_classe: parClasse,
@@ -134,8 +137,10 @@ export async function rejouer(dossier: string, politique: Policy): Promise<Rappo
  * jugeable, et le rapport dit lesquels manquent.
  */
 export function codeSortie(rapport: RapportRejeu): number {
+  // Seule une absence TOTALE de lecture est une erreur d execution. Un corpus
+  // entierement non jugeable (capture spec 002 avant connecteurs) est un etat
+  // legitime : rien ne contredit rien.
   if (rapport.episodes.length === 0) return EXIT_ERREUR;
-  if (rapport.agregat.n_comptes === 0) return EXIT_ERREUR;
   return rapport.agregat.n_accord === rapport.agregat.n_comptes
     ? EXIT_OK
     : EXIT_VERDICT_NON_CONFORME;
