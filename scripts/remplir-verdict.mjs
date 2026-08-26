@@ -8,8 +8,9 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const SRC = 'spikes/capteur-uia/resultats/spike.json';
+const DOSSIER = 'spikes/capteur-uia/resultats';
 const DEST = 'docs/spike-verdict.md';
+const SRC = `${DOSSIER}/spike-{globale,focus}.json`;
 
 /**
  * Seuils du PROMPT MAITRE, section « Jours 1-2 » — pas des seuils d'ingenieur :
@@ -22,11 +23,23 @@ const SEUIL_CPU_PCT = 5;
 const SEUIL_STABILITE_PCT = 90;
 const SEUIL_COUVERTURE_PCT = 100;
 
-let brut;
-try {
-  brut = JSON.parse(readFileSync(SRC, 'utf8'));
-} catch {
-  console.error(`Introuvable : ${SRC}\nLancez d'abord le binaire du spike.`);
+/** Chaque phase écrit son propre fichier : les deux runs sont indépendants. */
+function lirePhase(nom) {
+  try {
+    return JSON.parse(readFileSync(`${DOSSIER}/spike-${nom}.json`, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+const brut = {
+  application_cible: '',
+  phases: [lirePhase('globale'), lirePhase('focus')].filter((p) => p !== null),
+};
+brut.application_cible = brut.phases[0]?.application_cible ?? '';
+
+if (brut.phases.length === 0) {
+  console.error(`Aucun resultat dans ${DOSSIER}.\nLancez d'abord le binaire du spike.`);
   process.exit(2);
 }
 

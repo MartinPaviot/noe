@@ -4,15 +4,20 @@
 //!   (a) quelle stratégie d'abonnement tient le budget CPU ;
 //!   (b) quels paramètres de walker sont soutenables.
 //!
-//! Les deux stratégies tournent dans la MÊME session, l'une après l'autre, sur
-//! la même tâche répétée — sinon les chiffres ne seraient pas comparables.
+//! **Entièrement non interactif.** Aucune lecture du clavier : le binaire tourne
+//! en arrière-plan et se pilote par un fichier de contrôle, ligne par ligne.
+//! L'opérateur ne touche qu'à son application ; l'orchestration est écrite par
+//! l'agent.
 //!
-//! Aucun contenu n'est écrit : on ne conserve que des rôles, des longueurs et
-//! des empreintes. Ce binaire observe pour mesurer, il ne capture pas pour
-//! garder.
+//! Protocole du fichier de contrôle — une commande par ligne, ajoutée à la fin :
+//!   `fait <n>`  clôt l'occurrence courante, `<n>` = actions d'état déclarées
+//!   `stop`      termine la phase, écrit le JSON, sort
+//!
+//! Aucun contenu n'est écrit : on ne conserve que des rôles, des longueurs et des
+//! compteurs. Ce binaire observe pour mesurer, il ne capture pas pour garder.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{BufRead, Write};
+use std::io::{Read, Seek, SeekFrom};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -38,10 +43,12 @@ const EVENEMENTS_ETAT: &[UIEventType] = &[
 const WALKER_PROFONDEUR_MAX: usize = 12;
 const WALKER_NOEUDS_MAX: usize = 1500;
 
+/// Garde-fou : même si personne n'écrit `stop`, la phase se termine.
+const MAX_MINUTES_DEFAUT: u64 = 120;
+
 #[derive(Clone, Debug, Serialize)]
 struct Observation {
     occurrence: usize,
-    /// `role|nom` — la signature de ciblage dont on mesure la stabilité.
     signature: String,
     role: String,
     /// Longueur seulement : le nom lui-même ne sort jamais d'ici.
@@ -75,6 +82,7 @@ struct EchantillonCharge {
 #[derive(Debug, Serialize)]
 struct ResultatPhase {
     strategie: String,
+    application_cible: String,
     occurrences: usize,
     observations: usize,
     actions_etat: usize,
@@ -93,15 +101,8 @@ struct ResultatPhase {
     echantillons: Vec<EchantillonCharge>,
 }
 
-#[derive(Debug, Serialize)]
-struct Verdict {
-    genere_le: String,
-    application_cible: String,
-    phases: Vec<ResultatPhase>,
-}
-
 // ---------------------------------------------------------------------------
-// Utilitaires de mesure
+// Mesures
 // ---------------------------------------------------------------------------
 
 fn percentile(mut v: Vec<f64>, p: f64) -> f64 {
@@ -127,12 +128,9 @@ fn fenetres_30s(ech: &[EchantillonCharge]) -> Vec<f64> {
 }
 
 /// Stabilité : part des signatures d'actions d'état communes à TOUTES les
-/// occurrences. Une signature qui n'apparaît que dans certaines répétitions
+/// occurrences. Une signature présente dans certaines répétitions seulement
 /// n'est pas un point d'ancrage fiable pour le ciblage.
-fn stabilite(obs: &[Observation], occurrences: usize) -> f64 {
-    if occurrences < 2 {
-        return 0.0;
-    }
+fn stabilite(obs: &[Observation]) -> f64 {
     let mut par_occ: BTreeMap<usize, BTreeSet<String>> = BTreeMap::new();
     for o in obs.iter().filter(|o| o.etat && o.resolu) {
         par_occ.entry(o.occurrence).or_default().insert(o.signature.clone());
@@ -140,13 +138,11 @@ fn stabilite(obs: &[Observation], occurrences: usize) -> f64 {
     if par_occ.len() < 2 {
         return 0.0;
     }
-    let mut ensembles = par_occ.values();
-    let Some(premier) = ensembles.next() else {
-        return 0.0;
-    };
+    let mut it = par_occ.values();
+    let Some(premier) = it.next() else { return 0.0 };
     let mut communes: BTreeSet<String> = premier.clone();
     let mut union: BTreeSet<String> = premier.clone();
-    for s in ensembles {
+    for s in it {
         communes = communes.intersection(s).cloned().collect();
         union = union.union(s).cloned().collect();
     }
@@ -155,10 +151,6 @@ fn stabilite(obs: &[Observation], occurrences: usize) -> f64 {
     }
     communes.len() as f64 * 100.0 / union.len() as f64
 }
-
-// ---------------------------------------------------------------------------
-// Walker
-// ---------------------------------------------------------------------------
 
 fn mesurer_walker(automation: &UIAutomation, racine: &UIElement) -> MesureWalker {
     let debut = Instant::now();
@@ -195,10 +187,6 @@ fn mesurer_walker(automation: &UIAutomation, racine: &UIElement) -> MesureWalker
     }
 }
 
-// ---------------------------------------------------------------------------
-// Phase
-// ---------------------------------------------------------------------------
-
 fn signature(el: &UIElement) -> (String, String, bool) {
     let role = el
         .get_control_type()
@@ -209,19 +197,59 @@ fn signature(el: &UIElement) -> (String, String, bool) {
     (role.clone(), format!("{role}|{nom}"), resolu)
 }
 
-fn lire_ligne(invite: &str) -> String {
-    print!("{invite}");
-    let _ = std::io::stdout().flush();
-    let mut s = String::new();
-    let _ = std::io::stdin().lock().read_line(&mut s);
-    s.trim().to_string()
+// ---------------------------------------------------------------------------
+// Fichier de contrôle
+// ---------------------------------------------------------------------------
+
+/// Lit les lignes ajoutées depuis le dernier appel. Un simple curseur d'octets
+/// suffit : le fichier ne fait que grossir.
+fn lignes_nouvelles(chemin: &str, curseur: &mut u64) -> Vec<String> {
+    let Ok(mut f) = std::fs::File::open(chemin) else {
+        return Vec::new();
+    };
+    if f.seek(SeekFrom::Start(*curseur)).is_err() {
+        return Vec::new();
+    }
+    let mut buf = String::new();
+    if f.read_to_string(&mut buf).is_err() {
+        return Vec::new();
+    }
+    *curseur += buf.len() as u64;
+    buf.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
-fn executer_phase(
-    strategie: &str,
-    occurrences_voulues: usize,
-    auto_secondes: Option<u64>,
-) -> Result<ResultatPhase, Box<dyn std::error::Error>> {
+fn arg(args: &[String], nom: &str) -> Option<String> {
+    args.iter().position(|a| a == nom).and_then(|i| args.get(i + 1)).cloned()
+}
+
+// ---------------------------------------------------------------------------
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().collect();
+
+    let strategie = arg(&args, "--strategie").unwrap_or_else(|| "globale".into());
+    if strategie != "globale" && strategie != "focus" {
+        eprintln!("--strategie doit valoir « globale » ou « focus »");
+        std::process::exit(2);
+    }
+    let controle = arg(&args, "--controle").unwrap_or_else(|| "controle.txt".into());
+    let sortie =
+        arg(&args, "--sortie").unwrap_or_else(|| format!("resultats/spike-{strategie}.json"));
+    let cible = arg(&args, "--cible").unwrap_or_else(|| "(non renseignee)".into());
+    let max_minutes: u64 = arg(&args, "--max-minutes")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(MAX_MINUTES_DEFAUT);
+
+    // Le fichier de controle doit exister avant qu'on le suive.
+    if !std::path::Path::new(&controle).exists() {
+        std::fs::write(&controle, "")?;
+    }
+    let mut curseur = std::fs::metadata(&controle).map(|m| m.len()).unwrap_or(0);
+
     let automation = UIAutomation::new()?;
     let racine = automation.get_root_element()?;
 
@@ -229,9 +257,14 @@ fn executer_phase(
     let occurrence = Arc::new(AtomicU64::new(1));
     let debut = Instant::now();
 
-    // --- abonnements -------------------------------------------------------
-    let mut poignees: Vec<(UIEventType, UIEventHandler)> = Vec::new();
+    // --- abonnements : c'est ICI que les deux strategies different ----------
+    let portee = if strategie == "globale" {
+        TreeScope::Descendants
+    } else {
+        TreeScope::Element
+    };
 
+    let mut poignees: Vec<(UIEventType, UIEventHandler)> = Vec::new();
     for &ev in EVENEMENTS_ETAT.iter().chain(&[UIEventType::StructureChanged]) {
         let c = Arc::clone(&collecte);
         let occ = Arc::clone(&occurrence);
@@ -252,18 +285,10 @@ fn executer_phase(
             Ok(())
         }) as Box<CustomEventHandlerFn>)
             .into();
-
-        // C'est ICI que les deux strategies different : la portee de l'abonnement.
-        let portee = if strategie == "globale" {
-            TreeScope::Descendants
-        } else {
-            TreeScope::Element
-        };
         automation.add_automation_event_handler(ev, &racine, portee, None, &handler)?;
         poignees.push((ev, handler));
     }
 
-    // En strategie « focus », on suit le focus et on mesure le conteneur actif.
     let focus_handler: Option<UIFocusChangedEventHandler> = if strategie == "focus" {
         let c = Arc::clone(&collecte);
         let occ = Arc::clone(&occurrence);
@@ -293,7 +318,7 @@ fn executer_phase(
         None
     };
 
-    // --- echantillonnage 1 Hz ---------------------------------------------
+    // --- echantillonnage 1 Hz ----------------------------------------------
     let echantillons = Arc::new(Mutex::new(Vec::<EchantillonCharge>::new()));
     let stop = Arc::new(AtomicBool::new(false));
     let ech2 = Arc::clone(&echantillons);
@@ -329,32 +354,44 @@ fn executer_phase(
         }
     });
 
-    // --- deroulement pilote par l'operateur --------------------------------
-    println!("\n─────────────────────────────────────────────────────────────");
-    println!("  PHASE « {strategie} »  —  {occurrences_voulues} occurrences");
-    println!("─────────────────────────────────────────────────────────────");
-    println!("  Faites votre tache normalement, du debut a la fin.");
-    println!("  Puis revenez ici et appuyez sur Entree.\n");
+    println!("PRET strategie={strategie} controle={controle}");
+    println!("commandes : « fait <n> » clot une occurrence · « stop » termine");
 
+    // --- boucle de pilotage, sans aucune lecture clavier ---------------------
     let mut declarees_total = 0usize;
-    for n in 1..=occurrences_voulues {
-        occurrence.store(n as u64, Ordering::Relaxed);
-        if let Some(s) = auto_secondes {
-            println!("  Occurrence {n}/{occurrences_voulues} — mode auto, {s} s...");
-            std::thread::sleep(Duration::from_secs(s));
-            declarees_total += 1;
-        } else {
-            lire_ligne(&format!(
-                "  Occurrence {n}/{occurrences_voulues} — Entree quand c'est fini : "
-            ));
-            let rep =
-                lire_ligne("    Combien d'actions modifiant un etat (clics, saisies, envois) ? ");
-            declarees_total += rep.parse::<usize>().unwrap_or(0);
+    let mut occurrences_closes = 0usize;
+    let limite = Duration::from_secs(max_minutes * 60);
+
+    loop {
+        for ligne in lignes_nouvelles(&controle, &mut curseur) {
+            let mut mots = ligne.split_whitespace();
+            match mots.next() {
+                Some("fait") => {
+                    let n: usize = mots.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                    declarees_total += n;
+                    occurrences_closes += 1;
+                    occurrence.store(occurrences_closes as u64 + 1, Ordering::Relaxed);
+                    println!("OCCURRENCE {occurrences_closes} close, {n} actions declarees");
+                }
+                Some("stop") => {
+                    println!("STOP recu");
+                    stop.store(true, Ordering::Relaxed);
+                }
+                Some(autre) => println!("commande ignoree : {autre}"),
+                None => {}
+            }
         }
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        if debut.elapsed() > limite {
+            println!("LIMITE de {max_minutes} min atteinte, arret automatique");
+            stop.store(true, Ordering::Relaxed);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(250));
     }
 
-    // --- arret --------------------------------------------------------------
-    stop.store(true, Ordering::Relaxed);
     let _ = sampler.join();
     for (ev, h) in &poignees {
         let _ = automation.remove_automation_event_handler(*ev, &racine, h);
@@ -369,19 +406,19 @@ fn executer_phase(
 
     let actions_etat: Vec<&Observation> = g.observations.iter().filter(|o| o.etat).collect();
     let resolues = actions_etat.iter().filter(|o| o.resolu).count();
-
     let fen = fenetres_30s(&ech);
     let noeuds: Vec<f64> = g.walker.iter().map(|w| w.noeuds as f64).collect();
     let durees: Vec<f64> = g.walker.iter().map(|w| w.duree_ms as f64).collect();
 
-    Ok(ResultatPhase {
-        strategie: strategie.to_string(),
-        occurrences: occurrences_voulues,
+    let resultat = ResultatPhase {
+        strategie: strategie.clone(),
+        application_cible: cible,
+        occurrences: occurrences_closes,
         observations: g.observations.len(),
         actions_etat: actions_etat.len(),
         actions_etat_resolues: resolues,
         actions_etat_declarees: declarees_total,
-        stabilite_signature_pct: stabilite(&g.observations, occurrences_voulues),
+        stabilite_signature_pct: stabilite(&g.observations),
         couverture_etat_pct: if declarees_total == 0 {
             0.0
         } else {
@@ -400,75 +437,22 @@ fn executer_phase(
             g.walker.iter().filter(|w| w.tronque).count() as f64 * 100.0 / g.walker.len() as f64
         },
         echantillons: ech,
-    })
-}
-
-// ---------------------------------------------------------------------------
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = std::env::args().collect();
-    let occurrences: usize = args
-        .iter()
-        .position(|a| a == "--occurrences")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(5);
-
-    println!("Spike capteur UIA — mesure des deux strategies d'abonnement.");
-    println!("Aucun contenu n'est enregistre : roles, longueurs et compteurs seulement.\n");
-
-    let auto: Option<u64> = args
-        .iter()
-        .position(|a| a == "--auto-seconds")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|v| v.parse().ok());
-
-    let cible = if auto.is_some() {
-        "(mode auto)".to_string()
-    } else {
-        lire_ligne("Application cible (ex: Salesforce Lightning, Gmail) : ")
     };
 
-    let mut phases = Vec::new();
-    for strategie in ["globale", "focus"] {
-        phases.push(executer_phase(strategie, occurrences, auto)?);
-        if strategie == "globale" && auto.is_none() {
-            println!("\n  Phase 1 terminee. Respirez.");
-            lire_ligne("  Entree pour enchainer sur la strategie « focus » : ");
-        }
+    if let Some(parent) = std::path::Path::new(&sortie).parent() {
+        std::fs::create_dir_all(parent)?;
     }
+    std::fs::write(&sortie, serde_json::to_string_pretty(&resultat)?)?;
 
-    let verdict = Verdict {
-        genere_le: format!("{:?}", std::time::SystemTime::now()),
-        application_cible: cible,
-        phases,
-    };
-
-    std::fs::create_dir_all("resultats")?;
-    let json = serde_json::to_string_pretty(&verdict)?;
-    std::fs::write("resultats/spike.json", &json)?;
-
-    println!("\n═══════════════════════════════════════════════════════════");
-    for p in &verdict.phases {
-        println!(
-            "  {:8}  stabilite {:5.1} %   couverture {:5.1} %   CPU p95 {:5.2} %   RAM max {:6.1} Mo",
-            p.strategie,
-            p.stabilite_signature_pct,
-            p.couverture_etat_pct,
-            p.cpu_p95_fenetres_30s,
-            p.ram_max_mo
-        );
-        println!(
-            "            walker : noeuds p50 {} / p95 {}, profondeur max {}, duree p95 {} ms, tronques {:.0} %",
-            p.walker_noeuds_p50,
-            p.walker_noeuds_p95,
-            p.walker_profondeur_max,
-            p.walker_duree_p95_ms,
-            p.walker_tronques_pct
-        );
-    }
-    println!("═══════════════════════════════════════════════════════════");
-    println!("\nresultats/spike.json ecrit.");
-    println!("Depuis la racine du depot, lancez : node scripts/remplir-verdict.mjs");
+    println!(
+        "TERMINE {} — occurrences {} · stabilite {:.1} % · couverture {:.1} % · CPU p95 {:.2} % · RAM max {:.1} Mo",
+        strategie,
+        resultat.occurrences,
+        resultat.stabilite_signature_pct,
+        resultat.couverture_etat_pct,
+        resultat.cpu_p95_fenetres_30s,
+        resultat.ram_max_mo
+    );
+    println!("SORTIE {sortie}");
     Ok(())
 }
