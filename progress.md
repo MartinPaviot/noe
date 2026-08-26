@@ -358,3 +358,74 @@ Inchangés — Supabase `noe-prod` ~10 €/mois, Azure sur crédits. Aucun appel
 de la session.
 
 ---
+
+## Session — 2026-08-27 · D26, D27, et la première fenêtre
+
+### Fait
+
+**Spec 002 à 11/20.** Tâches 6a, 7, 8 et 8bis cochées, plus D27 tranché et
+implémenté.
+
+- **6a — adaptateur UIA réel.** Vérifié sur un vrai bureau : 5 boutons invoqués
+  via UIA → exactement 5 `invocation` captées, plus focus et structure.
+- **7 — snapshots.** Photo réelle du Bloc-notes contenant un courriel et un
+  téléphone que je venais d'y taper : racine `window`, 37 nœuds, 2 522 octets,
+  **0 PII restante**.
+- **D27 — hook clavier**, accordé par l'opérateur, posé pendant l'épisode
+  seulement. 1 `Ctrl+C` → 1 copie, 2 `Ctrl+V` → 2 collages, `Ctrl+A`, `Ctrl+S`
+  et tout le texte tapé comptés pour **rien**.
+- **8 — assemblage.** Le harness TypeScript **accepte** un épisode produit par
+  Rust, et les deux rendent le même grade et la même raison, caractère pour
+  caractère.
+- **8bis — le squelette traversant.** La fenêtre existe, s'ouvre depuis le menu
+  de barre d'état, et lit les vrais épisodes. Quatre baselines Playwright.
+
+**Specs 004, 005 et 006 déposées** (texte opérateur, sans reformulation), et
+l'**evidence quotidienne** tourne — elle capture désormais la vue elle-même.
+
+### Ce que les contrôles ont trouvé
+
+Sept défauts, tous les miens, et aucun n'aurait été vu par relecture.
+
+1. **Le seuil de grade était mal miroité.** `gradeOf` tolère au plus UN défaut
+   pour rester en B ; j'avais écrit « zéro trou et zéro entité non résolue ». Le
+   harness a refusé l'épisode — le bon comportement — mais la divergence ne s'est
+   vue qu'en produisant un épisode complet et en le lui soumettant. Elle est
+   désormais figée dans `vecteurs-grade.json`.
+2. **`Abonnement` mentait.** Son commentaire promettait « le relâcher coupe le
+   flux » ; le type ne portait qu'un champ privé vide.
+3. **Les rôles UIA et DOM ne parlaient pas la même langue** — `Button` contre
+   `button`. Les clés de branches de la 004 ne se seraient jamais rejointes.
+4. **Les tests visuels étaient instables** : 4, puis 1, puis 5 tests passés sur
+   trois exécutions du même code. En série, cinq passent en 4,6 s.
+5. **Mon script d'evidence laissait un serveur qui écoutait encore.** `kill()` ne
+   suffit pas sous Windows quand `shell: true` interpose un interpréteur.
+6. **La vue restait indéfiniment « pas prête »** si une seule frise échouait —
+   `Promise.all` rejetait, et le drapeau n'arrivait jamais.
+7. **`test-results/` est entré dans le dépôt**, et la CI est tombée dessus.
+
+### Ce qui reste ouvert, et déclaré
+
+- **Le filtre « surfaces activées »** (R5.4) — rattaché à la tâche 9. La copie est
+  lue dès qu'un `Ctrl+C` est observé pendant un épisode ; il manque la
+  vérification que la fenêtre au premier plan est autorisée.
+- **`Text_TextChanged`** n'a pas été observé — le Bloc-notes ne le lève pas.
+  Dépendant de l'application, et non déclaré comme prouvé.
+- **La troisième implémentation des motifs** (in-page JS) → tâche 6b.
+
+### Vert
+
+`pnpm verify` · `cargo test --all-targets` : **197 tests Rust + 2 d'intégration
++ 5 visuels**. Les deux workflows verts sur `94b2c55`. **54 commits.**
+
+### Prochaine tâche
+
+Spec 002, **tâche 9** — pause étanche et liste blanche vide, qui porte aussi le
+filtre des surfaces activées laissé par D27. Puis 10 (panique), 6b (extension
+MV3 + native messaging), et le gate.
+
+### Coûts
+
+Inchangés. Aucun appel modèle de la session.
+
+---
