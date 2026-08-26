@@ -53,9 +53,12 @@ Une spec = un triptyque `requirements.md` (EARS) / `design.md` / `tasks.md` dans
 `specs/NNN-slug/`. Une tâche = un incrément vérifié de bout en bout ; cocher = le
 critère passe.
 
-**J'écris moi-même les specs 004+** au gate de sortie de la précédente, même
-format et même profondeur que les 001-003. Chaque spec auto-écrite passe le
-rituel avant d'être travaillée :
+**Les specs 004, 005 et 006 ont été fournies par l'opérateur** le 2026-08-26 et
+déposées sans reformulation. Elles portent déjà leur challenge « trois scènes
+réelles » intégré : le rituel ci-dessous ne s'applique donc qu'aux specs que
+j'écris moi-même, c'est-à-dire **007 à 010**, au gate de sortie de la précédente,
+même format et même profondeur. Chaque spec auto-écrite passe le rituel avant
+d'être travaillée :
 
 1. **auto-challenge « trois scènes réelles »** — projeter trois situations
    concrètes d'usage et chercher ce qui casse ; consigner les trouvailles et
