@@ -15,6 +15,7 @@ export {
   MOTIFS_PII,
   type MotifPii,
   type OccurrencePii,
+  resoudreChevauchements,
   resumerOccurrences,
   VERSION_MOTIFS,
   type VerdictRedaction,

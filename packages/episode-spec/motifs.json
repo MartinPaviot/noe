@@ -1,35 +1,40 @@
 {
-  "version": 2,
+  "version": 3,
   "motifs": [
     {
       "type": "CARTE",
       "source": "\\b(?:\\d{4}[ -]?){3}\\d{4}\\b",
       "drapeaux": "g",
+      "priorite": 20,
       "note": "numero de carte a 16 chiffres"
     },
     {
       "type": "EMAIL",
       "source": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",
       "drapeaux": "g",
+      "priorite": 30,
       "note": "adresse de courriel"
     },
     {
       "type": "IBAN",
       "source": "\\b[A-Z]{2}\\d{2}[A-Z0-9]{10,30}\\b",
       "drapeaux": "g",
+      "priorite": 10,
       "note": "IBAN : deux lettres pays, deux chiffres de controle, puis le compte"
     },
     {
       "type": "TEL_FR",
       "source": "(?:\\+33[ .-]?|0)[1-9](?:[ .-]?\\d{2}){4}",
       "drapeaux": "g",
+      "priorite": 40,
       "note": "numero francais, indicatif +33 ou 0, avec ou sans separateurs"
     },
     {
       "type": "TEL_INTL",
-      "source": "\\+(?!33)\\d{1,3}[ .-]?\\d{2,4}(?:[ .-]?\\d{2,4}){2,}",
+      "source": "\\+\\d{1,3}[ .-]?\\d{2,4}(?:[ .-]?\\d{2,4}){2,}",
       "drapeaux": "g",
-      "note": "numero international hors France"
+      "priorite": 50,
+      "note": "numero international ; la France est captee par TEL_FR, plus prioritaire"
     }
   ]
 }

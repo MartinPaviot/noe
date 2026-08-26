@@ -41,6 +41,12 @@ jobs:
       - name: Typecheck (TypeScript strict)
         run: pnpm typecheck
 
+      # Le miroir JSON des motifs PII doit refleter MOTIFS_PII. Sans ce
+      # controle, le fichier deviendrait en quelques semaines une copie perimee
+      # que l adaptateur Rust lirait sans rien soupconner.
+      - name: Miroir des motifs PII a jour
+        run: pnpm build && pnpm lint:motifs
+
       - name: Tests (Vitest)
         run: pnpm test
 

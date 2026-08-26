@@ -5,10 +5,13 @@
 //! testent sans écran. Tout ce qui décide vraiment quelque chose est ailleurs,
 //! là où la CI peut l'atteindre.
 
+mod cle;
 mod config;
 mod etat;
 mod horloge;
 mod moteur;
+mod motifs;
+mod redaction;
 mod source;
 
 use std::sync::Mutex;
@@ -21,10 +24,12 @@ use tauri::{
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 
+use cle::CleHmac;
 use config::Config;
 use etat::{EtatTray, Session};
 use horloge::{Horloge, HorlogeReelle};
 use moteur::Moteur;
+use redaction::Redacteur;
 
 /// Ctrl+Alt+D commence, Ctrl+Alt+F clôt. D comme début, F comme fin.
 ///
@@ -53,6 +58,9 @@ struct Etat {
     /// Le moteur n'existe QUE pendant un episode. C'est la meme garantie que
     /// `Session` porte cote etat : hors episode, il n'y a rien ou ecrire.
     moteur: Mutex<Option<Moteur>>,
+    /// Charge une fois pour toutes : la cle HMAC ne doit pas changer entre deux
+    /// episodes, sinon les jetons changent et les jointures cassent (R4.2).
+    redacteur: std::sync::Arc<Redacteur>,
 }
 
 /// Le dossier de données du poste. Tout ce que Noe écrit vit dessous.
@@ -134,8 +142,11 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
 
     match resultat {
         Ok((id, slug)) => {
-            *e.moteur.lock().expect("moteur empoisonne") =
-                Some(Moteur::ouvrir(e.horloge.clone(), "poste"));
+            *e.moteur.lock().expect("moteur empoisonne") = Some(Moteur::ouvrir(
+                e.horloge.clone(),
+                e.redacteur.clone(),
+                "poste",
+            ));
             notifier(
                 app,
                 "Noe observe",
@@ -339,11 +350,19 @@ pub fn run() {
             let handle = app.handle().clone();
             let cfg = Config::charger(&chemin_config(&handle));
 
+            // R4.1 : la cle est tiree au premier lancement puis rechargee. Un
+            // echec ici n'est PAS rattrapable en degradant — sans cle, la seule
+            // alternative serait d'ecrire en clair, ce que R4.4 interdit. On
+            // refuse donc de demarrer, en le disant.
+            let cle = CleHmac::charger_ou_creer(&dossier_donnees(&handle).join("cle.bin"))
+                .map_err(|e| format!("cle de pseudonymisation indisponible : {e}"))?;
+
             app.manage(Etat {
                 session: Mutex::new(Session::nouvelle()),
                 config: Mutex::new(cfg.clone()),
                 horloge: std::sync::Arc::new(HorlogeReelle::new()),
                 moteur: Mutex::new(None),
+                redacteur: std::sync::Arc::new(Redacteur::new(&cle)),
             });
 
             let menu = construire_menu(&handle, &cfg)?;
@@ -375,13 +394,17 @@ pub fn run() {
             // une autre application se manifeste par « rien ne se passe quand
             // j'appuie », et le diagnostic coûte une session entière.
             eprintln!(
-                "[noe] pret — tache active : {} · raccourcis : {}",
+                "[noe] pret — tache active : {} · raccourcis : {} · motifs v{} ({})",
                 cfg.tache_active.as_deref().unwrap_or("aucune"),
                 if obtenus.is_empty() {
                     "AUCUN".to_string()
                 } else {
                     obtenus.join(", ")
-                }
+                },
+                // Savoir sous quelle version de motifs une session a tourne : un
+                // episode redacte en v1 ne l'a pas ete comme un episode en v3.
+                motifs::version(),
+                motifs::types().join("/"),
             );
             Ok(())
         })

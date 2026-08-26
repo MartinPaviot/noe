@@ -725,3 +725,61 @@ n'a pas pensé.
 `spikes/dom`) embarquent une copie de l'ancien motif dans leur normalisation de
 noms. Ils ne sont pas le produit, leurs verdicts sont déjà consignés, et les
 modifier invaliderait des mesures publiées. Ils restent en l'état, datés.
+
+## 2026-08-26 — D25 : la bibliothèque de motifs tient dans le sous-ensemble commun aux trois moteurs
+
+**Spec :** 002 · **Tâche :** 3 · **Impact inter-specs :** oui, `VERSION_MOTIFS` → 3
+
+**Constat.** La bibliothèque est déclarée en **chaînes** depuis le début, avec une
+promesse explicite : « pour que l'adaptateur Rust puisse la consommer telle
+quelle ». En écrivant cet adaptateur, le moteur a refusé net :
+
+```
+\+(?!33)\d{1,3}…
+  ^^^
+error: look-around, including look-ahead and look-behind, is not supported
+```
+
+Le crate `regex` de Rust ne connaît **ni anticipation ni rétrospection** — c'est
+un choix de conception assumé du moteur, qui garantit en échange un temps
+d'exécution linéaire. La promesse était donc fausse depuis le premier jour, et
+seule l'écriture du consommateur pouvait le révéler.
+
+**Décision.** La bibliothèque se restreint au **sous-ensemble commun** aux trois
+moteurs qui doivent la lire : JavaScript (validateur et `DomSource`), Rust
+(`UiaSource`), et le moteur d'expressions régulières du navigateur. Concrètement :
+
+1. `TEL_INTL` perd son `(?!33)` et devient `\+\d{1,3}…` ;
+2. chaque motif porte une **`priorite`** ; l'exclusion française passe par
+   l'arbitrage de chevauchement, où `TEL_FR` (40) gagne sur `TEL_INTL` (50) ;
+3. un test refuse tout motif contenant `(?=`, `(?!`, `(?<=` ou `(?<!`.
+
+**L'arbitrage était nécessaire de toute façon.** Les vecteurs partagés l'avaient
+déjà montré avant même le portage : `FR7630006000011234567890189` déclenche
+`IBAN` **et** `TEL_FR`, parce qu'un IBAN contient une suite de chiffres qui
+ressemble à un numéro. Sans règle, le même texte aurait produit un jeton
+différent selon l'ordre d'évaluation du moteur — donc deux entités là où il n'y
+en a qu'une, donc une jointure perdue. La règle est gloutonne et déterministe :
+priorité croissante, puis longueur décroissante, puis position.
+
+**Deux autres divergences de moteur, réglées au même endroit.**
+
+- **`\d` n'a pas le même sens.** En JavaScript il est ASCII ; en Rust il est
+  Unicode par défaut, donc `١٢٣٤` compterait comme des chiffres d'un côté et pas
+  de l'autre. Le compilateur Rust est construit avec `unicode(false)`. Un test
+  vérifie qu'une carte en chiffres arabes-indiens n'est détectée nulle part.
+- **Les index ne se comptent pas pareil.** TypeScript compte en unités UTF-16,
+  Rust en octets. Les vecteurs partagés sont donc **contraints à l'ASCII**, et le
+  générateur refuse une entrée non-ASCII plutôt que de produire des positions
+  incomparables sans le dire.
+
+**Ce que la vérification croisée prouve, et ce qu'elle ne prouve pas.** Elle ne
+compare pas des chaînes de motifs — deux moteurs peuvent lire la même chaîne
+différemment, c'est tout l'objet de cette entrée. Elle compare les **sorties** sur
+17 entrées communes, détection **et** arbitrage. Elle ne dit rien des entrées
+qu'on n'a pas pensé à écrire.
+
+**Le troisième moteur reste à brancher.** Le `DomSource` (tâche 6b) devra lire le
+même `motifs.json` et passer les mêmes vecteurs. Tant que ce n'est pas fait, la
+bibliothèque est vérifiée sur deux implémentations, pas trois — et la tâche 6b
+le porte explicitement.

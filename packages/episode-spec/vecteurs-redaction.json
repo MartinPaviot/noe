@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "note": "Sorties de reference. Toute implementation doit rendre exactement ceci.",
   "cas": [
     {
@@ -7,7 +7,15 @@
       "occurrences": [
         {
           "type": "EMAIL",
-          "index": 9
+          "index": 9,
+          "fin": 31
+        }
+      ],
+      "retenues": [
+        {
+          "type": "EMAIL",
+          "index": 9,
+          "fin": 31
         }
       ]
     },
@@ -16,7 +24,15 @@
       "occurrences": [
         {
           "type": "TEL_FR",
-          "index": 14
+          "index": 14,
+          "fin": 28
+        }
+      ],
+      "retenues": [
+        {
+          "type": "TEL_FR",
+          "index": 14,
+          "fin": 28
         }
       ]
     },
@@ -25,7 +41,15 @@
       "occurrences": [
         {
           "type": "TEL_FR",
-          "index": 14
+          "index": 14,
+          "fin": 24
+        }
+      ],
+      "retenues": [
+        {
+          "type": "TEL_FR",
+          "index": 14,
+          "fin": 24
         }
       ]
     },
@@ -34,7 +58,15 @@
       "occurrences": [
         {
           "type": "TEL_FR",
-          "index": 14
+          "index": 14,
+          "fin": 31
+        }
+      ],
+      "retenues": [
+        {
+          "type": "TEL_FR",
+          "index": 14,
+          "fin": 31
         }
       ]
     },
@@ -43,7 +75,15 @@
       "occurrences": [
         {
           "type": "TEL_INTL",
-          "index": 13
+          "index": 13,
+          "fin": 29
+        }
+      ],
+      "retenues": [
+        {
+          "type": "TEL_INTL",
+          "index": 13,
+          "fin": 29
         }
       ]
     },
@@ -52,11 +92,20 @@
       "occurrences": [
         {
           "type": "IBAN",
-          "index": 13
+          "index": 13,
+          "fin": 40
         },
         {
           "type": "TEL_FR",
-          "index": 20
+          "index": 20,
+          "fin": 30
+        }
+      ],
+      "retenues": [
+        {
+          "type": "IBAN",
+          "index": 13,
+          "fin": 40
         }
       ]
     },
@@ -65,7 +114,15 @@
       "occurrences": [
         {
           "type": "CARTE",
-          "index": 6
+          "index": 6,
+          "fin": 25
+        }
+      ],
+      "retenues": [
+        {
+          "type": "CARTE",
+          "index": 6,
+          "fin": 25
         }
       ]
     },
@@ -74,49 +131,72 @@
       "occurrences": [
         {
           "type": "EMAIL",
-          "index": 17
+          "index": 17,
+          "fin": 23
         },
         {
           "type": "TEL_FR",
-          "index": 27
+          "index": 27,
+          "fin": 41
+        }
+      ],
+      "retenues": [
+        {
+          "type": "EMAIL",
+          "index": 17,
+          "fin": 23
+        },
+        {
+          "type": "TEL_FR",
+          "index": 27,
+          "fin": 41
         }
       ]
     },
     {
       "entree": "Reference interne 2026-08-26",
-      "occurrences": []
+      "occurrences": [],
+      "retenues": []
     },
     {
       "entree": "Version 1.2.3 du connecteur",
-      "occurrences": []
+      "occurrences": [],
+      "retenues": []
     },
     {
       "entree": "Montant 1 234,56 EUR",
-      "occurrences": []
+      "occurrences": [],
+      "retenues": []
     },
     {
       "entree": "Piste ouverte il y a 12 jours",
-      "occurrences": []
+      "occurrences": [],
+      "retenues": []
     },
     {
       "entree": "Code postal 75011 Paris",
-      "occurrences": []
+      "occurrences": [],
+      "retenues": []
     },
     {
       "entree": "SIRET 12345678900011",
-      "occurrences": []
+      "occurrences": [],
+      "retenues": []
     },
     {
       "entree": "",
-      "occurrences": []
+      "occurrences": [],
+      "retenues": []
     },
     {
       "entree": "arobase sans domaine : jean@exemple",
-      "occurrences": []
+      "occurrences": [],
+      "retenues": []
     },
     {
       "entree": "presque un IBAN : FR76 mais trop court",
-      "occurrences": []
+      "occurrences": [],
+      "retenues": []
     }
   ]
 }

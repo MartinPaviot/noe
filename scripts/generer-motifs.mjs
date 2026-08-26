@@ -30,7 +30,7 @@ const DEST_VECTEURS = join(RACINE, 'packages', 'episode-spec', 'vecteurs-redacti
 
 // `pathToFileURL` : sur Windows, un chemin absolu commence par une lettre de
 // lecteur, que le chargeur ESM lit comme un schema d URL inconnu.
-const { MOTIFS_PII, VERSION_MOTIFS, chercherPii } = await import(
+const { MOTIFS_PII, VERSION_MOTIFS, chercherPii, resoudreChevauchements } = await import(
   pathToFileURL(join(RACINE, 'packages', 'episode-spec', 'dist', 'index.js')).href
 );
 
@@ -72,20 +72,48 @@ const motifs = {
   // Trie par type : le miroir doit avoir un ordre stable, sinon deux
   // generations successives produiraient un diff sans changement de fond.
   motifs: [...MOTIFS_PII]
-    .map(({ type, source, drapeaux, note }) => ({ type, source, drapeaux, note }))
+    .map(({ type, source, drapeaux, priorite, note }) => ({
+      type,
+      source,
+      drapeaux,
+      priorite,
+      note,
+    }))
     .sort((a, b) => a.type.localeCompare(b.type)),
 };
 
 const vecteurs = {
   version: VERSION_MOTIFS,
   note: 'Sorties de reference. Toute implementation doit rendre exactement ceci.',
-  cas: ENTREES.map((entree) => ({
-    entree,
-    // Uniquement le type et la position : l'extrait tronqué de `chercherPii`
-    // n'a pas à voyager dans un fichier versionné, et le type + l'index
-    // suffisent à prouver que deux moteurs voient la même chose au même endroit.
-    occurrences: chercherPii(entree).map(({ type, index }) => ({ type, index })),
-  })),
+  cas: ENTREES.map((entree) => {
+    // Les index de TypeScript comptent en unites UTF-16, ceux de Rust en
+    // octets. Sur de l'ASCII les deux coincident ; ailleurs ils ne seraient pas
+    // comparables, et le test inter-implementations comparerait des pommes et
+    // des poires sans le dire.
+    // Test sur les points de code plutot que par expression reguliere : une
+    // classe de caracteres de controle dans une regex est precisement ce que
+    // le lint interdit, et il a raison — elle se relit mal et se corrige de
+    // travers, comme la premiere version de cette ligne l'a montre.
+    if ([...entree].some((c) => (c.codePointAt(0) ?? 0) > 0x7f)) {
+      throw new Error(`vecteur non-ASCII, les index ne seraient pas comparables : ${entree}`);
+    }
+    const brutes = chercherPii(entree);
+    return {
+      entree,
+      // Uniquement le type et les bornes : l'extrait tronqué de `chercherPii`
+      // n'a pas à voyager dans un fichier versionné, et le type + la position
+      // suffisent à prouver que deux moteurs voient la même chose au même
+      // endroit.
+      occurrences: brutes.map(({ type, index, fin }) => ({ type, index, fin })),
+      // Ce qui sera REELLEMENT remplace apres arbitrage des chevauchements.
+      // C'est cette liste-la qui determine les jetons, donc les jointures.
+      retenues: resoudreChevauchements(brutes).map(({ type, index, fin }) => ({
+        type,
+        index,
+        fin,
+      })),
+    };
+  }),
 };
 
 const lire = (chemin) => {

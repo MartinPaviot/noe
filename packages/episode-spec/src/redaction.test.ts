@@ -3,6 +3,7 @@ import { episodeValide } from './fixtures.js';
 import {
   chercherPii,
   MOTIFS_PII,
+  resoudreChevauchements,
   resumerOccurrences,
   VERSION_MOTIFS,
   validerRedaction,
@@ -20,7 +21,7 @@ describe('bibliotheque de motifs', () => {
   // un effet de bord. Ce test a fait son travail — il a rougi quand la v2 a
   // corrigé le trou téléphonique, et a forcé l'entrée dans `decisions.md`.
   it('est versionnee — un corpus juge sous une version anterieure reste interpretable', () => {
-    expect(VERSION_MOTIFS).toBe(2);
+    expect(VERSION_MOTIFS).toBe(3);
   });
 
   it('couvre les quatre familles exigees par R4.1', () => {
@@ -214,4 +215,80 @@ describe('TEL_FR couvre les formes reellement ecrites (v2)', () => {
       expect(chercherPii(texte).map((o) => o.type)).not.toContain('TEL_FR');
     });
   }
+});
+
+/**
+ * L'arbitrage des chevauchements decide quel JETON un texte produira.
+ *
+ * Ce n'est pas un detail d'implementation : deux jetons differents pour une meme
+ * entite, c'est une jointure perdue dans le graphe. La regle doit donc etre
+ * deterministe, et identique dans les trois moteurs.
+ */
+describe('arbitrage des chevauchements', () => {
+  it('un IBAN l emporte sur le motif telephonique qu il contient', () => {
+    const brutes = chercherPii('Virement sur FR7630006000011234567890189');
+    expect(brutes.map((o) => o.type)).toEqual(expect.arrayContaining(['IBAN', 'TEL_FR']));
+
+    const retenues = resoudreChevauchements(brutes);
+    expect(retenues.map((o) => o.type)).toEqual(['IBAN']);
+  });
+
+  it('un numero francais rend TEL_FR, jamais TEL_INTL', () => {
+    // La v2 l obtenait par une anticipation negative que Rust ne sait pas lire.
+    // La v3 l obtient par la priorite, qui se lit partout.
+    for (const forme of ['+33 6 12 34 56 78', '+33612345678']) {
+      const retenues = resoudreChevauchements(chercherPii(`tel ${forme}`));
+      expect(retenues.map((o) => o.type)).toEqual(['TEL_FR']);
+    }
+  });
+
+  it('un numero etranger reste TEL_INTL', () => {
+    const retenues = resoudreChevauchements(chercherPii('Numero belge +32 471 12 34 56'));
+    expect(retenues.map((o) => o.type)).toEqual(['TEL_INTL']);
+  });
+
+  it('deux PII disjointes sont toutes deux retenues', () => {
+    const retenues = resoudreChevauchements(
+      chercherPii('Deux a la fois : a@b.fr et 06.12.34.56.78'),
+    );
+    expect(retenues.map((o) => o.type)).toEqual(['EMAIL', 'TEL_FR']);
+  });
+
+  it('les retenues ne se chevauchent jamais', () => {
+    const retenues = resoudreChevauchements(
+      chercherPii('FR7630006000011234567890189 puis a@b.fr puis 4970 1234 5678 9012'),
+    );
+    for (let i = 1; i < retenues.length; i++) {
+      const precedente = retenues[i - 1];
+      const courante = retenues[i];
+      expect(precedente).toBeDefined();
+      expect(courante).toBeDefined();
+      expect(courante?.index).toBeGreaterThanOrEqual(precedente?.fin ?? 0);
+    }
+  });
+
+  it('est stable : deux appels rendent le meme resultat', () => {
+    const brutes = chercherPii('FR7630006000011234567890189 et 06 12 34 56 78');
+    expect(resoudreChevauchements(brutes)).toEqual(resoudreChevauchements(brutes));
+  });
+});
+
+describe('aucun motif n utilise une syntaxe hors du sous-ensemble commun', () => {
+  // Le moteur de Rust ne connait ni anticipation ni retrospection. Une
+  // bibliotheque destinee a trois moteurs doit tenir dans leur intersection —
+  // sinon la promesse « les motifs sont lus tels quels » est fausse, et on ne
+  // s en apercoit qu en compilant l adaptateur natif.
+  it('pas d anticipation ni de retrospection', () => {
+    for (const m of MOTIFS_PII) {
+      expect(m.source, `${m.type} contient une anticipation`).not.toMatch(/\(\?[=!]/);
+      expect(m.source, `${m.type} contient une retrospection`).not.toMatch(/\(\?<[=!]/);
+    }
+  });
+
+  it('chaque motif porte une priorite distincte', () => {
+    const priorites = MOTIFS_PII.map((m) => m.priorite);
+    expect(new Set(priorites).size, 'deux motifs a egalite rendraient l arbitrage ambigu').toBe(
+      priorites.length,
+    );
+  });
 });

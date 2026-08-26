@@ -11,18 +11,32 @@
  */
 
 /**
- * Version 2 : `TEL_FR` accepte un séparateur après `+33`.
+ * Version 3.
  *
- * La v1 laissait passer « +33 6 12 34 56 78 » en clair. Le numéro de version
- * existe précisément pour ça — un corpus jugé sous v1 reste interprétable, et on
- * sait que sa redaction téléphonique était plus faible.
+ * - **v2** : `TEL_FR` accepte un séparateur après `+33`. La v1 laissait passer
+ *   « +33 6 12 34 56 78 » en clair.
+ * - **v3** : plus aucune anticipation dans la bibliothèque, et arbitrage des
+ *   chevauchements par `priorite`. Le moteur de Rust ne connaît pas
+ *   l'anticipation ; une bibliothèque censée être lue par trois moteurs doit
+ *   tenir dans leur sous-ensemble commun.
  */
-export const VERSION_MOTIFS = 2;
+export const VERSION_MOTIFS = 3;
 
 export type MotifPii = {
   readonly type: string;
   readonly source: string;
   readonly drapeaux: string;
+  /**
+   * Qui l'emporte quand deux motifs mordent sur le même texte. Le plus petit
+   * gagne.
+   *
+   * Ce champ remplace les anticipations négatives. Un IBAN contient une suite de
+   * chiffres qu'un motif téléphonique reconnaît ; un numéro français est un
+   * numéro international. Sans arbitrage, le même texte produirait deux jetons
+   * différents selon l'ordre d'évaluation — et deux jetons pour une même entité,
+   * c'est une jointure perdue, donc un graphe faux.
+   */
+  readonly priorite: number;
   readonly note: string;
 };
 
@@ -36,6 +50,7 @@ export const MOTIFS_PII: readonly MotifPii[] = [
     type: 'EMAIL',
     source: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}',
     drapeaux: 'g',
+    priorite: 30,
     note: 'adresse de courriel',
   },
   {
@@ -51,24 +66,42 @@ export const MOTIFS_PII: readonly MotifPii[] = [
     // Trouvé par les vecteurs partagés avant qu'aucune capture réelle ne tourne.
     source: '(?:\\+33[ .-]?|0)[1-9](?:[ .-]?\\d{2}){4}',
     drapeaux: 'g',
+    // Avant TEL_INTL : un numéro français EST un numéro international, et il
+    // doit toujours rendre le même jeton.
+    priorite: 40,
     note: 'numero francais, indicatif +33 ou 0, avec ou sans separateurs',
   },
   {
     type: 'TEL_INTL',
-    source: '\\+(?!33)\\d{1,3}[ .-]?\\d{2,4}(?:[ .-]?\\d{2,4}){2,}',
+    // PAS d'anticipation négative.
+    //
+    // La v2 écrivait `\+(?!33)` pour exclure la France. Le moteur d'expressions
+    // régulières de Rust ne connaît NI anticipation NI rétrospection : la
+    // bibliothèque était donc inconsommable par l'adaptateur natif, alors que sa
+    // raison d'être est précisément d'être lue telle quelle par les trois
+    // moteurs. Elle doit tenir dans leur sous-ensemble commun.
+    //
+    // L'exclusion française passe désormais par la priorité : TEL_FR gagne
+    // l'arbitrage de chevauchement. Même résultat, syntaxe portable.
+    source: '\\+\\d{1,3}[ .-]?\\d{2,4}(?:[ .-]?\\d{2,4}){2,}',
     drapeaux: 'g',
-    note: 'numero international hors France',
+    priorite: 50,
+    note: 'numero international ; la France est captee par TEL_FR, plus prioritaire',
   },
   {
     type: 'IBAN',
     source: '\\b[A-Z]{2}\\d{2}[A-Z0-9]{10,30}\\b',
     drapeaux: 'g',
+    // Le plus prioritaire : un IBAN contient des suites de chiffres que les
+    // motifs téléphonique et de carte reconnaissent au passage.
+    priorite: 10,
     note: 'IBAN : deux lettres pays, deux chiffres de controle, puis le compte',
   },
   {
     type: 'CARTE',
     source: '\\b(?:\\d{4}[ -]?){3}\\d{4}\\b',
     drapeaux: 'g',
+    priorite: 20,
     note: 'numero de carte a 16 chiffres',
   },
 ];
@@ -77,7 +110,46 @@ export type OccurrencePii = {
   readonly type: string;
   readonly extrait: string;
   readonly index: number;
+  /** Index de fin, exclusif. Nécessaire pour arbitrer les chevauchements. */
+  readonly fin: number;
 };
+
+/**
+ * Arbitre les chevauchements : quelles occurrences seront réellement remplacées.
+ *
+ * `chercherPii` rend TOUT ce qui matche, y compris des motifs qui mordent l'un
+ * sur l'autre — un IBAN contient une suite de chiffres qu'un motif téléphonique
+ * reconnaît. Pour **valider** (R4.6) cela suffit : n'importe quelle occurrence
+ * rend l'épisode invalide. Pour **redacter**, non : remplacer deux occurrences
+ * qui se chevauchent produirait un jeton tronqué au milieu d'un autre.
+ *
+ * La règle est gloutonne et entièrement déterministe : priorité croissante,
+ * puis longueur décroissante, puis position. Elle est partagée par les trois
+ * implémentations, et les vecteurs de test en figent le résultat — c'est ce qui
+ * garantit qu'un même texte donne le même jeton partout, donc que les jointures
+ * du graphe d'entités tiennent.
+ */
+export function resoudreChevauchements(
+  occurrences: readonly OccurrencePii[],
+): readonly OccurrencePii[] {
+  const priorite = new Map(MOTIFS_PII.map((m) => [m.type, m.priorite]));
+  const candidats = [...occurrences].sort((a, b) => {
+    const pa = priorite.get(a.type) ?? Number.MAX_SAFE_INTEGER;
+    const pb = priorite.get(b.type) ?? Number.MAX_SAFE_INTEGER;
+    if (pa !== pb) return pa - pb;
+    const la = a.fin - a.index;
+    const lb = b.fin - b.index;
+    if (la !== lb) return lb - la;
+    return a.index - b.index;
+  });
+
+  const retenues: OccurrencePii[] = [];
+  for (const c of candidats) {
+    const chevauche = retenues.some((r) => c.index < r.fin && r.index < c.fin);
+    if (!chevauche) retenues.push(c);
+  }
+  return retenues.sort((a, b) => a.index - b.index);
+}
 
 /**
  * Cherche des PII dans un texte.
@@ -98,6 +170,7 @@ export function chercherPii(texte: string): OccurrencePii[] {
         // Assez pour identifier la fuite en revue, trop peu pour la reutiliser.
         extrait: `${brut.slice(0, 3)}…${brut.slice(-2)}`,
         index: m.index,
+        fin: m.index + brut.length,
       });
       m = re.exec(texte);
     }

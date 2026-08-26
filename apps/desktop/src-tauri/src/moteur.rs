@@ -19,6 +19,7 @@
 #![allow(dead_code)]
 
 use crate::horloge::Horloge;
+use crate::redaction::Redacteur;
 use crate::source::{Cible, GenreEvenement, RawEvent, Source};
 
 /// Les instants où la spec exige un snapshot (R2.3).
@@ -104,6 +105,8 @@ pub const TIMEOUT_MS: u64 = 3_600_000;
 
 pub struct Moteur {
     horloge: std::sync::Arc<dyn Horloge>,
+    /// R4.1 : rien n'entre au journal sans etre passe par la.
+    redacteur: std::sync::Arc<Redacteur>,
     journal: Vec<EntreeJournal>,
     seq: u64,
     t0: u64,
@@ -121,10 +124,18 @@ pub struct Moteur {
 impl Moteur {
     /// L'horloge est PARTAGEE, pas empruntee : le moteur vit dans l'etat de
     /// l'application, ou une duree de vie liee a un emprunt ne passerait pas.
-    pub fn ouvrir(horloge: std::sync::Arc<dyn Horloge>, application: &str) -> Self {
+    pub fn ouvrir(
+        horloge: std::sync::Arc<dyn Horloge>,
+        redacteur: std::sync::Arc<Redacteur>,
+        application: &str,
+    ) -> Self {
         let t0 = horloge.monotone_ms();
+        // Le nom de l'application est deja du texte du monde reel : un titre de
+        // fenetre porte souvent le nom d'un client.
+        let application = redacteur.redacter(application);
         Self {
             horloge,
+            redacteur,
             journal: Vec::new(),
             seq: 0,
             t0,
@@ -132,7 +143,7 @@ impl Moteur {
             unresolved: 0,
             derniere_saisie: None,
             derniere_action: t0,
-            app_courante: application.to_string(),
+            app_courante: application,
             quittee: None,
             veille_depuis: None,
         }
@@ -246,7 +257,7 @@ impl Moteur {
                 return;
             }
             GenreEvenement::BasculeApplication { vers } => {
-                self.basculer(vers.clone(), maintenant);
+                self.basculer(self.redacteur.redacter(vers), maintenant);
                 return;
             }
             GenreEvenement::Saisie(_) => {
@@ -266,16 +277,21 @@ impl Moteur {
         self.derniere_action = maintenant;
 
         if let Some(cible) = ev.genre.cible() {
+            // « Resolu » se juge sur le nom BRUT : un nom vide le reste apres
+            // redaction, et un nom redacte n'est pas un nom perdu.
             let unresolved = !cible.resolue();
             if unresolved {
                 self.unresolved += 1;
             }
+            // R4.1 : la redaction precede l'ecriture au journal, qui est la
+            // premiere chose que le writer de la tache 4 persistera.
+            let genre = self.redacteur.redacter_genre(&ev.genre);
             let seq = self.prochain_seq();
             self.pousser(EntreeJournal::UiAction {
                 seq,
                 monotone_ms: maintenant,
                 source: ev.source,
-                genre: ev.genre,
+                genre,
                 unresolved,
             });
         }
@@ -351,6 +367,12 @@ mod tests {
     use std::sync::mpsc::channel;
     use std::time::Duration;
 
+    fn redacteur() -> std::sync::Arc<Redacteur> {
+        std::sync::Arc::new(Redacteur::new(
+            &crate::cle::CleHmac::generer().expect("alea"),
+        ))
+    }
+
     /// Granularité des battements pendant une attente simulée.
     ///
     /// Elle ne doit PAS se lire dans le journal : les instants consignés sont
@@ -360,10 +382,11 @@ mod tests {
     /// Rejoue un scénario complet en temps simulé et rend le moteur.
     fn rejouer(application: &str, etapes: Vec<Etape>) -> (Vec<EntreeJournal>, u64, bool) {
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
+        let redacteur = redacteur();
         let mut source = FakeSource::new();
         let (tx, rx) = channel();
         let _abonnement = source.abonner(tx).expect("abonnement");
-        let mut moteur = Moteur::ouvrir(horloge.clone(), application);
+        let mut moteur = Moteur::ouvrir(horloge.clone(), redacteur, application);
 
         for etape in etapes {
             match etape {
@@ -721,7 +744,7 @@ mod tests {
     #[test]
     fn clore_ne_perd_pas_un_delai_deja_expire() {
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 0,
@@ -741,7 +764,7 @@ mod tests {
     #[test]
     fn apres_cloture_manuelle_plus_rien_n_entre() {
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
         m.clore();
         let avant = m.journal().len();
         m.traiter(RawEvent {
@@ -758,7 +781,7 @@ mod tests {
         // la cloture doit avoir eu lieu quand meme. Un compteur incremente a
         // chaque battement raterait ce cas.
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
         horloge.avancer(Duration::from_secs(4_000));
         m.traiter(RawEvent {
             source: Source::Fake,
