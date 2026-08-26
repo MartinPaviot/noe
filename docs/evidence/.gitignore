@@ -1,0 +1,5 @@
+# Les captures sont inspectees AVANT commit : le depot est public, une page de
+# facturation montre des identifiants. Par defaut, rien ne part.
+*
+!.gitignore
+!README.md

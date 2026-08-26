@@ -1,0 +1,36 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - link "Skip to content" [ref=f1e7] [cursor=pointer]:
+        - /url: "#main"
+      - banner [ref=f1e10]:
+        - generic [ref=f1e11]:
+          - generic [ref=f1e12]:
+            - link "Supabase Back to organization home" [ref=f1e13] [cursor=pointer]:
+              - /url: /dashboard/organizations
+              - img "Supabase" [ref=f1e14]
+              - generic [ref=f1e15]: Back to organization home
+            - generic [ref=f1e16]: Organizations
+          - generic [ref=f1e21]:
+            - button "Feedback" [ref=f1e22] [cursor=pointer]
+            - generic [ref=f1e24]:
+              - button [ref=f1e25] [cursor=pointer]:
+                - paragraph [ref=f1e30]: Search...
+                - generic [ref=f1e31]: Ctrl K
+              - button "Help" [ref=f1e33] [cursor=pointer]
+              - button "Advisor Center" [ref=f1e40] [cursor=pointer]
+            - button [ref=f1e45] [cursor=pointer]
+      - main [ref=f1e54]:
+        - heading "Your organizations" [level=1] [ref=f1e62]
+    - generic [ref=f1e73]:
+      - generic:
+        - img "Background pattern"
+      - generic [ref=f1e74]:
+        - button "Close banner" [ref=f1e76] [cursor=pointer]
+        - generic [ref=f1e81]:
+          - generic [ref=f1e82]: Notice
+          - generic [ref=f1e83]:
+            - paragraph [ref=f1e84]: We're updating our Terms of Service
+            - paragraph [ref=f1e85]: Our Data Processing Addendum is now built into the Terms, effective August 1, 2026.
+          - button "Learn more" [ref=f1e86] [cursor=pointer]
+  - alert [ref=f1e88]

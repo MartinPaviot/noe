@@ -19,6 +19,17 @@ Les regles longues vivent dans `docs/invariants.md` ; ci-dessous le strict neces
 | CLI du harness | `pnpm --filter @noe/harness exec tsx src/cli.ts` |
 | Coquille desktop (dev) | `pnpm --filter @noe/desktop tauri dev` |
 
+## Doctrine d'exécution
+
+Avant de classer une tâche « humaine », descendre l'échelle en entier :
+**API → CLI → MCP → Playwright (profil Chrome déjà connecté) → humain guidé**.
+
+Trois irréductibles seulement : les **gestes de travail quand ils sont la donnée
+mesurée**, les **secrets** (jamais demandés — on opère sur session ouverte), les
+**décisions** (signatures, gates, verdicts).
+
+Détail et garde-fous : [`docs/doctrine-execution.md`](docs/doctrine-execution.md).
+
 ## Les cinq regles
 
 1. **Aucun contenu utilisateur ne quitte jamais le poste.** Pas de telemetrie de

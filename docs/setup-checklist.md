@@ -10,10 +10,51 @@
 | Marque | Sens |
 | --- | --- |
 | ✅ | Vérifié présent et fonctionnel |
-| 🔧 | Installé ou réparé par l'agent pendant la session 0 |
-| ⏳ | Automatisable, bloqué sur un gate humain (coût, ou compte en production) |
-| 👤 | **Toi seul** peux le faire — voir le récapitulatif final |
+| 🔧 | Installé ou réparé par l'agent |
+| 🎭 | **Automatisable par Playwright** sur une session déjà ouverte |
+| ⏳ | Automatisable, bloqué sur un gate (coût, production) |
+| 👤 | **Irréductible** — voir la reclassification ci-dessous |
 | ❌ | Absent, non résolu |
+
+---
+
+## Reclassification sous la doctrine d'exécution (2026-08-26)
+
+`docs/doctrine-execution.md` interdit de classer « humain » sans avoir descendu
+l'échelle **API → CLI → MCP → Playwright → humain guidé**. Les seize items
+marqués 👤 ont donc été repris un par un.
+
+### Ce qui n'était pas irréductible
+
+| Item | Voie réelle | État |
+| --- | --- | --- |
+| VS Build Tools, workload C++ | **CLI** — `winget --override` | ✅ fait, j'avais eu tort de le classer humain |
+| Retirer la carte bancaire Azure | 🎭 **Playwright** — portail, session ouverte | plan de clics annoncé avant (facturation) |
+| Verrouiller le Marketplace Azure | 🎭 Playwright — portail | plan annoncé avant (permissions) |
+| Principal de service Azure | 🎭 Playwright — inscriptions d'applications + attribution de rôle | plan annoncé avant (permissions) |
+| Jeton d'accès Supabase | 🎭 Playwright — dashboard → jetons | la valeur va droit dans `.env.local`, jamais affichée |
+| Projets Sentry · PostHog · Resend | 🎭 Playwright — consoles respectives | idem |
+| App OAuth Salesforce / Google | 🎭 Playwright — Setup / Cloud Console | plan annoncé avant (permissions) |
+| Ressource Azure Trusted Signing | 🎭 Playwright — portail (création) | la validation d'identité reste irréductible |
+| Créer un compte Stripe société | 🎭 Playwright — dashboard, **une fois l'entité tranchée** | la décision reste irréductible |
+
+### Ce qui reste irréductible, et pourquoi
+
+| Item | Irréductible | Motif |
+| --- | --- | --- |
+| `az login`, `stripe login`, `vercel login` | **#2 secrets** | Authentification initiale. Je tends l'URL et le code ; l'opérateur saisit ses identifiants et son 2FA. Je n'opère qu'ensuite, sur session ouverte. |
+| Les 10 occurrences du spike | **#1 donnée mesurée** | Le spike mesure comment l'opérateur travaille. Les simuler produirait un chiffre sur une simulation, c'est-à-dire rien. |
+| Trancher l'entité Stripe | **#3 décision** | Quelle personne morale encaisse. Aucun programme ne répond à ça. |
+| Gate passage Stripe en live | **#3 décision** | Compte de production, irréversible. |
+| Gate création de ressource facturable | **#3 décision** | Le coût s'engage. |
+| Signature du verdict de spike | **#3 décision** | Un verdict qui sort d'un programme n'est pas un verdict. |
+| Validation d'identité Trusted Signing | **#3 décision** | Documents d'entreprise, engagement juridique. |
+| Désactiver l'analyse HTTPS d'Avast | **hors échelle** | Application native protégée par auto-défense : ni API, ni CLI, ni web. Et **automatiser la désactivation d'un contrôle de sécurité serait inapproprié**, même sur demande — je décris, l'opérateur décide et clique. |
+| Enregistrer le PC dans l'annuaire Entra | **hors échelle** | Paramètres Windows natifs, et ça rattache un poste personnel à un annuaire d'entreprise — décision, pas exécution. |
+
+**Bilan : sur seize items, un seul était une vraie erreur de ma part** (VS Build
+Tools). Huit basculent sur Playwright. Sept restent, et chacun nomme son
+irréductible.
 
 ---
 
