@@ -113,6 +113,40 @@ te donne le lien et le code dans la foulée.
 > `NODE_EXTRA_CA_CERTS` posées pendant la session 0 restent inoffensives une fois
 > l'interception coupée : le bundle contient les 147 CA publics standard en plus.
 
+### ✅ B.0-ter — L'accès API fonctionne (vérifié le 2026-08-26)
+
+**Ce qui marche, exactement.** Trouvé après 30+ combinaisons ; ne pas re-dériver.
+
+```
+ressource   : martinpaviot-4001-resource      (PAS elevay-foundry)
+projet      : martinpaviot-4001               (kind AIServices, swedencentral)
+groupe      : rg-martin.paviot-0047
+abonnement  : ee682451-…  « Azure subscription 1 »
+tenant      : 05becca6-…  martinpaviotoutlook.onmicrosoft.com
+```
+
+| Usage | URL | En-tête |
+| --- | --- | --- |
+| Inférence | `https://martinpaviot-4001-resource.openai.azure.com/openai/v1/…` | `Authorization: Bearer <clé>` |
+| Lister les déploiements | `https://martinpaviot-4001-resource.services.ai.azure.com/api/projects/martinpaviot-4001/deployments?api-version=2025-05-01` | `Authorization: Bearer <clé>` |
+
+⚠️ **`Authorization: Bearer`, pas `api-key`.** Sur cette ressource Foundry, l'en-tête
+`api-key` renvoie 401 sur toutes les routes. C'est la surface OpenAI-compatible
+`/openai/v1` qu'il faut viser, pas `/openai/deployments/…`.
+
+> Conséquence pour le code : `createAzure({ resourceName, apiKey })` de
+> `@ai-sdk/azure` envoie `api-key` et construit `/openai/deployments/…` — donc
+> **ne fonctionnera pas tel quel ici**. Utiliser `createAzure({ …, useDeploymentBasedUrls: false })`
+> ou le provider OpenAI pointé sur l'URL `/openai/v1`, à trancher en F01.
+
+**État au 2026-08-26 :** le projet a **zéro déploiement**
+(`GET …/deployments` → `200 {"value":[]}`). Créé le 18/08/2026, rien n'y a
+encore été déployé — d'où les `DeploymentNotFound` sur 28 noms sondés.
+
+- [ ] 👤 <https://ai.azure.com> → `martinpaviot-4001` → **Déploiements** →
+      **Déployer un modèle** ×2 : un petit nommé `noe-tri`, un grand nommé
+      `noe-execution`. Le déploiement ne coûte rien, la facturation est au token.
+
 ### 👤 B.0-bis — `az` bloqué par une stratégie d'accès conditionnel
 
 **Diagnostic final.** La souscription existe, l'identité est valide. C'est
