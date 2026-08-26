@@ -19,6 +19,10 @@ Les regles longues vivent dans `docs/invariants.md` ; ci-dessous le strict neces
 | CLI du harness | `pnpm --filter @noe/harness exec tsx src/cli.ts` |
 | Coquille desktop (dev) | `pnpm --filter @noe/desktop tauri dev` |
 
+## Mission
+
+[`docs/mission.md`](docs/mission.md) est le document de reference, relu au debut de CHAQUE session : arbitrages, methode, feuille de route des specs, standard de tests visuels, protocole de long-run.
+
 ## Doctrine d'exécution
 
 Avant de classer une tâche « humaine », descendre l'échelle en entier :

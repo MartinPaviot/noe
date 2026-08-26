@@ -563,3 +563,81 @@ champs**. Un ciblage UI imparfait dégrade la lisibilité du film — quel bouto
 C'est aussi ce qui rend le seuil < 60 % franc : en dessous, le film devient trop
 flou pour servir de contexte au copilote, et l'extension navigateur redevient le
 bon outil pour les surfaces web.
+
+---
+
+## 2026-08-26 — D19 : le repli est TOTAL par classe de surface, pas partiel par échec
+
+**Déclenché par** le verdict du spike UIA (zone < 60 %, D18).
+
+**Décision.** L'extension Chrome MV3 devient l'adaptateur de capture de **toutes**
+les surfaces navigateur ; UIA garde **toutes** les applications natives. La
+frontière est la **classe de la fenêtre au premier plan**, pas la qualité observée
+du signal.
+
+**Pas de bascule dynamique UIA↔DOM sur une même surface.** C'était l'option
+tentante — essayer UIA, retomber sur le DOM quand l'ancrage est mauvais — et
+c'est celle qu'on écarte : une bascule conditionnelle crée un système à états dont
+les bugs sont **invisibles**. Un épisode dégradé ne dirait pas s'il l'est parce
+que la surface est difficile ou parce que la bascule a mal choisi. La partition
+par classe, elle, se diagnostique : on sait toujours quel adaptateur parlait.
+
+**Ce que ça ne coûte pas.** Le trait `CaptureSource` de la spec 002 absorbe le
+changement sans rien casser en aval : `UiaSource` et `DomSource` implémentent la
+même interface, et le pipeline — redaction, writer, assemblage, grades — ne bouge
+pas d'une ligne. C'est exactement ce pour quoi le trait existait.
+
+**Ce que ça coûte.** Un canal de plus : extension MV3 → native messaging → app
+Tauri. Et l'invariant 18 du prompt maître s'applique enfin pour de bon :
+`optional_host_permissions`, jamais `<all_urls>`.
+
+---
+
+## 2026-08-26 — D20 : on re-mesure avant de construire, et la mission ne s'arrête pas
+
+**Décision.** Spike DOM d'une journée maximum, **même protocole** que le spike
+UIA : 5 occurrences scriptées identiques sur l'org de démo, normalisation
+post-pipeline avant comparaison. Ancrages testés : `data-*`, rôles ARIA
+explicites, chemin structurel, nom accessible.
+
+Trois nombres : stabilité post-pipeline des ancrages d'actions d'état, couverture
+(100 % exigés), surcoût CPU **in-page** < 5 %.
+
+### Grille, appliquée sans solliciter l'opérateur
+
+| Stabilité post-pipeline | Décision |
+| --- | --- |
+| **≥ 90 %** | vert — amender la spec 002 (D19) et dérouler |
+| **60-89 %** | on construit ; ciblage marqué *best-effort*, chaîne de repli déclarée régime normal |
+| **< 60 %** | **on construit quand même** — film best-effort assumé, clés de branches en priorité sur les **transitions de champs** (plan API, qui est déjà leur définition), ciblage UI **corroboratif** ; note de portée écrite au jalon |
+
+**Le point important est la troisième ligne.** Le spike UIA s'est arrêté sur un
+« < 60 % » comme si c'était un mur. Ce n'en était pas un : la preuve vit sur le
+plan API — le juge compare des états avant/après, les branches se calculent sur
+des transitions de champs. **Aucune valeur de stabilité du film ne bloque la
+mission.**
+
+Le spike sert à savoir **sur quoi on roule**, jamais à s'arrêter. C'est la leçon
+de méthode de cette journée, et elle vaut pour tous les spikes à venir.
+
+---
+
+## 2026-08-26 — D21 : tests visuels Playwright obligatoires, partout, pour toujours
+
+**Décision.** Toute tâche qui produit ou modifie des pixels — UI de l'app,
+landing, popup d'extension, rapports HTML — livre ses tests visuels **dans la
+même tâche**. Une tâche UI sans test visuel **n'est pas terminable**.
+
+Standard complet dans `docs/mission.md` §4. En résumé : `@playwright/test` +
+`toHaveScreenshot`, baselines commitées, `maxDiffPixelRatio: 0.01`, viewport
+1280×800, animations coupées, fontes embarquées. Couverture minimale par
+surface : **nominal avec données, vide, erreur, chargement** — quatre baselines.
+
+**Motif.** Un diff visuel non détecté est une régression qui voyage jusqu'à
+l'utilisateur. Et une baseline régénérée dans un commit séparé du changement est
+une baseline qui ne prouve plus rien : elle doit voyager **avec** la modification
+qu'elle valide, sinon la revue ne voit jamais le avant/après.
+
+**Distinction à tenir** : les tests visuels prouvent la **non-régression** ;
+`docs/evidence/` documente l'**histoire** d'une opération. Deux besoins, deux
+dossiers, on ne les mélange pas.
