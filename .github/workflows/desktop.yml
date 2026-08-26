@@ -53,10 +53,11 @@ jobs:
       - name: Lint (clippy)
         run: cargo clippy --all-targets -- -D warnings
 
-      # La logique de bornage (R1.1, R1.2, R5.1) se teste ici, sans ecran :
-      # c est tout l interet de l avoir sortie du cablage Tauri.
-      - name: Tests (cargo)
-        run: cargo test --lib
+      # `cargo test` et non `--lib` : le kill-test de la tache 4 est un test
+      # d integration qui lance un vrai processus, le tue, et verifie la
+      # reprise. Le restreindre a la bibliotheque le laisserait dehors.
+      - name: Tests (cargo, tous les cibles)
+        run: cargo test --all-targets
 
       - uses: actions/setup-node@v7
         with:

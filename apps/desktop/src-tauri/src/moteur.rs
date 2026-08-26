@@ -19,6 +19,7 @@
 #![allow(dead_code)]
 
 use crate::horloge::Horloge;
+use crate::journal::Journal;
 use crate::redaction::Redacteur;
 use crate::source::{Cible, GenreEvenement, RawEvent, Source};
 
@@ -27,7 +28,8 @@ use crate::source::{Cible, GenreEvenement, RawEvent, Source};
 /// Le moteur les DÉTECTE ; la capture du snapshot elle-même est la tâche 7. La
 /// détection est ce qui a besoin d'une horloge injectable, donc c'est elle qui
 /// se teste maintenant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Declencheur {
     Soumission,
     SaisiePuisInactivite,
@@ -37,7 +39,8 @@ pub enum Declencheur {
 
 /// Les causes de trou. Miroir de `Gap.cause` d'`episode-spec` après l'extension
 /// déclarée par cette spec (design §1bis).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CauseGap {
     Crash,
     Kill,
@@ -48,7 +51,14 @@ pub enum CauseGap {
     Timeout,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Une ligne de journal.
+///
+/// `tag = "kind"` : chaque ligne JSONL porte son genre en clair, si bien qu'un
+/// journal se relit sans connaitre l'ordre des variantes — y compris par un
+/// outil qui n'est pas ce programme, ce qui compte pour un format que
+/// l'operateur doit pouvoir inspecter lui-meme.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EntreeJournal {
     UiAction {
         seq: u64,
@@ -107,7 +117,7 @@ pub struct Moteur {
     horloge: std::sync::Arc<dyn Horloge>,
     /// R4.1 : rien n'entre au journal sans etre passe par la.
     redacteur: std::sync::Arc<Redacteur>,
-    journal: Vec<EntreeJournal>,
+    entrees: Vec<EntreeJournal>,
     seq: u64,
     t0: u64,
     clos: bool,
@@ -119,6 +129,13 @@ pub struct Moteur {
     /// L'application qu'on vient de quitter, et l'instant du départ.
     quittee: Option<(String, u64)>,
     veille_depuis: Option<u64>,
+
+    /// Le writer, quand il y en a un. Les tests s'en passent : ils verifient la
+    /// logique temporelle, et un disque dans la boucle la rendrait plus lente
+    /// sans rien prouver de plus.
+    journal: Option<Journal>,
+    /// R3.4 : une ecriture qui echoue n'est PAS une perte silencieuse.
+    echecs_ecriture: u64,
 }
 
 impl Moteur {
@@ -136,7 +153,7 @@ impl Moteur {
         Self {
             horloge,
             redacteur,
-            journal: Vec::new(),
+            entrees: Vec::new(),
             seq: 0,
             t0,
             clos: false,
@@ -146,7 +163,16 @@ impl Moteur {
             app_courante: application,
             quittee: None,
             veille_depuis: None,
+            journal: None,
+            echecs_ecriture: 0,
         }
+    }
+
+    /// Branche un writer. Sans lui, le moteur ne fait que tenir un journal en
+    /// memoire — ce qui suffit aux tests, jamais a une capture reelle.
+    pub fn avec_journal(mut self, journal: Journal) -> Self {
+        self.journal = Some(journal);
+        self
     }
 
     /// R3.1 : strictement croissant, par épisode.
@@ -156,7 +182,15 @@ impl Moteur {
     }
 
     fn pousser(&mut self, entree: EntreeJournal) {
-        self.journal.push(entree);
+        if let Some(j) = self.journal.as_mut() {
+            // Un echec d'ecriture se COMPTE. Le ravaler ferait exactement ce que
+            // R3.4 interdit : perdre un evenement sans que personne ne le sache.
+            if let Err(e) = j.ecrire(&entree) {
+                self.echecs_ecriture += 1;
+                eprintln!("[noe] ecriture du journal refusee : {e}");
+            }
+        }
+        self.entrees.push(entree);
     }
 
     fn declencher(&mut self, quoi: Declencheur, monotone_ms: u64) {
@@ -318,10 +352,31 @@ impl Moteur {
         let maintenant = self.horloge.monotone_ms();
         self.verifier_inactivite(maintenant);
         self.clos = true;
+        if let Some(j) = self.journal.as_mut() {
+            if let Err(e) = j.clore() {
+                self.echecs_ecriture += 1;
+                eprintln!("[noe] cloture du journal refusee : {e}");
+            }
+        }
+    }
+
+    /// Fait respirer le writer : c'est ce qui honore le vidage a 5 s (R3.1).
+    pub fn battre_journal(&mut self) {
+        if let Some(j) = self.journal.as_mut() {
+            if let Err(e) = j.battre() {
+                self.echecs_ecriture += 1;
+                eprintln!("[noe] vidage du journal refuse : {e}");
+            }
+        }
     }
 
     pub fn journal(&self) -> &[EntreeJournal] {
-        &self.journal
+        &self.entrees
+    }
+
+    /// R3.4 : combien d'entrees n'ont pas pu etre ecrites.
+    pub fn echecs_ecriture(&self) -> u64 {
+        self.echecs_ecriture
     }
 
     pub fn clos(&self) -> bool {
@@ -334,7 +389,7 @@ impl Moteur {
     }
 
     pub fn declencheurs(&self) -> Vec<Declencheur> {
-        self.journal
+        self.entrees
             .iter()
             .filter_map(|e| match e {
                 EntreeJournal::Declencheur { quoi, .. } => Some(*quoi),
@@ -344,7 +399,7 @@ impl Moteur {
     }
 
     pub fn gaps(&self) -> Vec<CauseGap> {
-        self.journal
+        self.entrees
             .iter()
             .filter_map(|e| match e {
                 EntreeJournal::Gap { cause, .. } => Some(*cause),

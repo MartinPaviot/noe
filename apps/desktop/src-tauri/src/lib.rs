@@ -9,6 +9,7 @@ mod cle;
 mod config;
 mod etat;
 mod horloge;
+mod journal;
 mod moteur;
 mod motifs;
 mod redaction;
@@ -142,11 +143,21 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
 
     match resultat {
         Ok((id, slug)) => {
-            *e.moteur.lock().expect("moteur empoisonne") = Some(Moteur::ouvrir(
-                e.horloge.clone(),
-                e.redacteur.clone(),
-                "poste",
-            ));
+            let mut moteur = Moteur::ouvrir(e.horloge.clone(), e.redacteur.clone(), "poste");
+
+            // R3.1 : le journal s'ouvre AVEC l'episode. S'il refuse, la capture
+            // tourne quand meme en memoire et l'operateur est prevenu — mais on
+            // ne fait pas croire a un enregistrement qui n'a pas lieu.
+            let dossier = dossier_donnees(app).join("episodes");
+            match journal::Journal::ouvrir(&dossier, &id, e.horloge.clone()) {
+                Ok(j) => moteur = moteur.avec_journal(j),
+                Err(err) => notifier(
+                    app,
+                    "Journal indisponible",
+                    &format!("La capture ne sera PAS enregistree sur disque : {err}"),
+                ),
+            }
+            *e.moteur.lock().expect("moteur empoisonne") = Some(moteur);
             notifier(
                 app,
                 "Noe observe",
@@ -179,18 +190,29 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
         let mut m = e.moteur.lock().expect("moteur empoisonne");
         m.take().map(|mut moteur| {
             moteur.clore();
-            (moteur.journal().len(), moteur.unresolved())
+            (
+                moteur.journal().len(),
+                moteur.unresolved(),
+                moteur.echecs_ecriture(),
+            )
         })
     };
 
     match resultat {
         Ok(ep) => {
-            let (entrees, unresolved) = bilan.unwrap_or((0, 0));
+            let (entrees, unresolved, echecs) = bilan.unwrap_or((0, 0, 0));
+            // R3.4 : un echec d'ecriture se DIT. Un episode incomplet qu'on
+            // annonce complet est pire qu'un episode manquant.
+            let alerte = if echecs > 0 {
+                format!(" · ATTENTION : {echecs} entrees non ecrites")
+            } else {
+                String::new()
+            };
             notifier(
                 app,
                 "Noe a borne l'episode",
                 &format!(
-                    "{} — tache « {} » · {entrees} entrees, {unresolved} non resolues.                      Assemblage et grade : tache 8.",
+                    "{} — tache « {} » · {entrees} entrees, {unresolved} non resolues{alerte}.                      Assemblage et grade : tache 8.",
                     ep.id, ep.task_slug
                 ),
             );
@@ -324,6 +346,96 @@ fn choisir_tache<R: Runtime>(app: &AppHandle<R>, slug: &str) {
     }
 }
 
+/// Banc du kill-test (R3.2). **Hors production.**
+///
+/// Le kill-test exige un processus qu'on tue vraiment : simuler le crash en
+/// fabriquant un fichier a la main testerait la fonction de reprise, pas la
+/// panne. Le binaire `noe-banc-journal` appelle donc cette fonction, et le test
+/// d'integration le lance, le tue, puis le relance en mode reprise.
+///
+/// C'est le SEUL point public de la bibliotheque en dehors de `run()` : exposer
+/// les modules entiers aurait rendu muette l'analyse de code mort, qui a deja
+/// trouve un test incomplet dans cette meme session.
+#[doc(hidden)]
+pub fn harnais_journal(args: &[String]) -> i32 {
+    use std::io::Write as _;
+
+    let horloge: std::sync::Arc<dyn Horloge> = std::sync::Arc::new(HorlogeReelle::new());
+    let sous_commande = args.first().map(String::as_str);
+    let racine = args.get(1).map(std::path::PathBuf::from);
+
+    match (sous_commande, racine) {
+        (Some("ecrire"), Some(racine)) => {
+            let Some(id) = args.get(2) else {
+                eprintln!("usage : ecrire <racine> <episode_id> <n>");
+                return 2;
+            };
+            let n: u64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(250);
+
+            let mut j = match journal::Journal::ouvrir(&racine, id, horloge) {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!("ouverture : {e}");
+                    return 1;
+                }
+            };
+            for seq in 1..=n {
+                let entree = moteur::EntreeJournal::Declencheur {
+                    seq,
+                    monotone_ms: seq * 10,
+                    quoi: moteur::Declencheur::Soumission,
+                };
+                if let Err(e) = j.ecrire(&entree) {
+                    eprintln!("ecriture : {e}");
+                    return 1;
+                }
+            }
+            // Ce qui reste au tampon sera perdu par le kill : c'est le
+            // comportement attendu de R3.1, et le test l'affirme explicitement
+            // plutot que de le decouvrir.
+            println!("PRET ecrites={} en_attente={}", j.ecrites(), j.en_attente());
+            let _ = std::io::stdout().flush();
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+        }
+
+        (Some("reprendre"), Some(racine)) => {
+            let orphelins = match journal::orphelins(&racine) {
+                Ok(o) => o,
+                Err(e) => {
+                    eprintln!("lecture : {e}");
+                    return 1;
+                }
+            };
+            let mut resume = Vec::new();
+            for o in &orphelins {
+                let cause = match journal::clore_orphelin(&racine, o) {
+                    Ok(moteur::EntreeJournal::Gap { cause, seq, .. }) => {
+                        serde_json::json!({ "cause": cause, "seq": seq })
+                    }
+                    Ok(autre) => serde_json::json!({ "inattendu": format!("{autre:?}") }),
+                    Err(e) => serde_json::json!({ "erreur": e.to_string() }),
+                };
+                resume.push(serde_json::json!({
+                    "episode_id": o.episode_id,
+                    "entrees": o.entrees.len(),
+                    "ligne_tronquee": o.ligne_tronquee,
+                    "dernier_seq": o.dernier_seq,
+                    "gap": cause,
+                }));
+            }
+            println!("{}", serde_json::to_string(&resume).unwrap_or_default());
+            0
+        }
+
+        _ => {
+            eprintln!("usage : (ecrire <racine> <id> [n] | reprendre <racine>)");
+            2
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -372,6 +484,62 @@ pub fn run() {
                 .on_menu_event(|app, evenement| sur_menu(app, evenement.id().as_ref()))
                 .build(app)?;
             appliquer_tray(&handle, EtatTray::Pause);
+
+            // Le battement.
+            //
+            // Sans lui, RIEN de temporel ne se produit en production : le
+            // vidage a 5 s (R3.1) n'arriverait qu'au centieme evenement, et la
+            // cloture automatique a 60 minutes (R1.3) jamais. Les tests
+            // avancaient une horloge simulee a la main ; la vraie application a
+            // besoin de quelqu'un qui frappe.
+            //
+            // Une seconde : bien plus fin que le plus court des delais surveilles
+            // (2 s d'inactivite), et assez rare pour ne rien couter.
+            {
+                let batteur = handle.clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    let etat: State<Etat> = batteur.state();
+                    let clos = {
+                        let mut m = etat.moteur.lock().expect("moteur empoisonne");
+                        match m.as_mut() {
+                            Some(moteur) => {
+                                moteur.battre();
+                                moteur.battre_journal();
+                                moteur.clos()
+                            }
+                            None => false,
+                        }
+                    };
+                    // R1.3 : l'episode s'est clos tout seul. L'icone doit le
+                    // dire, sinon l'operateur croit observer alors que non.
+                    if clos {
+                        let bilan = {
+                            let mut m = etat.moteur.lock().expect("moteur empoisonne");
+                            m.take().map(|mut moteur| {
+                                moteur.clore();
+                                moteur.journal().len()
+                            })
+                        };
+                        let ferme = {
+                            let mut s = etat.session.lock().expect("session empoisonnee");
+                            s.arreter().ok()
+                        };
+                        if let Some(ep) = ferme {
+                            notifier(
+                                &batteur,
+                                "Episode clos automatiquement",
+                                &format!(
+                                    "60 minutes atteintes — {} entrees. Tache « {} ».",
+                                    bilan.unwrap_or(0),
+                                    ep.task_slug
+                                ),
+                            );
+                            rafraichir_tray(&batteur);
+                        }
+                    }
+                });
+            }
 
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
             // Un raccourci deja pris par une autre application ne doit pas
