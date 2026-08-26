@@ -21,6 +21,7 @@ export {
   validerRedaction,
 } from './redaction.js';
 export {
+  CONFIRMATION_API_VERIFIABLE,
   Completeness,
   Entity,
   Episode,

@@ -105,3 +105,193 @@ n'existait pas encore dans le build.
 
 `pnpm test` fait donc `pnpm build && vitest run`. `pnpm test:only` reste
 disponible pour les boucles rapides, en connaissance de cause.
+
+---
+
+# 2026-08-26 — Arbitrage des dix écarts prompt maître / existant
+
+Le prompt maître a été déposé ce jour (22 569 octets). La comparaison avec ce
+qui était déjà construit a produit dix écarts. Chacun est tranché ci-dessous,
+**et le prompt maître a été amendé en conséquence** : il ne doit plus contenir
+une seule ligne contredite par une décision postérieure.
+
+> Principe retenu : quand un document et une décision divergent, on ne laisse
+> pas le document mentir. On l'amende, daté, avec le motif ici.
+
+---
+
+## D1 — Le socle commercial reste. « Zéro backend en v0 » est amendé
+
+**Écart.** Le prompt maître interdisait Supabase, Stripe et tout service déployé
+avant le premier utilisateur externe. Or `noe-prod` (Supabase, ~10 $/mois),
+un projet Vercel avec sa landing, et l'appariement Stripe existent déjà.
+
+**Décision.** Le socle reste. **Le prompt maître est antérieur au pivot Product
+Hunt**, décidé après sa rédaction : lancement vendable en 5-6 semaines, comptes
+Elevay réutilisés, données isolées. C'est ce pivot qui a fait provisionner, via
+le brief de session 0 — l'agent n'a pas dévié, il a suivi la consigne la plus
+récente.
+
+**Motif.** Dix dollars par mois coûtent moins cher que le re-setup complet, et
+le projet est déjà isolé (base neuve, RLS forcée, zéro politique). Détruire pour
+reconstruire dans cinq semaines serait du gaspillage discipliné, pas de la
+discipline.
+
+**Ce qui est annulé.** Les flux d'authentification Supabase (email + Google) :
+ils n'ont aucune spec, et un non-objectif explicite les visait. Ils attendront la
+spec commerciale.
+
+**Amendement.** La section « Zéro backend en v0 » devient « Socle commercial PH,
+données isolées, gates humains ».
+
+---
+
+## D2 — Tauri, définitivement. Les mentions d'extension Chrome sont rétrogradées
+
+**Écart.** Contradiction **interne** au prompt maître : trois passages imposaient
+« extension Chrome uniquement » (non-objectifs, structure du dépôt, phase 1),
+tandis que l'invariant 2 disait « app desktop Tauri par défaut — extension
+seulement si le spike révèle un déficit sémantique web ».
+
+**Décision. Tauri + UIA.** L'invariant 2 est la formulation la plus récente et la
+plus argumentée : il conditionne l'extension à un **constat**, pas à une
+préférence. Les trois autres passages sont des résidus antérieurs.
+
+**Motif.** Une extension ne voit que le navigateur, alors que la tâche observée
+traverse plusieurs applications. Et le spike déjà construit mesure UIA — donc la
+bonne chose.
+
+**Amendement.** Les trois passages sont réécrits : app desktop Tauri + UIA par
+défaut, extension rétrogradée au rang d'**adaptateur conditionnel**, activé
+seulement si le spike constate un déficit sémantique web. L'invariant 3 perd sa
+terminologie MV3 (« worker tué, onglet fermé ») au profit des causes réelles du
+capteur desktop.
+
+---
+
+## D3 — `features.json` est supprimé, pas réparé
+
+**Écart.** Le prompt maître interdisait de modifier `features.json` autrement
+qu'en basculant `passes`. J'y avais ajouté des champs `preuve`, `spec`, `note`,
+et modifié des `depends_on`. Violation nette d'un interdit de méthode.
+
+**Décision.** Le fichier est **supprimé**. La méthode Kiro adoptée depuis fait
+des `tasks.md` de chaque spec l'unique liste de vérité.
+
+**Motif.** Deux listes de vérité concurrentes valent moins que zéro : elles
+divergent, et on finit par ne plus savoir laquelle fait foi. Les `tasks.md` sont
+plus riches — chaque case porte ses critères et ses requirements.
+
+**L'interdit reste, transposé.** Il s'applique désormais aux cases des
+`tasks.md` : on ne coche que du vérifié de bout en bout, on n'édite **jamais**
+une tâche pour la faire passer.
+
+**Amendement.** La section « Méthode de travail » est réécrite autour des specs
+et de leurs `tasks.md`. `CLAUDE.md` les référence.
+
+---
+
+## D4 — `packages/` reste. L'exception `episode-spec` fait jurisprudence
+
+**Écart.** Le prompt maître décrit `core/ ports/ adapters/ harness/ ui/` à la
+racine, mais mentionne ailleurs « la spec du format d'épisode en MIT dans
+**packages/episode-spec** ». Il se contredit.
+
+**Décision.** `packages/` reste. L'exception nommée fait jurisprudence.
+
+**Motif.** Le monorepo pnpm est en place, testé, publié, avec ses licences
+séparées. Le renommer ne produirait aucune preuve nouvelle.
+
+**Amendement.** Le bloc « Structure du dépôt » reflète l'arborescence réelle.
+
+---
+
+## D5 — Grade A : la confirmation API est ajoutée, avec un garde explicite
+
+**Écart.** L'invariant 7 exige « bornes confirmées API » pour le grade A. Le
+`gradeOf` implémenté ne le vérifie pas.
+
+**Décision.** La condition est ajoutée, **avec un garde `non vérifiable sans
+connecteur`** tant que la spec 003 n'a pas livré la fédération.
+
+**Motif.** L'exigence est juste, mais elle n'est pas vérifiable aujourd'hui :
+aucun connecteur ne lit d'API. L'écrire sans garde produirait des grades C
+partout ; l'omettre laisserait un invariant non tenu. Le garde dit exactement où
+on en est, et le regrade se fera à la fédération.
+
+---
+
+## D6 — Canaris d'injection : différés à la spec 004
+
+**Écart.** L'invariant 16 exige des canaris d'injection à chaque build, au même
+rang que les canaris PII. Seuls les canaris PII existent.
+
+**Décision.** Différés à la **spec 004 (politique)**, décision datée.
+
+**Motif.** Le test de non-obéissance suppose quelque chose qui puisse obéir. Avec
+des stubs (`politiqueParfaite`, `politiqueNulle`), il n'y a **aucun chemin
+d'exécution** qu'une instruction adverse pourrait détourner : le test passerait
+au vert sans rien prouver — le pire des tests. Ils entrent au harness le jour où
+la politique LLM existe.
+
+---
+
+## D7 — `init.sh` : remplacé par le rituel `CLAUDE.md` + `pnpm verify`
+
+**Écart.** La méthode exigeait un `init.sh` lancé à chaque session.
+
+**Décision.** Pas de script. Le rituel est `pnpm verify` (lint, lint SQL,
+typecheck, build, 129 tests) plus le rejeu du corpus doré, tous deux documentés
+dans `CLAUDE.md` et exécutés en CI.
+
+**Motif.** `init.sh` devait « build l'extension et lancer l'org de démo » :
+l'extension n'existe plus (D2) et l'org de démo pas encore. Un script wrapper
+autour d'une commande existante n'ajoute qu'un endroit de plus où se tromper.
+
+---
+
+## D8 — Seuils du spike alignés sur le prompt maître
+
+**Écart.** Le prompt maître fixe (a) ≥ 90 % de stabilité rôle+nom, (b) **100 %**
+des actions d'état, (c) CPU < 5 %. Le script de verdict utilisait 80 % et 90 %.
+
+**Décision.** Alignement immédiat sur 90 / 100 / 5. Aucune discussion : mes
+seuils étaient simplement plus mous que la consigne écrite.
+
+---
+
+## D9 — NER : regex + HMAC en v1, NER avant tout utilisateur externe
+
+**Écart.** L'invariant 5 impose « blocage catégoriel → NER local → extraction
+d'attributs → hash salé ». La spec 002 fait regex + HMAC et diffère le NER.
+
+**Décision.** La divergence, **déjà déclarée par la spec 002**, est consignée :
+regex + HMAC en v1, NER **avant tout utilisateur externe**.
+
+**Motif.** À n=1, sur le poste du sujet, les canaris surveillent et la
+bibliothèque de motifs couvre les quatre familles PII. Un NER local ajoute un
+modèle, une latence et une surface de bug pour un gain non mesuré. Il devient
+indispensable dès qu'un tiers est observé.
+
+**Amendement.** L'invariant 5 porte l'ordre réel et la date d'échéance du NER.
+
+---
+
+## D10 — `events.jsonl` en clair en local, export chiffré
+
+**Écart.** La structure du dépôt annonçait « events.jsonl (chiffré, rotation) » ;
+la spec 002 écrit du JSONL en clair.
+
+**Décision.** **Clair en local.** C'est le disque de l'utilisateur, sous sa
+session, protégée par son ouverture de session. L'**export**, lui, est chiffré
+(spec 002, R6.1) — c'est là que les données quittent le poste, donc là que le
+chiffrement compte.
+
+**Motif.** Chiffrer at-rest sans sortir la clé du même disque protège contre un
+attaquant qui a déjà le disque *et pas* la session — un cas étroit. La clé HMAC,
+elle, est bien protégée par DPAPI : c'est elle qui déverrouille les jointures de
+tout le corpus.
+
+**Le chiffrement at-rest reste un item de durcissement**, pas un abandon.
+
+**Amendement.** Le bloc structure dit « clair en local, export chiffré ».

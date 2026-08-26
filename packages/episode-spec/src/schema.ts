@@ -95,10 +95,24 @@ type EntreeGrade = {
   events: readonly { kind: string }[];
   entities: readonly {
     key: { type?: string; value_pseudo: string };
+    api_refs?: readonly unknown[];
     state_before?: unknown;
     state_after?: unknown;
   }[];
 };
+
+/**
+ * INVARIANT 7 du prompt maître : le grade A exige « bornes confirmées API ».
+ *
+ * **Garde en vigueur jusqu'à la spec 003.** La condition n'est pas vérifiable
+ * tant qu'aucun connecteur ne lit d'état : l'appliquer aujourd'hui produirait des
+ * C partout, l'omettre laisserait un invariant non tenu. Elle est donc déclarée
+ * dans le code, et neutralisée par ce drapeau — qui dit exactement où on en est.
+ *
+ * Passer à `true` avec la fédération (spec 003) déclenche le regrade du corpus.
+ * Voir `docs/decisions.md`, D5.
+ */
+export const CONFIRMATION_API_VERIFIABLE = false;
 
 /**
  * Attribue le grade selon R2.1, et surtout **dit pourquoi**.
@@ -128,8 +142,16 @@ export function gradeOf(ep: EntreeGrade): GradeVerdict {
       reason: `redaction non validee : ${resumerOccurrences(redaction.occurrences)} dans l episode serialise`,
     };
   }
-  if (gaps === 0 && nonResolues === 0) {
+  // INVARIANT 7 — bornes confirmees API. Neutralise jusqu a la spec 003 (D5).
+  const bornesConfirmees =
+    !CONFIRMATION_API_VERIFIABLE ||
+    ep.entities.every((e) => Array.isArray(e.api_refs) && e.api_refs.length > 0);
+
+  if (gaps === 0 && nonResolues === 0 && bornesConfirmees) {
     return { grade: 'A', reason: 'sequence sans trou, toutes entites resolues, redaction validee' };
+  }
+  if (gaps === 0 && nonResolues === 0) {
+    return { grade: 'B', reason: 'declasse en B : bornes non confirmees par API' };
   }
   const defauts = gaps + nonResolues;
   if (defauts <= 1) {

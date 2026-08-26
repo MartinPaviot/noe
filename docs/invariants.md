@@ -21,7 +21,7 @@ d'accueillir du contenu. La revue de chaque connecteur vérifie le scope.
 
 ## II. Seul le juge mécanique promeut
 
-Aucune feature ne passe `"passes": true` dans `features.json` sur une démo, une
+Aucune tâche ne se coche dans un `tasks.md` sur une démo, une
 impression ou un avis — y compris le mien. Le seul chemin est un verdict de
 `noe judge`, reproductible, sur un corpus doré versionné.
 
@@ -29,11 +29,16 @@ impression ou un avis — y compris le mien. Le seul chemin est un verdict de
 l'ait prouvé. Il est annoncé comme upgrade « en rodage », et il est lancé quand
 le juge le dit, pas quand le calendrier le dit.
 
-## III. Une feature par session
+## III. Une tâche par session
 
-Une session ouvre une feature de `features.json`, la mène de bout en bout, la
-vérifie, commit à chaque vert, et s'arrête. Pas de feature commencée « en
-avance ». Pas de refactor opportuniste qui déborde de la feature en cours.
+Une session ouvre **une** tâche non cochée du `tasks.md` de la spec en cours,
+dans l'ordre imposé, la mène de bout en bout, la vérifie, commit à chaque vert,
+et s'arrête. Pas de tâche commencée « en avance ». Pas de refactor opportuniste
+qui déborde de la tâche en cours.
+
+Les `tasks.md` sont l'unique liste de vérité : `features.json` a été supprimé
+(voir `docs/decisions.md`, D3). Deux listes concurrentes divergent, et on finit
+par ne plus savoir laquelle fait foi.
 
 ## IV. Les épisodes sont immuables, les trous sont des événements
 

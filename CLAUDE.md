@@ -33,5 +33,14 @@ Les regles longues vivent dans `docs/invariants.md` ; ci-dessous le strict neces
 
 ## Etat
 
-`features.json` porte l'ordre des features et leur statut. `progress.md` porte
-le journal des sessions. Aucune feature n'est `"passes": true` aujourd'hui.
+Les `specs/<nnn>-<nom>/tasks.md` sont **l'unique liste de vérité** : elles portent
+l'ordre des tâches et leur statut. `progress.md` porte le journal des sessions.
+`docs/decisions.md` porte les arbitrages.
+
+On ne coche une case que sur une vérification de bout en bout, et on n'édite
+**jamais** une tâche pour la faire passer.
+
+| Spec | État |
+| --- | --- |
+| `001-socle-de-preuve` | ✅ 15/15 — format d'épisode, rejeu, juge mécanique |
+| `002-capture-bornee` | en cours — tâche 0 en attente du verdict du spike |

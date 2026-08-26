@@ -3,6 +3,12 @@
 > Usage : prompt d'initialisation pour Claude Code / Agent SDK, sessions longues multi-fenêtres.
 > La première session est une session d'initialisation. Toutes les suivantes sont des sessions de progrès incrémental.
 
+> **Amendé le 2026-08-26** — dix passages ont été réécrits pour ne plus contredire
+> des décisions postérieures à la rédaction de ce document. Chaque amendement est
+> tracé dans `docs/decisions.md` (D1 à D10) avec son motif. Un document qui ment
+> est pire qu'un document absent : on l'amende, on ne le laisse pas dériver.
+> Les passages amendés portent la marque `[amendé Dn]`.
+
 ---
 
 ## Rôle et mission
@@ -21,9 +27,9 @@ Quatre coupes de scope, non négociables pour le MVP, chacune enlève du risque 
 
 Contraintes de boucle : le rejeu complet tourne EN LOCAL, en UNE commande, en MOINS D'UNE MINUTE — le juge mécanique a un mode fixtures (états avant/après enregistrés) pour itérer hors ligne, l'environnement de démo ne sert qu'à la validation. Le harness est déterministe (mêmes entrées → même verdict). La capture a un budget CPU explicite : invisible ou désinstallée.
 
-**Zéro backend en v0.** À n=1, sur la machine du sujet, avec ses clés : appels API directs (Azure OpenAI, Anthropic), fichiers locaux, aucun service déployé. Le proxy de masquage, Supabase, Inngest et Stripe sont TOUS déclenchés par le premier utilisateur externe — pas avant. Pas de Changesets ni de Turborepo tant qu'il n'y a ni release ni deuxième package : pnpm workspace simple.
+**Socle commercial PH, données isolées, gates humains.** `[amendé D1]` À n=1, sur la machine du sujet, avec ses clés : appels API directs (Azure OpenAI, Anthropic), fichiers locaux. **Aucune donnée de travail ne quitte le poste** — cette partie ne bouge pas. En revanche, le pivot Product Hunt (postérieur à ce document : lancement vendable en 5-6 semaines) autorise le socle commercial dès maintenant, sous trois conditions : comptes existants réutilisés, **données strictement isolées** (projet Supabase neuf, jamais celui d'une autre activité ; RLS forcée sans politique par défaut), et **gate humain avant toute création facturable ou tout passage en production**. Le proxy de masquage et Inngest restent déclenchés par le premier utilisateur externe. Les flux d'authentification attendent la spec commerciale. Pas de Changesets ni de Turborepo tant qu'il n'y a ni release ni deuxième package : pnpm workspace simple.
 
-Jour zéro, avant toute feature : le projet est OPEN SOURCE — repo public-grade dès le premier commit : LICENSE (AGPL-3.0 app/core ; la spec du format d'épisode en MIT dans packages/episode-spec), SECURITY.md, docs/edition-boundary.md (frontière open-core : édition communautaire = app locale BYOK zéro-backend ; cloud payant = proxy géré, apps OAuth vérifiées, sync, équipe), et JAMAIS un secret dans l'historique (un secret commité reste pour toujours — .env.example seulement, scan de secrets en CI). Repo + CI verte sur projet vide, secrets hors repo, budgets et alertes Azure posés, aucune carte sur l'abonnement sponsorisé. CLAUDE.md COURT (les commandes + les 5 règles qui changent le comportement : jamais de contenu hors du poste, seul le juge mécanique promeut, une feature par session vérifiée de bout en bout, épisodes immuables, tout trou de capture est un événement) ; les invariants complets vivent dans docs/invariants.md, pointés depuis CLAUDE.md. features.json initialisé, granularité d'une feature = livrable en une session.
+Jour zéro, avant toute feature : le projet est OPEN SOURCE — repo public-grade dès le premier commit : LICENSE (AGPL-3.0 app/core ; la spec du format d'épisode en MIT dans packages/episode-spec), SECURITY.md, docs/edition-boundary.md (frontière open-core : édition communautaire = app locale BYOK zéro-backend ; cloud payant = proxy géré, apps OAuth vérifiées, sync, équipe), et JAMAIS un secret dans l'historique (un secret commité reste pour toujours — .env.example seulement, scan de secrets en CI). Repo + CI verte sur projet vide, secrets hors repo, budgets et alertes Azure posés, aucune carte sur l'abonnement sponsorisé. CLAUDE.md COURT (les commandes + les 5 règles qui changent le comportement : jamais de contenu hors du poste, seul le juge mécanique promeut, **une tâche par session** vérifiée de bout en bout, épisodes immuables, tout trou de capture est un événement) ; les invariants complets vivent dans docs/invariants.md, pointés depuis CLAUDE.md. `[amendé D3]` Première spec ouverte dans `specs/001-.../`, granularité d'une tâche = livrable en une session ; son `tasks.md` fait foi, et `CLAUDE.md` le référence.
 
 Jours 1-2 : le spike de capture, avec critères de réussite écrits AVANT de le lancer : sur 5 occurrences réelles de la tâche, (a) ≥ 90 % des éléments interagis produisent un couple rôle+nom stable d'une occurrence à l'autre, (b) 100 % des actions qui changent l'état apparaissent dans le flux d'événements, (c) surcoût CPU soutenu du capteur < 5 % pendant les occurrences (les arbres d'accessibilité des SPA lourdes type Lightning sont le risque de coût spécifique — un capteur qui fait chauffer la machine est désinstallé le jour même). Trois nombres, verdict binaire, écrit dans docs/spike-verdict.md.
 
@@ -60,8 +66,8 @@ Le harness d'évaluation est construit AVANT l'agent. L'ordre de construction es
 ## Non-objectifs de la v0 (interdits, même si tentants)
 
 - Pas de segmentation automatique des tâches : l'opérateur ouvre et ferme une tâche à la main (fermeture auto après 3 min d'inactivité sur les entités concernées).
-- Pas de backend, pas de compte, pas de sync multi-poste, pas de dashboard équipe.
-- Pas d'agent desktop système : extension Chrome uniquement.
+- Pas de sync multi-poste, pas de dashboard équipe, pas de compte utilisateur tant que la spec commerciale n'existe pas. `[amendé D1]`
+- **Capture par app desktop Tauri + UI Automation.** `[amendé D2]` Une extension navigateur reste possible comme **adaptateur conditionnel**, activé seulement si le spike constate un déficit sémantique web — jamais comme choix par défaut. Motif : la tâche observée traverse plusieurs applications, une extension ne verrait que le navigateur.
 - Pas de capture audio, pas de screenshots pixels, pas d'enregistrement de contenu brut.
 - Pas de fine-tuning : la politique de l'agent est un assemblage de contexte (règles + épisodes voisins en few-shot).
 - Pas de mode autonome par défaut : tout passe par la permission par branche.
@@ -73,11 +79,11 @@ Le harness d'évaluation est construit AVANT l'agent. L'ordre de construction es
 
 1. **Local-first.** Tout vit sur le poste : événements, épisodes, règles, stats. Seuls sortent : les appels modèle (masqués) et les lectures/écritures API des systèmes de vérité.
 2. **Deux plans de capture, aucun cru sur parole.** Plan UI (événements d'accessibilité au niveau OS, app desktop Tauri par défaut — extension navigateur seulement si le spike de capture révèle un déficit sémantique web) et plan API (historique de changements / webhooks des deux systèmes de vérité du terrain ; attention : les historiques natifs sont souvent limités — ex. Salesforce trace 20 champs/objet — donc le juge fait des lectures directes avant/après, l'historique n'est que corroboration). Chaque changement API doit finir dans une colonne du bilan de complétude : expliqué / hors périmètre / trou de capture.
-3. **Les trous sont des événements de première classe.** Toute interruption (worker MV3 tué, onglet fermé, pause utilisateur, machine suspendue) écrit un marqueur de trou avec cause et bornes. Perte silencieuse = bug critique. Séquence monotone `seq` sur chaque événement pour détecter les trous.
+3. **Les trous sont des événements de première classe.** `[amendé D2]` Toute interruption (process tué, crash, pause utilisateur, machine suspendue, clôture automatique sur dépassement de durée) écrit un marqueur de trou avec cause et bornes. Perte silencieuse = bug critique. Séquence monotone `seq` sur chaque événement pour détecter les trous.
 4. **Ciblage par accessibilité.** Un élément = `role` + nom accessible + région. Fallback : texte adjacent, puis interprétation LLM du snapshot avec cache par version d'UI. Métrique d'alarme : taux de targets non résolus par surface.
-5. **Redaction avant toute écriture, prouvée par canaris.** Ordre : blocage catégoriel (passwords, surfaces bancaires/santé/RH) → NER local avec placeholders typés cohérents par épisode → extraction d'attributs (booléens/enums) → hash salé du reste. Des chaînes canari injectées en test ne doivent JAMAIS apparaître dans le store ni dans un appel sortant. Ce test tourne à chaque build.
+5. **Redaction avant toute écriture, prouvée par canaris.** `[amendé D9]` Ordre en v1 : blocage catégoriel (passwords, surfaces bancaires/santé/RH) → **bibliothèque de motifs versionnée** (courriel, téléphone, IBAN, carte) → pseudonymisation HMAC déterministe en tokens typés stables → hash salé du reste. **Le NER local est différé, et son échéance est ferme : avant tout utilisateur externe.** Motif : à n=1 sur le poste du sujet, les motifs couvrent les quatre familles PII et les canaris surveillent ; un NER ajoute un modèle, une latence et une surface de bug pour un gain non mesuré — mais il devient indispensable dès qu'un tiers est observé. La validation de redaction est mécanique : scan de la bibliothèque sur l'épisode entièrement sérialisé, zéro correspondance exigée. Des chaînes canari injectées en test ne doivent JAMAIS apparaître dans le store ni dans un appel sortant. Ce test tourne à chaque build.
 6. **Épisodes immuables, autosuffisants, versionnés.** Un épisode embarque : état initial (snapshot AX canonisé ≤ 50 Ko + état API), entités résolues et FIGÉES, actions humaines, état final vérifié par API, `schema_v`, hash de la politique active. Un épisode de janvier doit rejouer en décembre.
-7. **Notation A/B/C, seul le grade A promeut.** A = séquence complète, entités résolues, bornes confirmées API, redaction validée. B/C servent au contexte et aux stats descriptives, jamais aux compteurs de promotion.
+7. **Notation A/B/C, seul le grade A promeut.** `[amendé D5]` A = séquence complète, entités résolues, bornes confirmées API, redaction validée. B/C servent au contexte et aux stats descriptives, jamais aux compteurs de promotion. **Garde en vigueur jusqu'à la spec 003 :** la confirmation API n'est pas vérifiable sans connecteur. Tant qu'aucun ne lit d'état, la condition est déclarée mais neutralisée, et les épisodes de capture plafonnent en B — c'est attendu. Le **regrade se fait à la fédération**, pas avant.
 8. **JSON pour la machine, markdown pour l'humain.** `rules/<tache>.md` : règles causales, éditables à la main, propriété de l'opérateur. `branches.json` : registre des branches et stats de promotion, propriété du système ; l'agent n'a le droit de modifier que les champs de statut. Il est inacceptable de supprimer ou réécrire des entrées de ces fichiers pour faire passer un test.
 9. **Exécution par API uniquement, jamais par rejeu d'interface.** Les connecteurs v0 : les deux systèmes de vérité du terrain choisi (implémentation de référence : un CRM/outil-métier + un canal de communication). Chaque outil a un schéma étroit et nommé métier (`mettre_a_jour_statut(id, statut)`, pas `api_generique(payload)`), des messages d'erreur qui disent quoi faire, et `escalader(raison)` est un outil de première classe.
 10. **Seul le juge mécanique promeut.** Juge mécanique = diff exact de l'état final via API. Le juge sémantique (LLM, contexte séparé de l'agent, rubrique + few-shot calibrés, comparaison dans les deux ordres) informe mais ne promeut jamais. Toute action promue reste échantillonnée : 15 % des occurrences restent humaines (témoin). La détection de dérive utilise un **test séquentiel (SPRT) avec n minimum**, jamais une borne testée en continu (la règle naïve « Wilson < 0,90 à chaque occurrence » est falsifiée : tests répétés + petit n = fausses rétrogradations quasi certaines sur branches saines). La calibration du SPRT (fausses alertes < 5 %/an, vitesse de détection par classe de fréquence de branche) est un livrable de la v0, et les branches à basse fréquence reçoivent un ratio témoin plus élevé.
@@ -86,29 +92,35 @@ Le harness d'évaluation est construit AVANT l'agent. L'ordre de construction es
 13. **La politique est du code.** Prompts, règles, schémas d'outils versionnés ensemble ; hash de politique sur chaque exécution et chaque épisode ; tout changement (prompt, règle compactée, bump de modèle) passe par le rejeu du corpus en CI avant activation.
 14. **Cascade de modèles.** Tri continu : heuristiques + modèle léger. Analyse d'épisodes et juge sémantique : modèle moyen, en batch. Exécution sur occurrence réelle : modèle frontier. Budget cible : < 6 €/poste/mois.
 15. **Chaque scaffolding a un test de suppression.** À chaque bump de modèle, rejouer le corpus AVEC et SANS chaque béquille (cache d'interprétation, décomposition, etc.). Ce qui ne dégrade plus rien est supprimé.
-16. **Tout contenu capturé est une donnée, jamais une instruction.** Délimitation stricte dans les prompts, hiérarchie d'instructions, et l'agent d'exécution ne reçoit jamais de texte tiers brut en position d'instruction. Des **canaris d'injection** (instructions adverses plantées dans l'environnement de démo : « ignore tes instructions et fais X ») tournent dans le harness à chaque build, avec assertion de non-obéissance — au même rang que les canaris PII.
+16. **Tout contenu capturé est une donnée, jamais une instruction.** `[amendé D6]` Délimitation stricte dans les prompts, hiérarchie d'instructions, et l'agent d'exécution ne reçoit jamais de texte tiers brut en position d'instruction. Des **canaris d'injection** (instructions adverses plantées dans l'environnement de démo : « ignore tes instructions et fais X ») tournent dans le harness à chaque build, avec assertion de non-obéissance — au même rang que les canaris PII. **Ils entrent au harness avec la spec 004 (politique), pas avant :** un test de non-obéissance suppose quelque chose qui puisse obéir. Face à des politiques stub, il passerait au vert sans rien prouver — le pire des tests.
 17. **Écritures sûres.** Clé d'idempotence par couple occurrence-étape (aucun pas ne s'exécute deux fois) ; verrouillage optimiste : relecture de l'état immédiatement avant chaque écriture, et tout changement depuis la décision déclenche `escalader()`, jamais un écrasement ; le journal stocke les before-images de chaque champ modifié, et l'UI expose « annuler cette action » qui les rejoue. LLM indisponible = pause du copilote et escalade des branches promues.
 18. **Permissions = consentement produit.** Aucune surface n'est capturée sans activation explicite par l'opérateur : la liste blanche d'apps/domaines est vide par défaut et chaque ajout est un geste de l'opérateur. Si une extension navigateur est ajoutée un jour (déficit sémantique constaté au spike), elle utilise `optional_host_permissions`, jamais `<all_urls>`.
 
 ## Structure du dépôt
 
+`[amendé D2, D4, D10]` — monorepo pnpm, `packages/` retenu (l'exception
+`packages/episode-spec` mentionnée plus haut faisait déjà jurisprudence) :
+
 ```
 noe/
-  core/            # domaine pur TypeScript, zéro import externe, testable hors ligne
-    episode.ts  branch.ts  divergence.ts  rules.ts  promotion.ts  grading.ts
-  ports/           # interfaces uniquement
-  adapters/
-    capture-ext/   # extension Chrome MV3 (buffer en content script, flush IndexedDB, ack + seq)
-    truth/         # salesforce.ts (field history, REST), gmail.ts
-    llm/           # appels modèle, prompts versionnés, masquage second rideau
-    store/         # ~/.noe : events.jsonl (chiffré, rotation), episodes/, rules/, branches.json
-  harness/
-    replay.ts      # rejeu à froid d'un épisode contre la politique courante
-    judge.ts       # mécanique (diff API) + sémantique (contexte séparé)
-    golden/        # épisodes dorés sur orgs de démo, CI de parité du capteur
-    canary/        # injection et détection des chaînes canari
-  ui/              # side panel : file de divergences (asynchrone), écran de permission
+  packages/
+    core/          # domaine pur TypeScript, zéro I/O, testable hors ligne
+    episode-spec/  # schémas du format d'épisode — licence MIT, réimplémentable par un tiers
+    harness/       # replay.ts (rejeu à froid), judge.ts (mécanique ; sémantique en phase B)
+      golden/      # épisodes dorés + canaris PII (canaris d'injection : spec 004)
+    connectors/    # adaptateurs systèmes de vérité : CRM, canal de communication
+  apps/
+    desktop/       # app Tauri v2 + capture UI Automation. PAS d'extension Chrome par défaut.
+  spikes/          # mesures hors spec (capteur UIA), jamais du code produit
+  specs/           # requirements / design / tasks — les tasks.md font foi
+  ~/.noe/          # store local : events/*.jsonl EN CLAIR, episodes/, quarantine/, meta/
 ```
+
+Le store est **en clair en local** : c'est le disque de l'utilisateur, sous sa
+session. C'est l'**export** qui est chiffré, parce que c'est là que les données
+quittent le poste. La clé HMAC, elle, est protégée par DPAPI — c'est elle qui
+déverrouille les jointures de tout le corpus. Le chiffrement at-rest reste un
+item de durcissement, pas un abandon.
 
 ## Ordre de construction et definition of done
 
@@ -116,8 +128,8 @@ noe/
 Schéma d'épisode + registre de schémas + 5 épisodes écrits À LA MAIN + `replay.ts` qui les rejoue + juge mécanique sur un environnement de démo du système de vérité principal.
 DoD : les 5 épisodes rejouent, le juge rend accord/désaccord correct sur des cas piégés construits exprès.
 
-**Phase 1 — Capture, plan UI.**
-Extension : événements N1 (app, url normalisée avec ids extraits, kind, target rôle+nom, value_hash, entity_ref, seq, session, schema_v), snapshots N2 sur les 5 déclencheurs (soumission ; saisie après 2 s d'inactivité ; bascule d'app avec retour < 60 s ; copier-coller en hash apparié ; pause > 10 s puis action), marqueurs de trou, presse-papier, pause visible en un clic + bouton « voir ce qui vient d'être enregistré ».
+**Phase 1 — Capture, plan UI.** `[amendé D2]`
+App desktop Tauri + UI Automation : événements N1 (app, url normalisée avec ids extraits, kind, target rôle+nom, value_hash, entity_ref, seq, session, schema_v), snapshots N2 sur les 5 déclencheurs (soumission ; saisie après 2 s d'inactivité ; bascule d'app avec retour < 60 s ; copier-coller en hash apparié ; pause > 10 s puis action), marqueurs de trou, presse-papier, pause visible en un clic + bouton « voir ce qui vient d'être enregistré ».
 DoD : une session de travail réelle de 2 h produit un log sans trou non déclaré ; zéro canari dans le store.
 
 **Phase 2 — Plan API, réconciliation, notation.**
@@ -134,16 +146,23 @@ DoD : une branche réelle promue exécute 10 occurrences réelles sans erreur ; 
 
 ## Méthode de travail (sessions)
 
-**Session 1 (initialisation) :** créer le dépôt, `init.sh` (build extension + lance l'org de démo + lance les tests), `progress.md`, et `features.json` : décompose ce document en features de bout en bout, TOUTES marquées `"passes": false`, chacune avec ses étapes de vérification. Tu ne modifieras plus jamais ce fichier autrement qu'en basculant `passes`. Premier commit.
+`[amendé D3, D7]` — **méthode spec-driven.** Chaque chantier s'ouvre par une spec
+`specs/<nnn>-<nom>/` en trois fichiers : `requirements.md` (critères EARS),
+`design.md`, `tasks.md`. **Les `tasks.md` sont l'unique liste de vérité** — il n'y
+a pas de `features.json` : deux listes concurrentes divergent, et on finit par ne
+plus savoir laquelle fait foi.
+
+**Session d'initialisation :** créer le dépôt public-grade, `CLAUDE.md`,
+`progress.md`, la CI verte, et la première spec. Premier commit.
 
 **Chaque session suivante :**
-1. `pwd`, lire `progress.md`, `git log --oneline -20`, `features.json`.
-2. Lancer `init.sh` et un test de fumée (un épisode doré rejoue). Si l'état est cassé : réparer AVANT toute feature nouvelle.
-3. Choisir UNE feature non passée, la plus prioritaire selon l'ordre des phases.
-4. L'implémenter, la vérifier de bout en bout comme un utilisateur (pas seulement en unit test), et seulement alors basculer `passes`.
-5. Commit descriptif + mise à jour de `progress.md`. Laisser le dépôt dans un état mergeable : pas de bug connu, pas de travail à moitié documenté.
+1. `pwd`, lire `CLAUDE.md`, `progress.md`, `git log --oneline -20`, le `tasks.md` de la spec en cours.
+2. Lancer `pnpm verify` (lint, lint SQL, typecheck, build, tests) **et** le rejeu du corpus doré. Si l'état est cassé : réparer AVANT toute tâche nouvelle. Pas de `init.sh` : un script wrapper autour d'une commande existante n'ajoute qu'un endroit de plus où se tromper.
+3. Choisir UNE tâche non cochée, dans l'ordre imposé par la spec.
+4. L'implémenter, la vérifier de bout en bout comme un utilisateur (pas seulement en test unitaire), et seulement alors cocher la case.
+5. Commit descriptif + mise à jour de `progress.md`. Laisser le dépôt mergeable : pas de bug connu, pas de travail à moitié documenté.
 
-**Interdits de méthode :** implémenter plusieurs features dans une session ; marquer `passes` sans vérification de bout en bout ; supprimer ou éditer une feature pour la faire passer ; contourner la redaction « temporairement » ; introduire un selector CSS « en attendant » ; écrire du code que le rejeu ne couvre pas.
+**Interdits de méthode :** implémenter plusieurs tâches dans une session ; **cocher une case sans vérification de bout en bout** ; **supprimer ou éditer une tâche pour la faire passer** ; contourner la redaction « temporairement » ; introduire un selector CSS « en attendant » ; écrire du code que le rejeu ne couvre pas ; laisser une spec toucher le schéma d'une spec antérieure sans le déclarer dans `docs/decisions.md`.
 
 ## Seuils d'acceptation finaux de la v0
 

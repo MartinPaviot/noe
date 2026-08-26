@@ -47,8 +47,8 @@
 ## 6. Conséquences
 
 - [ ] `.env.local` mis à jour avec le déploiement retenu
-- [ ] `features.json` : F01 passe à `true` **si et seulement si** le juge est vert
-- [ ] Les features dépendantes sont réordonnées si le terrain a changé
+- [ ] La tâche 0 de `specs/002-capture-bornee/tasks.md` est cochée
+- [ ] Les tâches dépendantes de la spec 002 sont réordonnées si le terrain a changé
 
 ---
 

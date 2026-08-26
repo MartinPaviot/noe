@@ -11,10 +11,16 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const SRC = 'spikes/capteur-uia/resultats/spike.json';
 const DEST = 'docs/spike-verdict.md';
 
-/** Seuils du design : R7.1 pour le CPU, jugement d'ingénieur pour le reste. */
+/**
+ * Seuils du PROMPT MAITRE, section « Jours 1-2 » — pas des seuils d'ingenieur :
+ *   (a) >= 90 % des elements interagis produisent un couple role+nom stable
+ *   (b) 100 % des actions qui changent l'etat apparaissent dans le flux
+ *   (c) surcout CPU soutenu < 5 %
+ * Ils avaient ete assouplis a 80/90 par erreur. Alignes (decisions.md, D8).
+ */
 const SEUIL_CPU_PCT = 5;
-const SEUIL_STABILITE_PCT = 80;
-const SEUIL_COUVERTURE_PCT = 90;
+const SEUIL_STABILITE_PCT = 90;
+const SEUIL_COUVERTURE_PCT = 100;
 
 let brut;
 try {

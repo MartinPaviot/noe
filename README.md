@@ -11,9 +11,13 @@ Voir [`SECURITY.md`](SECURITY.md) et [`docs/invariants.md`](docs/invariants.md).
 
 ## État
 
-**Session 0 — squelette.** Aucune feature n'est livrée. Le dépôt porte le
-monorepo, la CI, et l'inventaire de configuration. Voir
-[`features.json`](features.json) : les douze features sont à `"passes": false`.
+**Spec 001 — verte.** Format d'épisode, rejeu à froid, juge mécanique : les 15
+tâches sont cochées, 129 tests passent, le corpus doré rejoue à 100 % d'accord
+sur les grades A. Voir
+[`specs/001-socle-de-preuve/tasks.md`](specs/001-socle-de-preuve/tasks.md).
+
+**Spec 002 — capture bornée**, en cours. Les `tasks.md` des specs sont l'unique
+liste de vérité du projet.
 
 ## Structure
 
