@@ -5,6 +5,7 @@
 //! testent sans écran. Tout ce qui décide vraiment quelque chose est ailleurs,
 //! là où la CI peut l'atteindre.
 
+mod assemblage;
 mod clavier;
 mod cle;
 mod config;
@@ -260,6 +261,7 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
         m.take().map(|mut moteur| {
             moteur.clore();
             (
+                moteur.journal().to_vec(),
                 moteur.journal().len(),
                 moteur.unresolved(),
                 moteur.echecs_ecriture(),
@@ -273,10 +275,41 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
         })
     };
 
+    // R1.1, R1.4 : la cloture assemble, valide, et persiste — ou met en
+    // quarantaine avec la raison. Jamais un episode jete en silence.
+    let sort = resultat.as_ref().ok().map(|ep| {
+        let entrees = bilan.as_ref().map(|b| b.0.clone()).unwrap_or_default();
+        let dossier = dossier_donnees(app).join("episodes");
+        match assemblage::assembler(
+            &ep.id,
+            &ep.task_slug,
+            ep.t0_ms,
+            e.horloge.mural_ms(),
+            &entrees,
+            &e.redacteur,
+        ) {
+            Ok(episode) => {
+                let grade = format!("{} — {}", episode.grade, episode.grade_reason);
+                match assemblage::persister(&dossier, &episode) {
+                    Ok(_) => grade,
+                    Err(err) => {
+                        eprintln!("[noe] ecriture de l episode refusee : {err}");
+                        format!("{grade} (NON ecrit : {err})")
+                    }
+                }
+            }
+            Err(q) => {
+                let raison = q.to_string();
+                let _ = assemblage::mettre_en_quarantaine(&dossier, &ep.id, &raison);
+                format!("quarantaine — {raison}")
+            }
+        }
+    });
+
     match resultat {
         Ok(ep) => {
-            let (entrees, unresolved, echecs, trous, declencheurs, photos) =
-                bilan.unwrap_or((0, 0, 0, 0, 0, 0));
+            let (_, entrees, unresolved, echecs, trous, declencheurs, photos) =
+                bilan.unwrap_or((Vec::new(), 0, 0, 0, 0, 0, 0));
             // R3.4 : un echec d'ecriture se DIT. Un episode incomplet qu'on
             // annonce complet est pire qu'un episode manquant.
             let alerte = if echecs > 0 {
@@ -288,8 +321,11 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
                 app,
                 "Noe a borne l'episode",
                 &format!(
-                    "{} — tache « {} » · {entrees} entrees, {declencheurs} declencheurs,                      {photos} photos, {trous} trous, {unresolved} non resolues{alerte}.                      Assemblage et grade : tache 8.",
-                    ep.id, ep.task_slug
+                    "{} — tache « {} » · {entrees} entrees, {declencheurs} declencheurs,                      {photos} photos, {trous} trous, {unresolved} non resolues{alerte}.
+{}",
+                    ep.id,
+                    ep.task_slug,
+                    sort.as_deref().unwrap_or("episode non assemble")
                 ),
             );
         }
@@ -643,6 +679,81 @@ pub fn harnais_journal(args: &[String]) -> i32 {
                 })
             );
             0
+        }
+
+        // Banc de la tache 8 : emet un episode assemble par Rust, pour que le
+        // harness TypeScript le juge. C'est le seul moyen de savoir si les deux
+        // implementations du grade s'accordent — les comparer sur le papier ne
+        // prouverait rien.
+        (Some("assembler"), destination) => {
+            use crate::moteur::{CauseGap, EntreeJournal};
+            use crate::source::{Cible, GenreEvenement, Source};
+
+            let cle = match cle::CleHmac::generer() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("cle : {e}");
+                    return 1;
+                }
+            };
+            let r = redaction::Redacteur::new(&cle);
+
+            let act = |seq: u64, ms: u64, genre: GenreEvenement| EntreeJournal::UiAction {
+                seq,
+                monotone_ms: ms,
+                source: Source::Uia,
+                genre: r.redacter_genre(&genre),
+                unresolved: false,
+            };
+            let journal = vec![
+                act(1, 0, GenreEvenement::Focus(Cible::new("tab", "Details"))),
+                act(
+                    2,
+                    500,
+                    GenreEvenement::Saisie(Cible::new("textbox", "Description").dans("Fiche")),
+                ),
+                act(
+                    3,
+                    1_200,
+                    GenreEvenement::ChangementValeur(Cible::new("combobox", "Statut")),
+                ),
+                EntreeJournal::Gap {
+                    seq: 4,
+                    monotone_ms: 1_800,
+                    cause: CauseGap::Sleep,
+                    debut_ms: 1_500,
+                    fin_ms: 1_800,
+                },
+                act(
+                    5,
+                    2_400,
+                    GenreEvenement::Soumission(Cible::new("button", "Enregistrer")),
+                ),
+            ];
+
+            // Un ULID valide : le schema l'exige.
+            let id = ulid::Ulid::new().to_string();
+            let t0 = 1_767_225_600_000u64;
+            match assemblage::assembler(&id, "maj-crm-post-echange", t0, t0 + 3_000, &journal, &r) {
+                Ok(ep) => {
+                    let json = serde_json::to_string_pretty(&ep).unwrap_or_default();
+                    match destination.as_ref().and_then(|d| d.to_str()) {
+                        Some(chemin) => {
+                            if let Err(e) = std::fs::write(chemin, &json) {
+                                eprintln!("ecriture : {e}");
+                                return 1;
+                            }
+                            println!("{chemin}");
+                        }
+                        None => println!("{json}"),
+                    }
+                    0
+                }
+                Err(q) => {
+                    eprintln!("quarantaine : {q}");
+                    1
+                }
+            }
         }
 
         (Some("reprendre"), Some(racine)) => {

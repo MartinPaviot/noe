@@ -34,10 +34,11 @@ const RACINE = join(ICI, '..');
 const DEST_MOTIFS = join(RACINE, 'packages', 'episode-spec', 'motifs.json');
 const DEST_VECTEURS = join(RACINE, 'packages', 'episode-spec', 'vecteurs-redaction.json');
 const DEST_CAUSES = join(RACINE, 'packages', 'episode-spec', 'causes-gap.json');
+const DEST_GRADES = join(RACINE, 'packages', 'episode-spec', 'vecteurs-grade.json');
 
 // `pathToFileURL` : sur Windows, un chemin absolu commence par une lettre de
 // lecteur, que le chargeur ESM lit comme un schema d URL inconnu.
-const { CAUSES_GAP, MOTIFS_PII, VERSION_MOTIFS, chercherPii, resoudreChevauchements } =
+const { CAUSES_GAP, MOTIFS_PII, VERSION_MOTIFS, chercherPii, gradeOf, resoudreChevauchements } =
   await import(pathToFileURL(join(RACINE, 'packages', 'episode-spec', 'dist', 'index.js')).href);
 
 /**
@@ -140,10 +141,58 @@ let ecarts = 0;
 // refuse de parser, et l'episode part en quarantaine sans explication.
 const causes = { causes: [...CAUSES_GAP].sort() };
 
+/**
+ * Vecteurs de grade : le SEUIL, figé.
+ *
+ * Le seuil de `gradeOf` — au plus UN défaut pour rester en B, deux ou plus font
+ * tomber en C — a été mal miroité côté Rust au premier essai. Le harness a
+ * refusé l'épisode, ce qui est le bon comportement, mais la divergence ne
+ * s'était vue qu'en produisant un épisode réel. Ces vecteurs la font voir en CI.
+ */
+const CAS_GRADE = [
+  { gaps: 0, entites: [] },
+  { gaps: 0, entites: [{ resolue: true }] },
+  { gaps: 0, entites: [{ resolue: false }] },
+  { gaps: 1, entites: [] },
+  { gaps: 1, entites: [{ resolue: true }] },
+  { gaps: 1, entites: [{ resolue: false }] },
+  { gaps: 2, entites: [] },
+  { gaps: 0, entites: [{ resolue: false }, { resolue: false }] },
+  { gaps: 3, entites: [{ resolue: false }, { resolue: true }] },
+  { gaps: 0, entites: [{ resolue: true, pseudo: '   ' }] },
+];
+
+const episodeSynthetique = (cas) => ({
+  events: [
+    ...Array.from({ length: cas.gaps }, (_, i) => ({ kind: 'gap', seq: i + 1 })),
+    { kind: 'ui_action', seq: 900 },
+  ],
+  entities: cas.entites.map((e, i) => ({
+    key: { type: 'capture', value_pseudo: e.pseudo ?? `CIBLE_${i}0000000` },
+    first_seen_seq: 1,
+    api_refs: [],
+    ...(e.resolue ? { state_before: {}, state_after: {} } : {}),
+  })),
+});
+
+const grades = {
+  note: 'Le seuil de gradeOf, fige. Toute implementation doit rendre exactement ceci.',
+  cas: CAS_GRADE.map((cas) => {
+    const v = gradeOf(episodeSynthetique(cas));
+    return {
+      gaps: cas.gaps,
+      entites: cas.entites.map((e) => ({ resolue: e.resolue === true, pseudo: e.pseudo ?? null })),
+      grade: v.grade,
+      reason: v.reason,
+    };
+  }),
+};
+
 for (const [nom, chemin, contenu] of [
   ['motifs.json', DEST_MOTIFS, motifs],
   ['vecteurs-redaction.json', DEST_VECTEURS, vecteurs],
   ['causes-gap.json', DEST_CAUSES, causes],
+  ['vecteurs-grade.json', DEST_GRADES, grades],
 ]) {
   const attendu = rendu(contenu);
   if (verifier) {

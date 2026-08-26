@@ -1,0 +1,108 @@
+{
+  "note": "Le seuil de gradeOf, fige. Toute implementation doit rendre exactement ceci.",
+  "cas": [
+    {
+      "gaps": 0,
+      "entites": [],
+      "grade": "A",
+      "reason": "sequence sans trou, toutes entites resolues, redaction validee"
+    },
+    {
+      "gaps": 0,
+      "entites": [
+        {
+          "resolue": true,
+          "pseudo": null
+        }
+      ],
+      "grade": "A",
+      "reason": "sequence sans trou, toutes entites resolues, redaction validee"
+    },
+    {
+      "gaps": 0,
+      "entites": [
+        {
+          "resolue": false,
+          "pseudo": null
+        }
+      ],
+      "grade": "B",
+      "reason": "declasse en B : 1 entite non resolue"
+    },
+    {
+      "gaps": 1,
+      "entites": [],
+      "grade": "B",
+      "reason": "declasse en B : 1 trou de capture"
+    },
+    {
+      "gaps": 1,
+      "entites": [
+        {
+          "resolue": true,
+          "pseudo": null
+        }
+      ],
+      "grade": "B",
+      "reason": "declasse en B : 1 trou de capture"
+    },
+    {
+      "gaps": 1,
+      "entites": [
+        {
+          "resolue": false,
+          "pseudo": null
+        }
+      ],
+      "grade": "C",
+      "reason": "declasse en C : 1 trou(s) et 1 entite(s) non resolue(s)"
+    },
+    {
+      "gaps": 2,
+      "entites": [],
+      "grade": "C",
+      "reason": "declasse en C : 2 trou(s) et 0 entite(s) non resolue(s)"
+    },
+    {
+      "gaps": 0,
+      "entites": [
+        {
+          "resolue": false,
+          "pseudo": null
+        },
+        {
+          "resolue": false,
+          "pseudo": null
+        }
+      ],
+      "grade": "C",
+      "reason": "declasse en C : 0 trou(s) et 2 entite(s) non resolue(s)"
+    },
+    {
+      "gaps": 3,
+      "entites": [
+        {
+          "resolue": false,
+          "pseudo": null
+        },
+        {
+          "resolue": true,
+          "pseudo": null
+        }
+      ],
+      "grade": "C",
+      "reason": "declasse en C : 3 trou(s) et 1 entite(s) non resolue(s)"
+    },
+    {
+      "gaps": 0,
+      "entites": [
+        {
+          "resolue": true,
+          "pseudo": "   "
+        }
+      ],
+      "grade": "C",
+      "reason": "redaction non validee : une cle d entite est vide"
+    }
+  ]
+}
