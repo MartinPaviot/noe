@@ -20,7 +20,8 @@
     "build": "pnpm -r build",
     "replay": "noe replay packages/harness/golden",
     "test:only": "vitest run",
-    "lint:motifs": "node scripts/generer-motifs.mjs --verifier"
+    "lint:motifs": "node scripts/generer-motifs.mjs --verifier",
+    "evidence": "node scripts/evidence-quotidienne.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.0",

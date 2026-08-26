@@ -84,12 +84,36 @@ par session.
 | 005 | Modes & promotion | classement exhaustif par mode avec justification, permission/gardes/refus→règle, rodage 5 exécutions, écritures sûres (idempotence, verrouillage optimiste, before-images, annuler), témoin 15 %, SPRT calibré avec simulation jointe ; **le port connecteur gagne `write` ICI seulement** | une branche promue sur l'org de démo, exécution autonome au diff vert, annulée, rejouée, journal complet |
 | 006 | Assisté | drafts Gmail dans le thread, zéro envoi auto, apprentissage silencieux (diff proposé/envoyé), métriques | 5 brouillons réels créés, diffs récoltés |
 | 007 | N1 & revue | capture ambiante métadonnées (liste blanche vide), carte du temps, motifs, bilan d'automatisabilité, `noe week` | carte + bilan générés sur 3 jours de données |
-| 008 | UI produit | onboarding 3 écrans + diagnostic de stack, revue/bilan, file en cartes, bibliothèque + graphe React Flow, permission, états vide/erreur/chargement partout, pause/panique écran 1 | parcours souris complet installation→bilan, plus « jour 1 vide » et « OAuth refusé » propres — **tout sous tests visuels** |
+| 008 | UI produit — **finir**, plus construire (D26) | onboarding 3 écrans + diagnostic de stack, revue/bilan, file en cartes, bibliothèque + graphe React Flow, permission, états vide/erreur/chargement partout, pause/panique écran 1 | parcours souris complet installation→bilan, plus « jour 1 vide » et « OAuth refusé » propres — **tout sous tests visuels** |
 | 009 | Commercial | licence ed25519 + grâce 72 h, Stripe TEST bout en bout, backend `noe-prod` réactivé (lint anti-contenu), installeur signé + auto-update, landing + page trust | parcours acheteur test complet + coupure réseau 72 h simulée. **Stripe LIVE = exception opérateur** |
 | 010 | Durcissement | machine vierge, SmartScreen, Sentry + PostHog opt-in, funnel, support in-app, docs publiques, revue sécurité, bêtas | **le MUR DU VIABLE** vrai ligne à ligne — la signature est à l'opérateur |
 
 L'ordre est un ordre de **dépendances**. À l'intérieur d'une spec, je réordonne
 librement ce que le graphe permet, en le consignant.
+
+### `[D26]` Le squelette traversant — l'UI ne commence plus en 008
+
+Une **fenêtre Tauri d'une seule vue** naît à la fin de la **tâche 8 de la spec
+002** et grandit ensuite à chaque spec. Elle liste les épisodes réels du poste
+avec leur **grade**, leur **complétude** et leur **timeline d'événements**,
+branchée sur les vraies données, sous tests visuels dès le premier écran.
+
+| Spec | Ce qu'elle ajoute au squelette |
+| --- | --- |
+| **002** (tâche 8bis) | liste des épisodes · grade et sa raison · complétude · timeline des événements et des trous |
+| 003 | états d'entité avant/après, et le verdict du juge par branche |
+| 004 | la file priorisée, l'accord par branche, le coût de la politique |
+| 005 | les branches promues, leur mode, leur rodage, le bouton d'annulation |
+| 006 | les brouillons proposés et le diff avec ce qui a été envoyé |
+| 007 | la carte du temps et le bilan d'automatisabilité |
+| 008 | onboarding, permission, bibliothèque, graphe — **le reste**, pas le début |
+
+**Ce n'est pas de l'UI en avance de phase.** Chaque ajout affiche une donnée que
+la spec vient de produire ; il n'y a rien à inventer, seulement à montrer.
+
+**Ce que ça change au périmètre de la 002.** Elle gagne une tâche, **8bis**, et
+son gate reste inchangé — le squelette accompagne l'épisode, il ne le remplace
+pas.
 
 ## 4. Tests visuels Playwright — le standard (D21)
 
@@ -120,6 +144,26 @@ séparément.
 En plus des tests : chaque jalon et chaque opération Playwright sur un portail
 externe archive ses captures dans `docs/evidence/<date>-<sujet>/`. Les tests
 prouvent la non-régression ; l'evidence documente l'histoire.
+
+### `[D26]` L'evidence quotidienne — voir, pas lire
+
+**À la clôture de chaque session, et au minimum une fois par jour calendaire où
+des commits sont poussés**, une capture de l'état courant atterrit dans
+`docs/evidence/daily/`, nommée `AAAA-MM-JJ-<sujet>.png`.
+
+La règle existe parce que huit specs de tests verts ne montrent rien. Un
+fondateur qui ne voit pas ce qui se construit ne peut corriger le tir qu'au
+moment où c'est le plus cher.
+
+Trois conditions, sans quoi la règle mourrait d'elle-même :
+
+1. **Produite par un script**, jamais à la main — une preuve visuelle qui dépend
+   de la discipline de quelqu'un cesse d'exister en trois semaines.
+2. **En session de développement**, pas en CI : le rendu natif exige un
+   affichage.
+3. **Ce qui existe vraiment.** Tant que le squelette n'est pas né, la capture
+   montre les trois états de l'icône de barre d'état et l'état de démarrage.
+   C'est peu, et c'est mieux qu'une case cochée sans image.
 
 ## 5. Protocole de long-run
 

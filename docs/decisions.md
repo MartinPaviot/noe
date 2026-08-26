@@ -783,3 +783,94 @@ qu'on n'a pas pensé à écrire.
 même `motifs.json` et passer les mêmes vecteurs. Tant que ce n'est pas fait, la
 bibliothèque est vérifiée sur deux implémentations, pas trois — et la tâche 6b
 le porte explicitement.
+
+## 2026-08-26 — D26 : squelette traversant permanent, et une preuve visible chaque jour
+
+**Spec :** 002 et toutes les suivantes · **Portée :** permanente
+**Numérotation :** l'arbitrage a été demandé sous le nom « D22 ». Ce numéro
+désignait déjà la reclassification du 34,5 % d'UIA, plus tôt le même jour ; il
+devient **D26** pour que le journal reste sans ambiguïté.
+
+### La décision
+
+**1. Un squelette traversant, dès la fin de la tâche 8 de la spec 002.**
+
+Une fenêtre Tauri minimale — **une seule vue** — qui liste les épisodes réels
+capturés avec leur **grade**, leur **complétude** et leur **timeline
+d'événements**, branchée sur les **vraies données** du poste, sous **tests
+visuels Playwright dès le premier écran** (D21).
+
+**2. Elle grandit à chaque spec, au lieu d'attendre la 008.** La 003 y ajoute les
+états avant/après, la 004 la file priorisée, la 005 les branches promues, et
+ainsi de suite. La 008 cesse d'être « construire l'UI » pour devenir « finir
+l'UI ».
+
+**3. Une capture d'écran de l'état courant, à chaque fin de journée de build,
+dans `docs/evidence/daily/`.** L'opérateur doit pouvoir **voir** l'avancement,
+pas le lire.
+
+### Pourquoi ça change quelque chose
+
+Le plan actuel produit des mois de travail que personne ne peut regarder. Le
+harness, le capteur, la redaction, le writer : tout se vérifie par des tests
+verts et des lignes de journal. C'est rigoureux et c'est **invisible**. Un
+fondateur qui ne voit rien pendant huit specs n'a aucun moyen de corriger le tir
+avant qu'il soit cher de le faire — et un désaccord sur ce qu'on construit se
+découvre alors au moment le plus coûteux.
+
+Un squelette traversant retourne la charge de la preuve : à partir de la tâche 8,
+**tout ce qui est capturé est visible**. Une régression de complétude, un grade
+qui tombe, une timeline qui se troue : ça se voit d'un coup d'œil, là où il
+fallait lire un rapport.
+
+### Ce que ça coûte, et pourquoi c'est acceptable
+
+Une vue de plus à maintenir à chaque spec, et des baselines visuelles à
+régénérer. C'est réel. Mais le coût de la 008 telle qu'elle était prévue — tout
+l'UI d'un coup, sur des données qu'on n'aura jamais regardées avant — est plus
+élevé, et il arrive tard.
+
+### Trois précisions qui éviteront une confusion
+
+**a. « Vraies données » et tests visuels ne s'opposent pas.** L'application lit
+le dossier d'épisodes du poste. Les tests visuels, eux, tournent sur des
+**fixtures versionnées** (mission §4), sans capture ni réseau — sans quoi les
+baselines dépendraient de ce que l'opérateur a capturé la veille, et le contrôle
+serait ingérable. Les deux existent, ils ne servent pas à la même chose.
+
+**b. Le premier écran sera presque vide, et c'est normal.** La tâche 8 produit le
+premier épisode assemblé : le squelette affichera un ou deux éléments. L'état
+« jour 1 vide » est justement l'une des quatre baselines exigées par D21 — la
+pauvreté du premier écran n'est pas un défaut à masquer, c'est un état à tester.
+
+**c. « Journée de build » se définit, sinon la règle ne s'applique jamais.** Le
+travail se fait en sessions, pas en journées. La règle retenue : **une capture à
+la clôture de chaque session, et au minimum une par jour calendaire où des
+commits ont été poussés.** Le fichier est nommé `AAAA-MM-JJ-<sujet>.png`.
+
+**d. La capture est produite par un script, jamais à la main.** Une preuve
+visuelle qui dépend de la discipline de quelqu'un cesse d'exister en trois
+semaines. Elle est donc automatisée, et le rendu natif Tauri se capture en
+session de développement — pas en CI, où il n'y a pas d'affichage (mission §4).
+
+**e. Jamais l'écran, seulement le produit.** Le dépôt est **public**. Une capture
+plein écran y publierait le bureau de l'opérateur — courriels ouverts, noms de
+clients dans une barre des tâches, fenêtres d'un autre travail. Ce serait
+exactement la fuite que la première règle du projet interdit, commise par
+l'outil censé la prévenir.
+
+La capture vise donc **la fenêtre de l'application**, jamais le bureau. Tant
+qu'aucune fenêtre n'existe, elle compose les **pixels que le produit possède
+déjà** — les trois icônes de barre d'état — sur un fond neutre. Le jour où le
+squelette naît, elle capture cette fenêtre-là et rien d'autre.
+
+Cette contrainte n'est pas une réserve tatillonne : un dépôt public reçoit une
+capture par jour, et il suffit d'une seule mauvaise pour que ce soit
+irréversible.
+
+### Avant que le squelette existe
+
+Il n'y a pas encore de pixels produit. Jusqu'à la tâche 8, l'evidence
+quotidienne montre ce qui existe réellement : les **trois états de l'icône de
+barre d'état** et l'état de démarrage de l'application. C'est peu, c'est vrai, et
+c'est mieux qu'une case cochée sans image.

@@ -18,6 +18,7 @@ Les regles longues vivent dans `docs/invariants.md` ; ci-dessous le strict neces
 | Scan de secrets | `pnpm secrets` |
 | CLI du harness | `pnpm --filter @noe/harness exec tsx src/cli.ts` |
 | Coquille desktop (dev) | `pnpm --filter @noe/desktop tauri dev` |
+| Evidence quotidienne (D26) | `pnpm evidence` |
 
 ## Mission
 
