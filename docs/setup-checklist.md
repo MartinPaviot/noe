@@ -139,13 +139,19 @@ tenant      : 05becca6-…  martinpaviotoutlook.onmicrosoft.com
 > **ne fonctionnera pas tel quel ici**. Utiliser `createAzure({ …, useDeploymentBasedUrls: false })`
 > ou le provider OpenAI pointé sur l'URL `/openai/v1`, à trancher en F01.
 
-**État au 2026-08-26 :** le projet a **zéro déploiement**
-(`GET …/deployments` → `200 {"value":[]}`). Créé le 18/08/2026, rien n'y a
-encore été déployé — d'où les `DeploymentNotFound` sur 28 noms sondés.
+**Déploiements — vérifiés en inférence réelle le 2026-08-26 :**
 
-- [ ] 👤 <https://ai.azure.com> → `martinpaviot-4001` → **Déploiements** →
-      **Déployer un modèle** ×2 : un petit nommé `noe-tri`, un grand nommé
-      `noe-execution`. Le déploiement ne coûte rien, la facturation est au token.
+| Déploiement | Rôle | Latence mesurée |
+| --- | --- | --- |
+| `gpt-5.4` | exécution, raisonnement | 1590 ms (18 tokens entrée, 9 sortie) |
+| `gpt-5.4-mini` | tri, classification, extraction | 621 ms (18 entrée, 8 sortie) |
+| `text-embedding-3-large` | embeddings du corpus doré | route `responses` inapplicable |
+
+Le mini est **2,5× plus rapide** sur un appel jouet. Chiffre indicatif, pas un
+verdict : F01 devra le refaire sur un corpus réel, avec les métriques du juge.
+
+> Les noms de déploiement sont ceux des modèles (pas `noe-tri`/`noe-execution`).
+> Ils sont câblés tels quels dans `.env.local`.
 
 ### 👤 B.0-bis — `az` bloqué par une stratégie d'accès conditionnel
 
