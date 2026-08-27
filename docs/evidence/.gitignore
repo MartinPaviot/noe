@@ -1,5 +1,19 @@
-# Les captures sont inspectees AVANT commit : le depot est public, une page de
-# facturation montre des identifiants. Par defaut, rien ne part.
+# Les captures d'automatisation navigateur sont inspectees AVANT commit : le
+# depot est public, une page de facturation montre des identifiants. Par
+# defaut, rien ne part.
 *
 !.gitignore
 !README.md
+
+# D26 fait exception, et une seule : la preuve quotidienne.
+#
+# Elle ne montre QUE les pixels du produit, rendus depuis des fixtures
+# versionnees — jamais un episode du poste, jamais un bureau. C'est
+# `scripts/evidence-quotidienne.mjs` qui le garantit, et un test visuel balaie
+# le meme rendu a la recherche de PII.
+#
+# La regle de D26 est que « le fondateur doit pouvoir VOIR l'avancement ».
+# Ignorer ces images la rendait vraie sur une seule machine, ce qui n'est pas
+# la rendre vraie.
+!daily/
+!daily/*.png
