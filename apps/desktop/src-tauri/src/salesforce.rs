@@ -565,3 +565,441 @@ mod tests {
         }
     }
 }
+
+/// Le nom du connecteur, tel qu'il apparaît dans les `api_refs`.
+pub const CONNECTEUR: &str = "salesforce";
+
+/// L'ordre dans lequel les clés tranchent.
+///
+/// Miroir exact de `PRIORITE` côté TypeScript. L'identifiant système d'abord :
+/// c'est le système lui-même qui l'a émis, il ne peut pas désigner deux
+/// enregistrements. Le courriel ensuite. Le couple domaine + nom en dernier,
+/// parce que deux personnes peuvent porter le même nom dans la même entreprise.
+const PRIORITE: &[&str] = &["system_id", "email_token", "domain_name"];
+
+/// Le séparateur d'une clé `domain_name`.
+///
+/// Le contrat TypeScript porte deux champs (`domain` et `name`) ; le canal Rust
+/// ne transporte qu'un couple `(genre, valeur)`. Il faut donc un séparateur, et
+/// c'est la tabulation : elle ne peut pas apparaître dans un domaine, et
+/// `normaliser_blancs` la remplace par une espace dans un nom — donc une
+/// tabulation restante ne peut être que celle-ci.
+///
+/// Une valeur sans séparateur est **refusée** et pas devinée : découper sur
+/// autre chose reviendrait à choisir à la place de l'appelant, et R2.2 interdit
+/// exactement ça.
+pub const SEPARATEUR_DOMAINE_NOM: char = '\t';
+
+/// L'adaptateur, une fois le transport branché.
+pub struct Adaptateur<T: Transport> {
+    transport: T,
+    /// Les objets interrogés, dans l'ordre.
+    ///
+    /// Un courriel peut désigner un `Contact` **ou** un `Lead`, et les deux
+    /// comptent : trouver un enregistrement dans chacun n'est pas une résolution,
+    /// c'est une ambiguïté à deux candidats.
+    objets: Vec<String>,
+}
+
+impl<T: Transport> Adaptateur<T> {
+    pub fn nouveau(transport: T, objets: Vec<String>) -> Self {
+        Self { transport, objets }
+    }
+
+    /// Exécute une requête de résolution et rend les identifiants trouvés.
+    fn identifiants(&self, soql: &str) -> Result<Vec<String>, String> {
+        let (statut, corps) = self
+            .transport
+            .get(&chemin_query(soql))
+            .map_err(|e| format!("transport : {e}"))?;
+        if statut != 200 {
+            return Err(match classer_erreur(statut, &corps) {
+                Issue::Trou(c) | Issue::HorsPerimetre(c) => c,
+                Issue::Lu(_) => "reponse inattendue".into(),
+            });
+        }
+        let v: serde_json::Value =
+            serde_json::from_str(&corps).map_err(|e| format!("reponse illisible : {e}"))?;
+
+        // `done: false` veut dire que la réponse est **partielle**. Une page
+        // incomplète transformerait une ambiguïté en résolution : deux candidats
+        // dont un seul est arrivé se lisent comme « exactement un ».
+        if v.get("done") == Some(&serde_json::Value::Bool(false)) {
+            return Err("page de resultats incomplete".into());
+        }
+
+        Ok(v.get("records")
+            .and_then(serde_json::Value::as_array)
+            .map(|r| {
+                r.iter()
+                    .filter_map(|e| e.get("Id").and_then(serde_json::Value::as_str))
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    /// La requête d'une clé, pour un objet donné.
+    fn requete(&self, genre: &str, valeur: &str, objet: &str) -> Result<String, String> {
+        match genre {
+            "system_id" => Ok(format!(
+                "SELECT Id FROM {objet} WHERE Id = '{}' LIMIT 5",
+                echapper_soql(valeur)
+            )),
+            "email_token" => Ok(soql_par_courriel(objet, valeur)),
+            "domain_name" => match valeur.split_once(SEPARATEUR_DOMAINE_NOM) {
+                Some((domaine, nom)) if !domaine.is_empty() && !nom.is_empty() => {
+                    Ok(soql_par_domaine_nom(objet, domaine, nom))
+                }
+                _ => Err("cle domain_name malformee".into()),
+            },
+            autre => Err(format!("genre de cle inconnu : {autre}")),
+        }
+    }
+}
+
+impl<T: Transport> crate::federation::Federation for Adaptateur<T> {
+    /// R2.1 et R2.2 — la résolution.
+    ///
+    /// Les clés sont essayées **dans l'ordre de force**, et la première qui donne
+    /// exactement un candidat tranche. Une clé qui en donne plusieurs arrête
+    /// tout : **une ambiguïté n'est jamais départagée par une clé plus faible**.
+    /// Affiner avec `domain_name` ce que le courriel n'a pas tranché, c'est
+    /// exactement deviner.
+    ///
+    /// Un appel qui échoue arrête tout aussi, en `Empechee`. Répondre
+    /// `Introuvable` parce qu'on n'a pas pu regarder affirmerait que
+    /// l'enregistrement n'existe pas — une conclusion qu'on n'a pas.
+    fn resoudre(&self, cles: &[(String, String)]) -> Resolution {
+        for genre in PRIORITE {
+            let valeurs: Vec<&str> = cles
+                .iter()
+                .filter(|(g, _)| g == genre)
+                .map(|(_, v)| v.as_str())
+                .collect();
+            if valeurs.is_empty() {
+                continue;
+            }
+
+            let mut trouves: Vec<RefApi> = Vec::new();
+            for objet in &self.objets {
+                for valeur in &valeurs {
+                    let soql = match self.requete(genre, valeur, objet) {
+                        Ok(s) => s,
+                        Err(cause) => return Resolution::Empechee(cause),
+                    };
+                    match self.identifiants(&soql) {
+                        Ok(ids) => {
+                            for id in ids {
+                                let r = RefApi {
+                                    connector: CONNECTEUR.into(),
+                                    object: objet.clone(),
+                                    id,
+                                };
+                                if !trouves.contains(&r) {
+                                    trouves.push(r);
+                                }
+                            }
+                        }
+                        // Un objet qu'on n'a pas pu interroger laisse la question
+                        // ouverte : « exactement un » n'est plus démontrable.
+                        Err(cause) => return Resolution::Empechee(cause),
+                    }
+                }
+            }
+
+            match trouves.len() {
+                0 => continue,
+                1 => {
+                    return Resolution::Resolue {
+                        reference: trouves.remove(0),
+                        par: (*genre).to_owned(),
+                        quand: crate::federation::maintenant_iso(),
+                    }
+                }
+                n => return Resolution::Ambigue(n),
+            }
+        }
+        Resolution::Introuvable
+    }
+
+    /// R3.1 — la lecture d'un enregistrement, restreinte aux champs demandés.
+    fn lire(&self, reference: &RefApi, champs: &[String]) -> Issue {
+        if reference.connector != CONNECTEUR {
+            return Issue::HorsPerimetre(format!("connecteur {}", reference.connector));
+        }
+        if champs.is_empty() {
+            // Sans périmètre, une lecture complète ferait entrer dans l'épisode
+            // des dizaines de champs que personne n'a demandés.
+            return Issue::HorsPerimetre("aucun champ dans le perimetre".into());
+        }
+        let chemin = chemin_lecture(&reference.object, &reference.id, champs);
+        match self.transport.get(&chemin) {
+            Err(e) => Issue::Trou(format!("transport : {e}")),
+            Ok((200, corps)) => match serde_json::from_str::<serde_json::Value>(&corps) {
+                Ok(v) => Issue::Lu(aplatir(&v, champs)),
+                Err(e) => Issue::Trou(format!("reponse illisible : {e}")),
+            },
+            Ok((statut, corps)) => classer_erreur(statut, &corps),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests_adaptateur {
+    use super::*;
+    use crate::federation::Federation;
+
+    /// Un transport enregistré : le test décide de la réponse à partir du chemin.
+    struct Faux<F: Fn(&str) -> (u16, String) + Send + Sync>(F);
+    impl<F: Fn(&str) -> (u16, String) + Send + Sync> Transport for Faux<F> {
+        fn get(&self, chemin: &str) -> Result<(u16, String), String> {
+            Ok((self.0)(chemin))
+        }
+    }
+
+    fn enregistrements(ids: &[&str]) -> (u16, String) {
+        let records: Vec<serde_json::Value> = ids
+            .iter()
+            .map(|id| serde_json::json!({"attributes": {"type": "Contact"}, "Id": id}))
+            .collect();
+        (
+            200,
+            serde_json::json!({"totalSize": ids.len(), "done": true, "records": records})
+                .to_string(),
+        )
+    }
+
+    fn adaptateur<F: Fn(&str) -> (u16, String) + Send + Sync>(f: F) -> Adaptateur<Faux<F>> {
+        Adaptateur::nouveau(Faux(f), vec!["Contact".into(), "Lead".into()])
+    }
+
+    fn cle(genre: &str, valeur: &str) -> Vec<(String, String)> {
+        vec![(genre.to_owned(), valeur.to_owned())]
+    }
+
+    #[test]
+    fn un_courriel_qui_donne_un_seul_enregistrement_resout() {
+        let a = adaptateur(|c| {
+            if c.contains("Contact") {
+                enregistrements(&["003AAA"])
+            } else {
+                enregistrements(&[])
+            }
+        });
+        match a.resoudre(&cle("email_token", "jean@ex.com")) {
+            Resolution::Resolue { reference, par, .. } => {
+                assert_eq!(par, "email_token");
+                assert_eq!(reference.object, "Contact");
+                assert_eq!(reference.id, "003AAA");
+                assert_eq!(reference.connector, "salesforce");
+            }
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn une_ambiguite_n_est_jamais_departagee_par_une_cle_plus_faible() {
+        // Le courriel donne DEUX candidats ; le couple domaine + nom n'en
+        // donnerait qu'un. Affiner avec la clé plus faible, c'est deviner.
+        let a = adaptateur(|c| {
+            if c.contains("Email") && c.contains("Contact") {
+                enregistrements(&["003AAA", "003BBB"])
+            } else if c.contains("Website") {
+                enregistrements(&["003AAA"])
+            } else {
+                enregistrements(&[])
+            }
+        });
+        let cles = vec![
+            ("email_token".into(), "jean@ex.com".into()),
+            (
+                "domain_name".into(),
+                format!("ex.com{SEPARATEUR_DOMAINE_NOM}Jean Dupont"),
+            ),
+        ];
+        assert_eq!(a.resoudre(&cles), Resolution::Ambigue(2));
+    }
+
+    #[test]
+    fn l_identifiant_systeme_passe_avant_le_courriel() {
+        // C'est le système lui-même qui l'a émis : il ne peut pas désigner deux
+        // enregistrements.
+        let a = adaptateur(|c| {
+            if c.contains("Id%20%3D") && c.contains("Contact") {
+                enregistrements(&["003ZZZ"])
+            } else if c.contains("Email") {
+                enregistrements(&["003AAA", "003BBB"])
+            } else {
+                enregistrements(&[])
+            }
+        });
+        let cles = vec![
+            ("email_token".into(), "jean@ex.com".into()),
+            ("system_id".into(), "003ZZZ".into()),
+        ];
+        match a.resoudre(&cles) {
+            Resolution::Resolue { par, reference, .. } => {
+                assert_eq!(par, "system_id");
+                assert_eq!(reference.id, "003ZZZ");
+            }
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn le_meme_courriel_dans_deux_objets_est_une_ambiguite() {
+        // Un Contact ET un Lead : deux dossiers, et rien ne dit lequel.
+        let a = adaptateur(|_| enregistrements(&["003AAA"]));
+        assert_eq!(
+            a.resoudre(&cle("email_token", "jean@ex.com")),
+            Resolution::Ambigue(2)
+        );
+    }
+
+    #[test]
+    fn zero_candidat_est_introuvable() {
+        let a = adaptateur(|_| enregistrements(&[]));
+        assert_eq!(
+            a.resoudre(&cle("email_token", "jean@ex.com")),
+            Resolution::Introuvable
+        );
+    }
+
+    #[test]
+    fn une_lecture_empechee_ne_devient_pas_un_introuvable() {
+        // `not_found` affirme que l'enregistrement n'existe pas. Un 403 ne dit
+        // rien de tel : il dit qu'on n'a pas pu regarder.
+        let a = adaptateur(|_| {
+            (
+                403,
+                serde_json::json!([{"errorCode": "INSUFFICIENT_ACCESS"}]).to_string(),
+            )
+        });
+        match a.resoudre(&cle("email_token", "jean@ex.com")) {
+            Resolution::Empechee(cause) => assert!(!cause.is_empty(), "cause muette"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn une_page_incomplete_empeche_au_lieu_de_conclure() {
+        // Deux candidats dont un seul est arrivé se liraient comme « exactement
+        // un » — une ambiguïté transformée en résolution.
+        let a = adaptateur(|_| {
+            (
+                200,
+                serde_json::json!({
+                    "done": false,
+                    "nextRecordsUrl": "/services/data/v62.0/query/01g",
+                    "records": [{"Id": "003AAA"}]
+                })
+                .to_string(),
+            )
+        });
+        match a.resoudre(&cle("email_token", "jean@ex.com")) {
+            Resolution::Empechee(c) => assert!(c.contains("incomplete"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn une_cle_domaine_nom_malformee_est_refusee_et_pas_devinee() {
+        let a = adaptateur(|_| enregistrements(&[]));
+        match a.resoudre(&cle("domain_name", "ex.com sans separateur")) {
+            Resolution::Empechee(c) => assert!(c.contains("malformee"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn une_cle_de_genre_inconnu_ne_resout_rien_en_silence() {
+        // Un genre inconnu ne fait pas partie de la priorité : il est ignoré, et
+        // l'absence de clé utilisable rend `Introuvable`, pas une devinette.
+        let a = adaptateur(|_| enregistrements(&["003AAA"]));
+        assert_eq!(
+            a.resoudre(&cle("nom_approchant", "Jean Dupont")),
+            Resolution::Introuvable
+        );
+    }
+
+    #[test]
+    fn une_resolution_empechee_se_raconte_autrement_qu_un_introuvable() {
+        assert_eq!(
+            Resolution::Empechee("droits".into()).raison(),
+            "blocked:droits"
+        );
+        assert_eq!(Resolution::Introuvable.raison(), "not_found");
+    }
+
+    // -- La lecture ---------------------------------------------------------
+
+    fn reference() -> RefApi {
+        RefApi {
+            connector: CONNECTEUR.into(),
+            object: "Contact".into(),
+            id: "003AAA".into(),
+        }
+    }
+
+    #[test]
+    fn une_lecture_rend_un_etat_plat_restreint_au_perimetre() {
+        let a = adaptateur(|_| {
+            (
+                200,
+                serde_json::json!({
+                    "attributes": {"type": "Contact", "url": "/x"},
+                    "Id": "003AAA",
+                    "Statut__c": "Nouveau",
+                    "Description": "hors perimetre"
+                })
+                .to_string(),
+            )
+        });
+        let champs = vec!["Id".to_owned(), "Statut__c".to_owned()];
+        match a.lire(&reference(), &champs) {
+            Issue::Lu(plat) => {
+                assert_eq!(plat["Statut__c"], serde_json::json!("Nouveau"));
+                assert!(!plat.contains_key("Description"), "hors perimetre");
+                assert!(!plat.contains_key("attributes"), "metadonnee de transport");
+            }
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn une_lecture_qui_echoue_ne_rend_pas_un_etat_vide() {
+        // Un état vide se lirait comme « tous les champs sont nuls », et le diff
+        // inventerait des changements qui n'ont pas eu lieu.
+        let a = adaptateur(|_| (500, "<html>oops</html>".into()));
+        match a.lire(&reference(), &["Id".to_owned()]) {
+            Issue::Trou(c) => assert!(!c.is_empty()),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn une_reference_d_un_autre_connecteur_est_hors_perimetre() {
+        let a = adaptateur(|_| enregistrements(&[]));
+        let mut r = reference();
+        r.connector = "gmail".into();
+        match a.lire(&r, &["Id".to_owned()]) {
+            Issue::HorsPerimetre(c) => assert!(c.contains("gmail"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn un_perimetre_vide_ne_declenche_pas_une_lecture_complete() {
+        let a = adaptateur(|_| panic!("aucun appel ne devrait partir"));
+        assert!(matches!(a.lire(&reference(), &[]), Issue::HorsPerimetre(_)));
+    }
+
+    #[test]
+    fn l_horodatage_de_resolution_est_iso_8601() {
+        let q = crate::federation::maintenant_iso();
+        assert!(q.ends_with('Z'), "{q}");
+        assert_eq!(q.len(), 24, "{q}");
+        assert!(q.starts_with("20"), "{q}");
+    }
+}

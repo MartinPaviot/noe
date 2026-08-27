@@ -36,7 +36,7 @@
 //! application Google en mode test, que la tâche 0 crée.
 #![allow(dead_code)] // retiré quand la tâche 0 crée l'application Google
 
-use crate::federation::{EtatPlat, Issue};
+use crate::federation::{EtatPlat, Issue, RefApi, Resolution};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// La racine de l'API. Gmail n'a qu'une version, et elle est stable depuis 2014.
@@ -854,5 +854,271 @@ mod tests {
             classer_erreur(502, "<html>Bad Gateway</html>"),
             Issue::Trou(_)
         ));
+    }
+}
+
+/// Le nom du connecteur, tel qu'il apparaît dans les `api_refs`.
+pub const CONNECTEUR: &str = "gmail";
+
+/// Le seul objet que ce connecteur manipule.
+pub const OBJET: &str = "thread";
+
+/// L'adaptateur, une fois le transport branché.
+pub struct Adaptateur<T: Transport> {
+    transport: T,
+}
+
+impl<T: Transport> Adaptateur<T> {
+    pub fn nouveau(transport: T) -> Self {
+        Self { transport }
+    }
+
+    /// Va chercher un fil. Rend le corps si le fil existe.
+    fn fil(&self, id: &str) -> Result<Option<serde_json::Value>, String> {
+        let (statut, corps) = self
+            .transport
+            .get(&chemin_fil(id))
+            .map_err(|e| format!("transport : {e}"))?;
+        match statut {
+            200 => serde_json::from_str(&corps)
+                .map(Some)
+                .map_err(|e| format!("reponse illisible : {e}")),
+            // On a regardé, et il n'y a rien. C'est une conclusion, contrairement
+            // à tous les autres cas.
+            404 => Ok(None),
+            _ => Err(match classer_erreur(statut, &corps) {
+                Issue::Trou(c) | Issue::HorsPerimetre(c) => c,
+                Issue::Lu(_) => "reponse inattendue".into(),
+            }),
+        }
+    }
+}
+
+impl<T: Transport> crate::federation::Federation for Adaptateur<T> {
+    /// R2.1 — la résolution d'un fil.
+    ///
+    /// **Un fil ne se résout que par son identifiant.** La capture le lit dans
+    /// l'URL ; c'est une clé forte, exacte, émise par Gmail lui-même.
+    ///
+    /// Résoudre un fil par un participant serait une ambiguïté par construction :
+    /// « le fil de jean@ex.com » désigne tous les fils où cette personne est
+    /// jamais apparue, et R2.2 interdit de trancher entre eux. Le rôle du
+    /// courriel ici est **inverse** — c'est Gmail qui *fournit* la clé qui
+    /// résoudra le contact dans le CRM (`cles_du_fil`), pas l'inverse.
+    ///
+    /// L'identifiant est **confirmé par un appel** avant d'être rendu. Un
+    /// `api_ref` posé sans vérification pointerait peut-être sur rien, et
+    /// l'INVARIANT 7 promeut au grade A les épisodes dont toutes les entités
+    /// pointent vers de vrais enregistrements — une confirmation supposée n'en
+    /// est pas une.
+    fn resoudre(&self, cles: &[(String, String)]) -> Resolution {
+        let Some((_, id)) = cles.iter().find(|(genre, _)| genre == "system_id") else {
+            return Resolution::Empechee(
+                "aucune cle exploitable : un fil ne se resout que par son identifiant".into(),
+            );
+        };
+        match self.fil(id) {
+            Ok(Some(_)) => Resolution::Resolue {
+                reference: RefApi {
+                    connector: CONNECTEUR.into(),
+                    object: OBJET.into(),
+                    id: id.clone(),
+                },
+                par: "system_id".into(),
+                quand: crate::federation::maintenant_iso(),
+            },
+            Ok(None) => Resolution::Introuvable,
+            Err(cause) => Resolution::Empechee(cause),
+        }
+    }
+
+    /// R3.1 — l'état d'un fil, restreint au périmètre.
+    ///
+    /// Le périmètre filtre **par-dessus** la liste blanche, il ne l'élargit
+    /// jamais : demander `thread.body` ne le fait pas apparaître. Et un périmètre
+    /// qui ne parle d'aucun champ de fil rend `HorsPerimetre` plutôt qu'un état
+    /// vide — un état vide se lirait comme « tous les champs sont nuls », et le
+    /// diff inventerait des changements qui n'ont pas eu lieu.
+    fn lire(&self, reference: &RefApi, champs: &[String]) -> Issue {
+        if reference.connector != CONNECTEUR {
+            return Issue::HorsPerimetre(format!("connecteur {}", reference.connector));
+        }
+        let fil = match self.fil(&reference.id) {
+            Ok(Some(v)) => v,
+            Ok(None) => return Issue::Trou("fil disparu entre la resolution et la lecture".into()),
+            Err(cause) => return Issue::Trou(cause),
+        };
+        let plat = aplatir_fil(&fil);
+        let voulus: std::collections::BTreeSet<&str> = champs.iter().map(String::as_str).collect();
+        let retenu: EtatPlat = plat
+            .into_iter()
+            .filter(|(cle, _)| voulus.contains(cle.as_str()))
+            .collect();
+        if retenu.is_empty() {
+            return Issue::HorsPerimetre("aucun champ du perimetre ne concerne un fil".into());
+        }
+        Issue::Lu(retenu)
+    }
+}
+
+#[cfg(test)]
+mod tests_adaptateur {
+    use super::*;
+    use crate::federation::Federation;
+
+    struct Faux<F: Fn(&str) -> (u16, String) + Send + Sync>(F);
+    impl<F: Fn(&str) -> (u16, String) + Send + Sync> Transport for Faux<F> {
+        fn get(&self, chemin: &str) -> Result<(u16, String), String> {
+            Ok((self.0)(chemin))
+        }
+    }
+
+    fn fil_json() -> String {
+        serde_json::json!({
+            "id": "18f0c1",
+            "snippet": "le corps du message, en clair",
+            "messages": [{
+                "id": "m1",
+                "labelIds": ["INBOX", "UNREAD"],
+                "internalDate": "1717171717000",
+                "payload": {"headers": [
+                    {"name": "From", "value": "marie@ex.com"},
+                    {"name": "Subject", "value": "Devis"}
+                ]}
+            }]
+        })
+        .to_string()
+    }
+
+    fn adaptateur<F: Fn(&str) -> (u16, String) + Send + Sync>(f: F) -> Adaptateur<Faux<F>> {
+        Adaptateur::nouveau(Faux(f))
+    }
+
+    fn reference() -> RefApi {
+        RefApi {
+            connector: CONNECTEUR.into(),
+            object: OBJET.into(),
+            id: "18f0c1".into(),
+        }
+    }
+
+    #[test]
+    fn un_identifiant_de_fil_confirme_resout() {
+        let a = adaptateur(|_| (200, fil_json()));
+        match a.resoudre(&[("system_id".into(), "18f0c1".into())]) {
+            Resolution::Resolue { reference, par, .. } => {
+                assert_eq!(par, "system_id");
+                assert_eq!(reference.connector, "gmail");
+                assert_eq!(reference.object, "thread");
+                assert_eq!(reference.id, "18f0c1");
+            }
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn l_identifiant_est_confirme_par_un_appel_et_pas_suppose() {
+        // L'INVARIANT 7 promeut au grade A les episodes dont toutes les entites
+        // pointent vers de VRAIS enregistrements. Une confirmation supposee n'en
+        // est pas une — et un `api_ref` pose sans verification pointerait
+        // peut-etre sur rien.
+        //
+        // La preuve qu'un appel part vraiment : la reponse DEPEND du statut.
+        // Sans appel, un identifiant absent resoudrait quand meme.
+        let absent = adaptateur(|_| (404, "{}".into()));
+        assert_eq!(
+            absent.resoudre(&[("system_id".into(), "18f0c1".into())]),
+            Resolution::Introuvable
+        );
+    }
+
+    #[test]
+    fn un_quota_empeche_au_lieu_de_conclure() {
+        // 404 dit « il n'existe pas » ; 429 dit « je n'ai pas pu regarder ». Les
+        // confondre ferait affirmer une absence qu'on n'a pas constatee.
+        let a = adaptateur(|_| (429, "{}".into()));
+        match a.resoudre(&[("system_id".into(), "18f0c1".into())]) {
+            Resolution::Empechee(c) => assert!(c.contains("quota"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn un_courriel_seul_ne_resout_pas_un_fil() {
+        // « Le fil de jean@ex.com » designe tous les fils ou cette personne est
+        // jamais apparue. C'est une ambiguite par construction, et R2.2 interdit
+        // de trancher entre eux.
+        let a = adaptateur(|_| panic!("aucun appel ne devrait partir"));
+        match a.resoudre(&[("email_token".into(), "jean@ex.com".into())]) {
+            Resolution::Empechee(c) => assert!(c.contains("identifiant"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn une_lecture_rend_les_bornes_du_fil_restreintes_au_perimetre() {
+        let a = adaptateur(|_| (200, fil_json()));
+        let champs = vec![
+            "thread.labels".to_owned(),
+            "thread.message_count".to_owned(),
+        ];
+        match a.lire(&reference(), &champs) {
+            Issue::Lu(plat) => {
+                assert_eq!(plat.len(), 2, "{plat:?}");
+                assert_eq!(plat["thread.message_count"], serde_json::json!(1));
+                assert!(!plat.contains_key("thread.subject"), "hors perimetre");
+            }
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn le_perimetre_filtre_par_dessus_la_liste_blanche_et_ne_l_elargit_pas() {
+        // Demander `thread.body` ne le fait pas apparaitre : la liste blanche
+        // decide de ce qui existe, le perimetre de ce qu'on en garde.
+        let a = adaptateur(|_| (200, fil_json()));
+        let champs = vec!["thread.body".to_owned(), "thread.id".to_owned()];
+        match a.lire(&reference(), &champs) {
+            Issue::Lu(plat) => {
+                let entier = serde_json::to_string(&plat).unwrap();
+                assert!(!entier.contains("body"), "{entier}");
+                assert!(!entier.contains("corps"), "le corps a fuite : {entier}");
+                assert_eq!(plat.len(), 1);
+            }
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn un_perimetre_qui_ne_parle_pas_de_fil_est_hors_perimetre() {
+        // Plutot qu'un etat vide, qui se lirait comme « tous les champs sont
+        // nuls » et ferait inventer au diff des changements qui n'ont pas eu lieu.
+        let a = adaptateur(|_| (200, fil_json()));
+        match a.lire(&reference(), &["Statut__c".to_owned()]) {
+            Issue::HorsPerimetre(c) => assert!(c.contains("fil"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn une_reference_d_un_autre_connecteur_est_hors_perimetre() {
+        let a = adaptateur(|_| panic!("aucun appel ne devrait partir"));
+        let mut r = reference();
+        r.connector = "salesforce".into();
+        match a.lire(&r, &["thread.id".to_owned()]) {
+            Issue::HorsPerimetre(c) => assert!(c.contains("salesforce"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn un_fil_disparu_entre_la_resolution_et_la_lecture_est_un_trou() {
+        // Ce n'est pas « hors perimetre » : le fil etait la, on l'avait resolu.
+        // Le perdre est un trou de capture, et la regle 4 dit qu'il s'enregistre.
+        let a = adaptateur(|_| (404, "{}".into()));
+        match a.lire(&reference(), &["thread.id".to_owned()]) {
+            Issue::Trou(c) => assert!(c.contains("disparu"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
     }
 }

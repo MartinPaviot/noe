@@ -1435,3 +1435,47 @@ doit pas refaire ces recherches : aucun fichier `.dpapi` ne subsiste dans le
 profil utilisateur, la corbeille n'en contient aucun, et les clichés instantanés
 de volume demandent des droits d'administration que la session n'a pas. La reprise
 passe toujours par une réinitialisation depuis `contact+noespike@elevay.app`.
+
+## 2026-08-27 — D36 : une résolution empêchée n'est pas une résolution négative
+
+Trouvé en écrivant l'implémentation, pas en relisant le contrat — c'est ce que
+l'implémentation sert à trouver.
+
+Le trait Rust `Federation::resoudre` rendait une `Resolution` à trois issues :
+`Resolue`, `Introuvable`, `Ambigue`. Un adaptateur réel qui prend un `403` sur sa
+requête de résolution n'a alors qu'un seul choix : répondre `Introuvable`.
+
+C'est faux, et pas d'un petit degré. **`not_found` affirme que l'enregistrement
+n'existe pas.** C'est une conclusion, et elle se propage : l'entité part au juge
+comme « non résolue parce qu'absente », l'opérateur qui lit le bilan cherche
+pourquoi son contact n'est pas dans le CRM, et personne ne va regarder du côté
+des droits d'accès. Une résolution empêchée ne conclut rien du tout — c'est un
+trou de couverture, et la règle 4 dit qu'un trou s'enregistre au lieu de se
+reboucher.
+
+**Le contrat TypeScript n'avait pas ce défaut.** `resoudre` y rend un
+`Result<Resolution>` : un échec d'appel sort en `err` et ne devient jamais un
+`ok({status:'not_found'})`. C'est le **miroir Rust** qui avait aplati le `Result`
+en oubliant ce qu'il portait. La leçon se range à côté de D33 — la partition des
+sources n'était qu'une intention — et de D34 — l'invariant décoratif : **un
+miroir se vérifie sur ce qu'il transporte, pas sur ce qu'il ressemble.**
+
+**Décision.** `Resolution` gagne `Empechee(String)`, dont la raison persistée est
+`blocked:<cause>`. Les deux consommateurs du registre utilisaient déjà un bras
+attrape-tout, donc rien d'autre ne bouge ; et le champ `non_resolue` est du texte
+libre, jamais validé contre une énumération.
+
+Les deux adaptateurs s'en servent, et la frontière est nette :
+
+- **404 rend `Introuvable`** — on a regardé, il n'y a rien. C'est le seul cas où
+  une absence s'affirme.
+- **Tout le reste rend `Empechee`** — droits, quota, panne, réponse illisible,
+  clé malformée, page de résultats incomplète.
+
+Ce dernier cas mérite d'être nommé. Une réponse Salesforce avec `done: false` est
+**partielle** : deux candidats dont un seul est arrivé se lisent comme
+« exactement un », et une ambiguïté devient une résolution — c'est-à-dire le
+travail d'un opérateur attribué au dossier de quelqu'un d'autre, avec l'air
+d'être juste. Une page incomplète empêche donc au lieu de conclure. De même,
+qu'un seul des objets interrogés réponde `403` suffit à empêcher : « exactement
+un candidat » n'est plus démontrable si on n'a pas pu regarder partout.

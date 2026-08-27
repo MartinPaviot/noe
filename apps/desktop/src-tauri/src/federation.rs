@@ -51,6 +51,18 @@ pub struct RefApi {
     pub id: String,
 }
 
+/// L'instant mural, en ISO 8601 UTC.
+///
+/// **La même fonction que les bornes d'épisode.** Deux horodatages du même
+/// corpus qui ne se formatent pas pareil ne se comparent plus — et c'est le
+/// genre de divergence qui ne se voit qu'au moment où on en a besoin.
+pub fn maintenant_iso() -> String {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+    crate::assemblage::horodater(ms)
+}
+
 /// Un état plat, tel que le juge le lit.
 pub type EtatPlat = BTreeMap<String, serde_json::Value>;
 
@@ -80,6 +92,19 @@ pub enum Resolution {
     },
     Introuvable,
     Ambigue(usize),
+    /// **On n'a pas pu regarder.** Droits refusés, quota, panne, réponse
+    /// illisible.
+    ///
+    /// Ce n'est pas `Introuvable`, et la distinction n'est pas cosmétique :
+    /// `not_found` affirme que l'enregistrement n'existe pas, ce qui est une
+    /// conclusion. Une résolution empêchée n'en tire aucune — c'est un trou de
+    /// couverture, et la règle 4 dit qu'un trou s'enregistre au lieu de se
+    /// reboucher.
+    ///
+    /// Le contrat TypeScript exprime déjà cette différence : `resoudre` y rend un
+    /// `Result`, donc un échec d'appel sort en `err` et ne devient jamais un
+    /// `not_found`. Le miroir Rust avait aplati le `Result` et perdu la nuance.
+    Empechee(String),
 }
 
 impl Resolution {
@@ -91,6 +116,7 @@ impl Resolution {
             Self::Resolue { par, quand, .. } => format!("resolue par {par} le {quand}"),
             Self::Introuvable => "not_found".into(),
             Self::Ambigue(n) => format!("ambiguous:{n}"),
+            Self::Empechee(cause) => format!("blocked:{cause}"),
         }
     }
 }
