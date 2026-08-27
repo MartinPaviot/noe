@@ -442,7 +442,7 @@ pub fn surfaces_visibles() -> Vec<String> {
 /// bon sens de l'erreur.
 #[cfg(not(test))]
 fn surface_de(el: &uiautomation::UIElement) -> Option<String> {
-    nom_executable(el.get_process_id().ok()? as u32)
+    nom_executable(el.get_process_id().ok()?)
 }
 
 /// Le nom de fichier de l'exécutable d'un processus, en minuscules.

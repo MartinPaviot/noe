@@ -172,7 +172,7 @@ fn touche_une_valeur(action: &str) -> bool {
     matches!(action, "input" | "toggle" | "submit")
 }
 
-fn horodater(mural_ms: u64) -> String {
+pub fn horodater(mural_ms: u64) -> String {
     // ISO 8601 en UTC, sans dépendance : la conversion est arithmétique.
     let secondes = (mural_ms / 1000) as i64;
     let millis = mural_ms % 1000;

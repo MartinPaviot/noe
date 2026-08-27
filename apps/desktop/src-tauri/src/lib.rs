@@ -14,6 +14,7 @@ mod horloge;
 mod journal;
 mod moteur;
 mod motifs;
+mod panique;
 mod presse_papiers;
 mod redaction;
 mod snapshot;
@@ -63,6 +64,8 @@ const ID_QUITTER: &str = "quitter";
 const PREFIXE_TACHE: &str = "tache:";
 /// R5.4 : une entree cochable par surface offerte a l'activation.
 const PREFIXE_SURFACE: &str = "surface:";
+/// R5.3 : une entree par fenetre de panique — `panique:15`.
+const PREFIXE_PANIQUE: &str = "panique:";
 
 struct Etat {
     session: Mutex<Session>,
@@ -561,7 +564,33 @@ fn construire_menu<R: Runtime>(app: &AppHandle<R>, cfg: &Config) -> tauri::Resul
 
     let fenetre = MenuItem::with_id(app, ID_FENETRE, "Voir les episodes", true, None::<&str>)?;
     let pause = CheckMenuItem::with_id(app, ID_PAUSE, "Pause", true, en_pause, None::<&str>)?;
-    let panique = MenuItem::with_id(app, ID_PANIQUE, "Panique", true, None::<&str>)?;
+    // R5.3 : trois fenetres, et le choix EST la confirmation.
+    //
+    // Pas de boite de dialogue : la suppression est irreversible, mais choisir
+    // « Panique > 15 minutes » est deja un geste explicite et precis. Une
+    // confirmation supplementaire ferait de l'urgence une formalite, et
+    // l'exigence dit exactement l'inverse — « sans justification demandee ».
+    let mut fenetres: Vec<MenuItem<R>> = Vec::new();
+    for minutes in panique::FENETRES_MINUTES {
+        fenetres.push(MenuItem::with_id(
+            app,
+            format!("{PREFIXE_PANIQUE}{minutes}"),
+            format!("Effacer les {minutes} dernieres minutes"),
+            true,
+            None::<&str>,
+        )?);
+    }
+    let refs_panique: Vec<&dyn tauri::menu::IsMenuItem<R>> = fenetres
+        .iter()
+        .map(|i| i as &dyn tauri::menu::IsMenuItem<R>)
+        .collect();
+    let panique = Submenu::with_id_and_items(
+        app,
+        ID_PANIQUE,
+        "Panique — effacement definitif",
+        true,
+        &refs_panique,
+    )?;
     let dossier = MenuItem::with_id(
         app,
         ID_DOSSIER,
@@ -637,18 +666,6 @@ fn sur_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
             rafraichir_tray(app);
         }
 
-        ID_PANIQUE => {
-            // La suppression d'urgence est spécifiée en tâche 10 (fenêtres
-            // 5/15/60, volume confirmé, irréversibilité testée). Tant qu'elle
-            // n'existe pas, l'entrée le DIT. Un bouton panique qui ne panique
-            // pas en silence serait pire que pas de bouton du tout.
-            notifier(
-                app,
-                "Panique : pas encore active",
-                "La suppression d'urgence arrive en tache 10. Ne comptez pas dessus : \
-                 ouvrez le dossier de donnees pour supprimer a la main.",
-            );
-        }
 
         ID_DOSSIER => {
             let dossier = dossier_donnees(app);
@@ -665,6 +682,10 @@ fn sur_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
                 choisir_tache(app, slug);
             } else if let Some(surface) = autre.strip_prefix(PREFIXE_SURFACE) {
                 basculer_surface(app, surface);
+            } else if let Some(minutes) = autre.strip_prefix(PREFIXE_PANIQUE) {
+                if let Ok(m) = minutes.parse::<u64>() {
+                    paniquer(app, m);
+                }
             }
         }
     }
@@ -734,6 +755,61 @@ fn gestes_du_clavier(etat: &State<Etat>) -> Vec<RawEvent> {
         });
     }
     evenements
+}
+
+/// R5.3 — l'effacement d'urgence.
+///
+/// **L'episode ouvert est avorte d'abord, et integralement.** Il touche
+/// forcement la fenetre, puisqu'il est en cours ; et l'avorter veut dire
+/// exactement ca : pas d'assemblage, pas de grade, pas de quarantaine. Un
+/// episode qu'on assemblerait avant d'effacer aurait existe une seconde de trop,
+/// et son grade serait parti en notification.
+///
+/// La capture et le hook partent avec lui : laisser la source vivante ferait
+/// recommencer a ecrire dans un dossier qu'on vient d'effacer.
+fn paniquer<R: Runtime>(app: &AppHandle<R>, minutes: u64) {
+    let e: State<Etat> = app.state();
+    let maintenant = e.horloge.mural_ms();
+    let debut = maintenant.saturating_sub(minutes * 60_000);
+
+    // 1. Avorter l'episode en cours, s'il y en a un. Dans cet ordre : le hook,
+    //    la source, puis le moteur — comme a la cloture, pour qu'aucun evenement
+    //    ne se glisse entre deux.
+    HookClavier::desarmer();
+    drop(e.clavier.lock().expect("clavier empoisonne").take());
+    drop(e.capture.lock().expect("capture empoisonnee").take());
+    let avorte = {
+        let mut m = e.moteur.lock().expect("moteur empoisonne");
+        // On le laisse tomber sans le clore : `clore` assemblerait, graderait et
+        // ecrirait. Le journal deja sur disque part avec le dossier.
+        m.take().is_some()
+    };
+    let ferme = {
+        let mut s = e.session.lock().expect("session empoisonnee");
+        s.arreter().ok()
+    };
+    // Les compteurs aussi (R5.3 : « ainsi que les evenements, snapshots et
+    // derives associes »). L'appariement garde en memoire les empreintes de ce
+    // qui a ete copie pendant l'episode : les laisser survivre a une panique
+    // ferait apparier un collage a une copie que l'operateur vient de faire
+    // effacer.
+    *e.appariement.lock().expect("appariement empoisonne") =
+        presse_papiers::Appariement::nouveau();
+
+    // 2. Effacer. Le dossier de l'episode avorte est dans la fenetre : il vient
+    //    de s'ouvrir, donc il intersecte forcement.
+    let dossier = dossier_donnees(app).join("episodes");
+    let bilan = panique::effacer(&dossier, debut, maintenant);
+
+    // 3. Le dire. « Volume efface confirme » : c'est le seul moyen pour
+    //    l'operateur de verifier que le bouton a fait quelque chose.
+    let entete = if avorte || ferme.is_some() {
+        format!("Panique {minutes} min — episode en cours avorte")
+    } else {
+        format!("Panique {minutes} min")
+    };
+    notifier(app, &entete, &bilan.message());
+    rafraichir_tray(app);
 }
 
 /// R5.4 — l'operateur active ou desactive une surface.
