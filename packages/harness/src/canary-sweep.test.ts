@@ -1,6 +1,7 @@
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { chercherPii } from '@noe/episode-spec';
 import { describe, expect, it } from 'vitest';
 import { politiqueNulle, politiqueParfaite } from './policy.js';
 import { chargerCorpus, rejouer } from './replay.js';
@@ -22,6 +23,16 @@ const GOLDEN = 'packages/harness/golden';
 type FichierCanaris = {
   marqueurs: { chaines: string[] };
   interdites: { chaines: string[] };
+  /**
+   * Spec 003, R3.1 — les témoins de la restriction au périmètre.
+   *
+   * Plantés dans l'org de démo, dans des champs qui ne figurent pas dans les
+   * `scope_fields` de la tâche. Ils ne matchent aucun motif PII, donc la
+   * rédaction ne les masquerait pas : leur rôle n'est pas d'éprouver la
+   * rédaction mais la restriction elle-même. Si l'un apparaît, le connecteur a
+   * lu ce que personne ne lui a demandé, et aucune rédaction ne rattrape ça.
+   */
+  hors_perimetre: { chaines: string[] };
 };
 
 async function fichierCanaris(): Promise<FichierCanaris> {
@@ -30,16 +41,29 @@ async function fichierCanaris(): Promise<FichierCanaris> {
   ) as Partial<FichierCanaris>;
   const m = brut.marqueurs?.chaines;
   const i = brut.interdites?.chaines;
-  if (!Array.isArray(m) || m.length === 0 || !Array.isArray(i) || i.length === 0) {
+  const h = brut.hors_perimetre?.chaines;
+  if (
+    !Array.isArray(m) ||
+    m.length === 0 ||
+    !Array.isArray(i) ||
+    i.length === 0 ||
+    !Array.isArray(h) ||
+    h.length === 0
+  ) {
     throw new Error('canaris.json incomplet — le sweep serait sans objet');
   }
-  return { marqueurs: { chaines: m }, interdites: { chaines: i } };
+  return { marqueurs: { chaines: m }, interdites: { chaines: i }, hors_perimetre: { chaines: h } };
 }
 
-/** Tout ce que le sweep traque, marqueurs et formes PII confondus. */
+/** Tout ce que le sweep traque : les trois familles confondues. */
 async function canaris(): Promise<string[]> {
   const f = await fichierCanaris();
-  return [...f.marqueurs.chaines, ...f.interdites.chaines];
+  return [...f.marqueurs.chaines, ...f.interdites.chaines, ...f.hors_perimetre.chaines];
+}
+
+/** Les fuites d'un texte, telles que le sweep les rapporte. */
+function fuitesDe(nom: string, contenu: string, liste: readonly string[]): string[] {
+  return liste.filter((c) => contenu.includes(c)).map((c) => `${nom} contient « ${c} »`);
 }
 
 /** Balaye récursivement tous les fichiers d'un dossier. */
@@ -53,11 +77,35 @@ async function tousLesFichiers(dossier: string): Promise<string[]> {
   return out;
 }
 
-describe('canaris — deux groupes, deux roles (R5.1)', () => {
+describe('canaris — trois groupes, trois roles (R5.1)', () => {
   it('canaris.json declare des marqueurs et des formes interdites', async () => {
     const f = await fichierCanaris();
     expect(f.marqueurs.chaines).toContain('CANARY_PII_001');
     expect(f.interdites.chaines.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('canaris.json declare des temoins de perimetre, qui ne sont PAS des formes PII', async () => {
+    // Le point de cette famille : la redaction ne les masque pas. Si elle les
+    // masquait, une lecture hors perimetre passerait inapercue — le temoin
+    // serait tokenise avant d'avoir pu temoigner.
+    const f = await fichierCanaris();
+    expect(f.hors_perimetre.chaines.length).toBeGreaterThanOrEqual(2);
+    for (const c of f.hors_perimetre.chaines) {
+      expect(chercherPii(c)).toEqual([]);
+    }
+  });
+
+  it('le sweep sait dire NON — sinon son vert ne prouverait rien', async () => {
+    // Un controle qu'on n'a jamais vu echouer ne garde rien. Celui-ci n'avait
+    // aucun test de sa propre detection : il ne balayait que des sorties
+    // propres, et un `includes` casse serait passe inapercu pour toujours.
+    const liste = await canaris();
+    for (const c of liste) {
+      expect(fuitesDe('faux-fichier', `avant ${c} apres`, liste)).toEqual([
+        `faux-fichier contient « ${c} »`,
+      ]);
+    }
+    expect(fuitesDe('faux-fichier', 'rien a signaler ici', liste)).toEqual([]);
   });
 
   it('les MARQUEURS sont bien dans le corpus — sinon le sweep ne prouverait rien', async () => {
@@ -96,10 +144,7 @@ describe('canary sweep — aucune fuite en sortie (R5.2)', () => {
 
       const fuites: string[] = [];
       for (const f of fichiers) {
-        const contenu = await readFile(f, 'utf8');
-        for (const c of liste) {
-          if (contenu.includes(c)) fuites.push(`${f} contient « ${c} »`);
-        }
+        fuites.push(...fuitesDe(f, await readFile(f, 'utf8'), liste));
       }
 
       expect(fuites).toEqual([]);
