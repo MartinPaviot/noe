@@ -44,9 +44,11 @@ export type Reponse<T> =
  * aussi serrée que la première, et l'API reste en colère. Le hasard les étale.
  *
  * `alea` est injecté pour que le banc soit déterministe — un test qui vérifierait
- * un délai tiré au hasard vérifierait le hasard.
+ * un délai tiré au hasard vérifierait le hasard. Il n'a **pas de valeur par
+ * défaut** : une valeur par défaut aurait fait entrer `Math.random` dans un
+ * paquet que l'INVARIANT VI déclare pur.
  */
-export function delaiMs(tentative: number, alea: () => number = Math.random): number {
+export function delaiMs(tentative: number, alea: () => number): number {
   const exponentiel = Math.min(DELAI_BASE_MS * 2 ** Math.max(0, tentative - 1), DELAI_MAX_MS);
   // Jitter « full » : entre la moitié et la totalité. Garder un plancher évite
   // qu'un tirage malheureux ne rappelle immédiatement.
@@ -89,16 +91,22 @@ export type OptionsClient = {
   readonly budget: Budget;
   /** Rafraîchit le jeton. Rendu `false` = échec définitif → `reauth_required`. */
   readonly rafraichir?: () => Promise<boolean>;
-  /** Injecté pour les bancs : sinon un test de backoff dure huit secondes. */
-  readonly dormir?: (ms: number) => Promise<void>;
-  readonly alea?: () => number;
+  /**
+   * L'attente, **obligatoire et injectée**.
+   *
+   * INVARIANT VI : `@noe/core` est pur — aucune horloge, aucun hasard non
+   * injecté. Ce module portait pourtant un `setTimeout` en valeur par défaut, ce
+   * qui faisait de lui un module à horloge. La commodité était réelle et le prix
+   * aussi : un paquet qu'on croit pur mais qui ne l'est pas rend le rejeu
+   * déterministe faux sans qu'on s'en aperçoive.
+   *
+   * L'impureté vit maintenant chez l'appelant, qui est impur de toute façon.
+   */
+  readonly dormir: (ms: number) => Promise<void>;
+  /** Le tirage de jitter, **obligatoire et injecté**. Même raison. */
+  readonly alea: () => number;
   readonly tentativesMax?: number;
 };
-
-const dormirVrai = (ms: number): Promise<void> =>
-  new Promise((f) => {
-    setTimeout(f, ms);
-  });
 
 /**
  * Exécute une requête avec toute la politique de R5.
@@ -111,8 +119,7 @@ export async function appeler<T>(
   tenter: () => Promise<Reponse<T>>,
   options: OptionsClient,
 ): Promise<Outcome<T>> {
-  const dormir = options.dormir ?? dormirVrai;
-  const alea = options.alea ?? Math.random;
+  const { alea, dormir } = options;
   const max = options.tentativesMax ?? TENTATIVES_MAX;
 
   let rafraichissementTente = false;

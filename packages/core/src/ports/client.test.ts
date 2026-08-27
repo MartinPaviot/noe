@@ -187,7 +187,8 @@ describe('le budget d appels (R5.3)', () => {
 
   it('un budget epuise ne leve jamais — la cloture ne doit pas dependre du reseau', async () => {
     const budget = new Budget(0);
-    const r = await appeler(async () => ({ kind: 'ok', value: 1 }), { budget });
+    const { dormir } = dormirFaux();
+    const r = await appeler(async () => ({ kind: 'ok', value: 1 }), { budget, dormir, alea });
     expect(r.ok).toBe(false);
   });
 });

@@ -59,7 +59,10 @@ En cas de fuite : révoquer chez l'émetteur d'abord, réécrire l'historique en
 ## VI. Invariants d'architecture
 
 - **`@noe/core` est pur.** Aucun I/O, aucun réseau, aucune horloge, aucun hasard
-  non injecté. C'est ce qui rend le rejeu déterministe possible.
+  non injecté. C'est ce qui rend le rejeu déterministe possible. *Gardé par
+  `scripts/purete.test.ts` depuis le 2026-08-27 — auparavant par personne, et
+  quatre violations y vivaient : un `setTimeout` et deux `Math.random` en valeurs
+  par défaut dans `client.ts`, un `ulid()` dans `close.ts`.*
 - **Le rejeu est hors ligne.** `noe replay` sur un corpus doré ne touche jamais
   le réseau. Si un chemin de code a besoin du réseau pour rejouer, c'est un bug
   d'architecture, pas une contrainte d'environnement.

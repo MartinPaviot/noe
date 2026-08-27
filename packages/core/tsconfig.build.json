@@ -1,17 +1,20 @@
 {
-  // Le build EXCLUT les tests, et c'est ce qui a revele le probleme : le type de
-  // `setTimeout` n'arrivait dans la compilation que par les fichiers de test,
-  // qui importent vitest. Le typage d'un module de production dependait donc de
-  // la presence de ses tests — vrai jusqu'au jour ou on compile sans eux.
+  // Le build EXCLUT les tests, et c'est ce qui a revele le vrai probleme.
   //
-  // `@noe/core` planifie bel et bien un minuteur : il declare desormais le type
-  // qu'il utilise, au lieu de l'emprunter a son banc.
+  // Le compilateur a d'abord refuse `setTimeout` : son type n'arrivait dans la
+  // compilation que par les fichiers de test, qui importent vitest. J'ai fait
+  // taire le message en ajoutant `@types/node`, c'est-a-dire en declarant que ce
+  // paquet a le droit d'avoir une horloge.
+  //
+  // Il ne l'a pas. L'INVARIANT VI dit que `@noe/core` est pur — aucune horloge,
+  // aucun hasard non injecte — et le compilateur disait donc la verite. Le
+  // minuteur est parti chez l'appelant, la dependance avec lui, et il ne reste
+  // ici aucun type d'environnement a declarer.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
     "outDir": "dist",
-    "rootDir": "src",
-    "types": ["node"]
+    "rootDir": "src"
   },
   "exclude": ["src/**/*.test.ts"]
 }

@@ -50,17 +50,10 @@ importers:
 
   packages/connectors: {}
 
-  packages/core:
-    devDependencies:
-      '@types/node':
-        specifier: ^22.20.1
-        version: 22.20.1
+  packages/core: {}
 
   packages/episode-spec:
     dependencies:
-      ulid:
-        specifier: ^3.0.2
-        version: 3.0.2
       zod:
         specifier: ^4.4.3
         version: 4.4.3

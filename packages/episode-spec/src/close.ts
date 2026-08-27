@@ -1,4 +1,3 @@
-import { ulid } from 'ulid';
 import { type Episode, gradeOf } from './schema.js';
 
 /**
@@ -30,15 +29,21 @@ export function cloturer(ep: Episode): EpisodeClos {
  * modifier. Le nouvel épisode porte un `id` neuf et un `supersedes` vers l'ancien.
  *
  * C'est le seul chemin légitime pour « corriger » un épisode.
+ *
+ * **`nouvelId` est fourni, pas tiré.** Un `ulid()` appelé ici mettrait du hasard
+ * et une horloge dans un paquet que l'INVARIANT VI déclare pur — et le format
+ * doit pouvoir être réimplémenté par un tiers, y compris un concurrent, sans
+ * hériter de notre générateur d'identifiants.
  */
 export function remplacer(
   ancien: EpisodeClos,
   corrections: Partial<Omit<Episode, 'id' | 'supersedes' | 'schema_v'>>,
+  nouvelId: string,
 ): EpisodeClos {
   const candidat: Episode = {
     ...ancien,
     ...corrections,
-    id: ulid(),
+    id: nouvelId,
     supersedes: ancien.id,
   };
   return cloturer(candidat);

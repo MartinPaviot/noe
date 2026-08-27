@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cloturer, estClos, remplacer } from './close.js';
-import { episodeAvecTrou, episodeValide } from './fixtures.js';
+import { episodeAvecTrou, episodeValide, ULID_B, ULID_C } from './fixtures.js';
 import { Episode } from './schema.js';
 
 describe('cloture — immutabilite (R1.4)', () => {
@@ -41,7 +41,7 @@ describe('cloture — immutabilite (R1.4)', () => {
 describe('supersedes — la seule correction legitime (R1.4)', () => {
   it('produit un nouvel episode plutot que de modifier l ancien', () => {
     const ancien = cloturer(episodeValide());
-    const nouveau = remplacer(ancien, { task_slug: 'maj-crm-corrige' });
+    const nouveau = remplacer(ancien, { task_slug: 'maj-crm-corrige' }, ULID_B);
 
     expect(nouveau.id).not.toBe(ancien.id);
     expect(nouveau.supersedes).toBe(ancien.id);
@@ -52,19 +52,19 @@ describe('supersedes — la seule correction legitime (R1.4)', () => {
   });
 
   it('le remplacant est lui-meme clos', () => {
-    const nouveau = remplacer(cloturer(episodeValide()), {});
+    const nouveau = remplacer(cloturer(episodeValide()), {}, ULID_B);
     expect(estClos(nouveau)).toBe(true);
   });
 
   it('le remplacant reste valide au schema', () => {
-    const nouveau = remplacer(cloturer(episodeValide()), { task_slug: 'autre-tache' });
+    const nouveau = remplacer(cloturer(episodeValide()), { task_slug: 'autre-tache' }, ULID_B);
     expect(Episode.safeParse(nouveau).success).toBe(true);
   });
 
   it('une chaine de remplacements garde la trace du precedent', () => {
     const v1 = cloturer(episodeValide());
-    const v2 = remplacer(v1, { task_slug: 'v2' });
-    const v3 = remplacer(v2, { task_slug: 'v3' });
+    const v2 = remplacer(v1, { task_slug: 'v2' }, ULID_B);
+    const v3 = remplacer(v2, { task_slug: 'v3' }, ULID_C);
     expect(v3.supersedes).toBe(v2.id);
     expect(v2.supersedes).toBe(v1.id);
   });

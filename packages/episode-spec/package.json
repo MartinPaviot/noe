@@ -13,7 +13,6 @@
     "prepare": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "ulid": "^3.0.2",
     "zod": "^4.4.3"
   }
 }

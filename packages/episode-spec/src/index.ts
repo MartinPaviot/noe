@@ -45,5 +45,12 @@ export {
 /** Version du format. Conservée pour compatibilité avec la session 0. */
 export const EPISODE_FORMAT_VERSION = '1.0.0' as const;
 
-export { episodeAvecTrou, episodeCapture, episodeValide, ULID_A, ULID_B } from './fixtures.js';
+export {
+  episodeAvecTrou,
+  episodeCapture,
+  episodeValide,
+  ULID_A,
+  ULID_B,
+  ULID_C,
+} from './fixtures.js';
 export { CAUSES_GAP } from './schema.js';

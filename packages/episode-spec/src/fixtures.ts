@@ -7,6 +7,8 @@ import type { Episode } from './schema.js';
 
 export const ULID_A = '01JQ8Z9K2M3N4P5Q6R7S8T9V0W';
 export const ULID_B = '01JQ8Z9K2M3N4P5Q6R7S8T9V1X';
+/** Un troisieme, pour eprouver une chaine de remplacements. */
+export const ULID_C = '01JQ8Z9K2M3N4P5Q6R7S8T9V2Y';
 
 /** Un épisode grade A, minimal mais complet et valide. */
 export function episodeValide(surcharge: Partial<Episode> = {}): Episode {
