@@ -422,6 +422,10 @@ fn clore_episode<R: Runtime>(app: &AppHandle<R>, cause: CauseCloture) {
                 // qui le relit — et c'est exactement ce que la regle 4
                 // interdit.
                 moteur.hors_perimetre(),
+                // R5.4 : une photo refusee n'est pas une photo perdue, mais un
+                // episode dont la moitie des photos manquent ne se lit pas
+                // comme un episode complet.
+                moteur.photos_hors_perimetre(),
             )
         })
     };
@@ -459,8 +463,8 @@ fn clore_episode<R: Runtime>(app: &AppHandle<R>, cause: CauseCloture) {
 
     match resultat {
         Ok(ep) => {
-            let (_, entrees, unresolved, echecs, trous, declencheurs, photos, hors) =
-                bilan.unwrap_or((Vec::new(), 0, 0, 0, 0, 0, 0, 0));
+            let (_, entrees, unresolved, echecs, trous, declencheurs, photos, hors, refusees) =
+                bilan.unwrap_or((Vec::new(), 0, 0, 0, 0, 0, 0, 0, 0));
             // R3.4 : un echec d'ecriture se DIT. Un episode incomplet qu'on
             // annonce complet est pire qu'un episode manquant.
             let alerte = if echecs > 0 {
@@ -468,10 +472,11 @@ fn clore_episode<R: Runtime>(app: &AppHandle<R>, cause: CauseCloture) {
             } else {
                 String::new()
             };
-            let dehors = if hors > 0 {
-                format!(" · {hors} actions hors perimetre")
-            } else {
-                String::new()
+            let dehors = match (hors, refusees) {
+                (0, 0) => String::new(),
+                (h, 0) => format!(" · {h} actions hors perimetre"),
+                (0, r) => format!(" · {r} photos refusees hors perimetre"),
+                (h, r) => format!(" · {h} actions et {r} photos hors perimetre"),
             };
             notifier(
                 app,
@@ -953,8 +958,11 @@ pub fn harnais_journal(args: &[String]) -> i32 {
                 }
             };
             let redacteur = redaction::Redacteur::new(&cle);
-            let resultat = match photographe.photographier() {
-                Some(racine) => {
+            // Le banc autorise explicitement la surface qu'il vient d'ouvrir :
+            // sinon R5.4 refuserait la photo et le banc mesurerait le refus.
+            let liste = surfaces::ListeBlanche::depuis(uia::surfaces_visibles());
+            let resultat = match photographe.photographier(&liste) {
+                moteur::Photo::Prise(racine) => {
                     let photo = snapshot::construire(
                         moteur::Declencheur::Soumission,
                         0,
@@ -973,7 +981,10 @@ pub fn harnais_journal(args: &[String]) -> i32 {
                         "profondeur_max_respectee": true,
                     })
                 }
-                None => serde_json::json!({ "photo": false }),
+                moteur::Photo::HorsPerimetre => {
+                    serde_json::json!({ "photo": false, "raison": "hors perimetre" })
+                }
+                moteur::Photo::Indisponible => serde_json::json!({ "photo": false }),
             };
             drop(abonnement);
             println!("{resultat}");

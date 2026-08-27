@@ -1186,3 +1186,39 @@ L'alphabet RFC 4648 minuscule (`a-z2-7`) ne contient ni `0` ni `1`. Aucun jeton
 ne peut donc commencer une graphie téléphonique française, qui exige `0`, `+33`
 ou `0033`. La garantie est structurelle, pas probabiliste, et un test l'écrit
 comme telle.
+
+## 2026-08-27 — D32 : la liste blanche gouverne aussi les photos
+
+Dernière trouvaille de la revue adverse, et la plus dérangeante des quatre qui
+touchent R5.4 : **la liste blanche gardait les actions et laissait passer les
+photos.**
+
+`photographier_actif` prenait ce que `get_focused_element()` rendait, sans jamais
+demander sur quoi le focus se trouvait. Aucun paramètre de surface, ni dans cette
+fonction, ni dans `Moteur::photographier`, ni dans `snapshot::construire`.
+
+**Le chemin n'a rien de théorique.** Un `Focus` venu d'une application non
+activée est refusé par `admissible()` **avant** le `match` de `traiter` — donc
+`derniere_saisie` n'est jamais remis à zéro. Deux secondes plus tard,
+`verifier_inactivite` déclenche `SaisiePuisInactivite` et l'arbre est descendu
+sur l'application où l'opérateur se trouve alors : jusqu'à 1500 nœuds, avec leurs
+rôles, leurs noms accessibles **et** leurs `ValueValue`. La rédaction ne rattrape
+que les motifs ; un libellé ou un contenu de champ hors motif reste en clair.
+
+Plus large que le seul cas d'inactivité : les événements sont drainés une fois par
+seconde, donc les quatre autres déclencheurs photographient eux aussi la fenêtre
+focalisée jusqu'à une seconde après le geste.
+
+**Décision.** La liste blanche voyage avec la demande de photo, parce que seul le
+fil UIA peut savoir sur quoi le focus se trouve à l'instant de la photo — et que
+c'est cet instant-là qui compte, pas celui du déclencheur. La vérification a lieu
+**avant** de descendre dans l'arbre.
+
+**Trois issues et non deux.** « Pas de photo » ne disait pas pourquoi, et les
+deux raisons n'ont pas le même sens : un bureau muet est un incident technique,
+un focus hors périmètre est une règle qui s'applique. Les confondre empêcherait
+de savoir si R5.4 tient. Les refus sont comptés et dits à la clôture — un épisode
+dont la moitié des photos manquent ne se lit pas comme un épisode complet.
+
+Le déclencheur, lui, reste consigné. C'est la doctrine d'avant : mieux vaut un
+déclencheur sans photo qu'une photo qu'on n'avait pas le droit de prendre.

@@ -148,8 +148,34 @@ pub const TIMEOUT_MS: u64 = 3_600_000;
 /// source sait COMMENT. Sans cette séparation, la logique des déclencheurs —
 /// tout ce que la tâche 2 a rendu testable en temps simulé — redeviendrait
 /// dépendante d'un bureau.
+/// Ce que rend une demande de photo.
+///
+/// Trois issues et non deux : « pas de photo » ne dit pas pourquoi, et les deux
+/// raisons n'ont pas le même sens. Un bureau qui ne répond pas est un incident
+/// technique ; un focus hors périmètre est une **règle qui s'applique**, et la
+/// confondre avec une panne empêcherait de savoir si R5.4 tient.
+#[derive(Debug)]
+pub enum Photo {
+    Prise(Box<Noeud>),
+    /// R5.4 : le focus n'était pas sur une surface activée.
+    ///
+    /// Le cas est loin d'être théorique. Le drainage passe jusqu'à une seconde
+    /// après le geste, et l'opérateur bascule ; surtout, un `Focus` venu d'une
+    /// application non activée est refusé AVANT le `match` de `traiter`, si bien
+    /// que `derniere_saisie` n'est jamais remis à zéro : deux secondes plus tard
+    /// le déclencheur d'inactivité part et photographie l'application où
+    /// l'opérateur se trouve alors. Sans cette issue, jusqu'à 1500 nœuds d'une
+    /// messagerie personnelle — rôles, noms accessibles ET valeurs de champs —
+    /// entraient au journal.
+    HorsPerimetre,
+    /// Rien à montrer : bureau muet, délai dépassé, arbre illisible.
+    Indisponible,
+}
+
 pub trait Snapshotteur: Send + Sync {
-    fn photographier(&self) -> Option<Noeud>;
+    /// La liste blanche voyage avec la demande : c'est le fil UIA, et lui seul,
+    /// qui peut savoir sur quoi le focus se trouve à l'instant de la photo.
+    fn photographier(&self, autorisees: &crate::surfaces::ListeBlanche) -> Photo;
 }
 
 /// Le nom que porte une application non activee, dans le journal.
@@ -202,6 +228,12 @@ pub struct Moteur {
     snapshotteur: Option<std::sync::Arc<dyn Snapshotteur>>,
     /// Combien de photos ont réellement été prises (R2.3).
     snapshots_pris: u64,
+    /// Combien ont été refusées parce que le focus avait quitté le périmètre.
+    ///
+    /// Compté et dit à la clôture. Un refus n'est pas un incident, mais un
+    /// épisode dont la moitié des photos manquent ne se lit pas comme un
+    /// épisode complet.
+    photos_hors_perimetre: u64,
 }
 
 impl Moteur {
@@ -237,6 +269,7 @@ impl Moteur {
             echecs_ecriture: 0,
             snapshotteur: None,
             snapshots_pris: 0,
+            photos_hors_perimetre: 0,
         }
     }
 
@@ -383,8 +416,13 @@ impl Moteur {
         let Some(s) = self.snapshotteur.clone() else {
             return;
         };
-        let Some(racine) = s.photographier() else {
-            return;
+        let racine = match s.photographier(&self.liste_blanche) {
+            Photo::Prise(n) => n,
+            Photo::HorsPerimetre => {
+                self.photos_hors_perimetre += 1;
+                return;
+            }
+            Photo::Indisponible => return,
         };
         let photo = snapshot::construire(quoi, monotone_ms, &racine, &self.redacteur);
         self.snapshots_pris += 1;
@@ -409,6 +447,11 @@ impl Moteur {
 
     pub fn snapshots_pris(&self) -> u64 {
         self.snapshots_pris
+    }
+
+    /// R5.4 — combien de photos ont ete refusees hors perimetre.
+    pub fn photos_hors_perimetre(&self) -> u64 {
+        self.photos_hors_perimetre
     }
 
     /// R5.2 — l'episode est-il suspendu ?
@@ -1488,20 +1531,28 @@ mod tests {
     }
 
     impl Snapshotteur for PhotographeFaux {
-        fn photographier(&self) -> Option<Noeud> {
+        fn photographier(&self, _autorisees: &crate::surfaces::ListeBlanche) -> Photo {
             self.prises
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Some(Noeud::feuille("document", "Fiche").avec(vec![
+            Photo::Prise(Box::new(Noeud::feuille("document", "Fiche").avec(vec![
                 Noeud::feuille("textbox", "Contact").valant(&self.contenu),
-            ]))
+            ])))
+        }
+    }
+
+    /// Un photographe qui refuse : le focus a quitte le perimetre.
+    struct PhotographeHorsPerimetre;
+    impl Snapshotteur for PhotographeHorsPerimetre {
+        fn photographier(&self, _autorisees: &crate::surfaces::ListeBlanche) -> Photo {
+            Photo::HorsPerimetre
         }
     }
 
     /// Un photographe qui n'a rien a montrer — ecran verrouille, fenetre partie.
     struct PhotographeAveugle;
     impl Snapshotteur for PhotographeAveugle {
-        fn photographier(&self) -> Option<Noeud> {
-            None
+        fn photographier(&self, _autorisees: &crate::surfaces::ListeBlanche) -> Photo {
+            Photo::Indisponible
         }
     }
 
@@ -2205,6 +2256,62 @@ mod tests {
             })
             .expect("cloture automatique");
         assert_eq!(cloture, TIMEOUT_MS, "la borne est a 60 min de l OUVERTURE");
+    }
+
+
+    #[test]
+    fn une_photo_hors_perimetre_est_refusee_et_comptee() {
+        // R5.4 gardait les actions et laissait passer les photos. Le chemin est
+        // reel : un `Focus` venu d'une application non activee est refuse AVANT
+        // le `match` de `traiter`, donc `derniere_saisie` n'est jamais remis a
+        // zero ; deux secondes plus tard le declencheur d'inactivite part et
+        // photographie l'application ou l'operateur se trouve alors. Jusqu'a
+        // 1500 noeuds d'une messagerie personnelle, valeurs de champs comprises.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(h.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]))
+            .avec_snapshotteur(std::sync::Arc::new(PhotographeHorsPerimetre));
+
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Soumission(cible("button", "Enregistrer")),
+        ));
+
+        assert!(
+            m.declencheurs().contains(&Declencheur::Soumission),
+            "le declencheur reste : c'est lui l'information"
+        );
+        assert_eq!(m.snapshots_pris(), 0, "aucune photo ne doit entrer");
+        assert_eq!(m.photos_hors_perimetre(), 1, "et le refus se compte");
+        assert!(
+            !m.journal()
+                .iter()
+                .any(|e| matches!(e, EntreeJournal::Snapshot { .. })),
+            "rien de l'application non activee dans le journal"
+        );
+    }
+
+    #[test]
+    fn un_refus_de_photo_ne_se_confond_pas_avec_une_panne() {
+        // Deux issues distinctes et non une : un bureau muet est un incident
+        // technique, un focus hors perimetre est une regle qui s'applique. Les
+        // confondre empecherait de savoir si R5.4 tient.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(h.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]))
+            .avec_snapshotteur(std::sync::Arc::new(PhotographeAveugle));
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Soumission(cible("button", "Enregistrer")),
+        ));
+        assert_eq!(m.snapshots_pris(), 0);
+        assert_eq!(
+            m.photos_hors_perimetre(),
+            0,
+            "un ecran verrouille n'est pas un refus de perimetre"
+        );
     }
 
 }

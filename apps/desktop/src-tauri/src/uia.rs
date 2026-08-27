@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
+#[cfg(not(test))]
 use crate::snapshot::Noeud;
 use crate::source::{Abonnement, CaptureSource, Cible, ErreurSource, GenreEvenement, RawEvent};
 // `Source` n'apparaît que dans la boucle réelle, absente du binaire de test.
@@ -121,7 +122,13 @@ pub fn cible_de(type_controle: &str, nom: &str, region: Option<&str>) -> Cible {
 }
 
 /// Une demande de photo : le canal par lequel la réponse doit revenir.
-type Demande = Sender<Option<Noeud>>;
+/// Une demande de photo : sur quelles surfaces elle est permise, et par où
+/// répondre.
+///
+/// La liste voyage avec la demande parce que seul le fil UIA peut savoir sur
+/// quoi le focus se trouve à l'instant de la photo — et que c'est cet instant-là
+/// qui compte, pas celui du déclencheur.
+type Demande = (crate::surfaces::ListeBlanche, Sender<crate::moteur::Photo>);
 
 /// Au-delà, on renonce à la photo.
 ///
@@ -141,13 +148,14 @@ pub struct SnapshotteurUia {
 }
 
 impl crate::moteur::Snapshotteur for SnapshotteurUia {
-    fn photographier(&self) -> Option<Noeud> {
+    fn photographier(&self, autorisees: &crate::surfaces::ListeBlanche) -> crate::moteur::Photo {
         let (repondre, reponse) = std::sync::mpsc::channel();
-        self.demandes.send(repondre).ok()?;
+        if self.demandes.send((autorisees.clone(), repondre)).is_err() {
+            return crate::moteur::Photo::Indisponible;
+        }
         reponse
             .recv_timeout(std::time::Duration::from_millis(DELAI_PHOTO_MS))
-            .ok()
-            .flatten()
+            .unwrap_or(crate::moteur::Photo::Indisponible)
     }
 }
 
@@ -322,8 +330,8 @@ fn boucle_uia(
     // de photo — c'est le SEUL endroit d'où l'arbre UIA peut être lu.
     while actif.load(Ordering::SeqCst) {
         match demandes.recv_timeout(std::time::Duration::from_millis(200)) {
-            Ok(repondre) => {
-                let _ = repondre.send(photographier_actif(&automation));
+            Ok((autorisees, repondre)) => {
+                let _ = repondre.send(photographier_actif(&automation, &autorisees));
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             // Plus personne pour demander : la source a été relâchée.
@@ -514,9 +522,25 @@ fn cible_depuis(automation: &uiautomation::UIAutomation, el: &uiautomation::UIEl
 /// snapshot du bureau entier dépasserait tous les budgets et décrirait surtout
 /// des choses qui n'ont rien à voir avec la tâche.
 #[cfg(not(test))]
-fn photographier_actif(automation: &uiautomation::UIAutomation) -> Option<Noeud> {
-    let focalise = automation.get_focused_element().ok()?;
-    let walker = automation.create_tree_walker().ok()?;
+fn photographier_actif(
+    automation: &uiautomation::UIAutomation,
+    autorisees: &crate::surfaces::ListeBlanche,
+) -> crate::moteur::Photo {
+    let Ok(focalise) = automation.get_focused_element() else {
+        return crate::moteur::Photo::Indisponible;
+    };
+    // R5.4 — AVANT de descendre dans l'arbre. La liste blanche gardait les
+    // actions et laissait passer les photos : un déclencheur d'inactivité parti
+    // deux secondes après une bascule photographiait l'application où
+    // l'opérateur venait d'arriver, jusqu'à 1500 nœuds avec leurs valeurs de
+    // champs. La rédaction ne rattrape que les motifs ; un libellé hors motif
+    // restait en clair.
+    if !autorisees.autorise(surface_de(&focalise).as_deref()) {
+        return crate::moteur::Photo::HorsPerimetre;
+    }
+    let Ok(walker) = automation.create_tree_walker() else {
+        return crate::moteur::Photo::Indisponible;
+    };
 
     // Remonte jusqu'à la fenêtre qui contient l'élément focalisé.
     let mut racine = focalise.clone();
@@ -535,7 +559,7 @@ fn photographier_actif(automation: &uiautomation::UIAutomation) -> Option<Noeud>
     }
 
     let mut budget = crate::snapshot::NOEUDS_MAX;
-    Some(descendre(&walker, &racine, 0, &mut budget))
+    crate::moteur::Photo::Prise(Box::new(descendre(&walker, &racine, 0, &mut budget)))
 }
 
 /// Descente bornée par la profondeur et le budget de nœuds du spike.
@@ -590,8 +614,8 @@ fn boucle_uia(
 ) {
     while actif.load(Ordering::SeqCst) {
         match demandes.recv_timeout(std::time::Duration::from_millis(10)) {
-            Ok(repondre) => {
-                let _ = repondre.send(None);
+            Ok((_autorisees, repondre)) => {
+                let _ = repondre.send(crate::moteur::Photo::Indisponible);
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -753,7 +777,10 @@ mod tests {
         drop(s); // le recepteur tombe avec la source
 
         let debut = std::time::Instant::now();
-        assert_eq!(photographe.photographier(), None);
+        assert!(matches!(
+            photographe.photographier(&crate::surfaces::ListeBlanche::vide()),
+            crate::moteur::Photo::Indisponible
+        ));
         assert!(
             debut.elapsed() < std::time::Duration::from_millis(DELAI_PHOTO_MS),
             "l appel doit echouer vite, pas attendre le delai complet"
@@ -771,7 +798,10 @@ mod tests {
         let _abonnement = s.abonner(tx).expect("abonnement");
 
         let debut = std::time::Instant::now();
-        assert_eq!(photographe.photographier(), None);
+        assert!(matches!(
+            photographe.photographier(&crate::surfaces::ListeBlanche::vide()),
+            crate::moteur::Photo::Indisponible
+        ));
         assert!(debut.elapsed() < std::time::Duration::from_millis(DELAI_PHOTO_MS));
     }
 }
