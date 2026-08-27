@@ -388,7 +388,13 @@ mod tests {
     fn sans_copie_observee_on_ne_lit_pas() {
         // C'est ce qui distingue Noe d'un gestionnaire de presse-papiers : sans
         // frappe de l'operateur, le presse-papiers n'est jamais ouvert.
-        assert!(!lecture_autorisee(0, Some("chrome.exe"), &autorisees(&["chrome.exe"]), 1, 2));
+        assert!(!lecture_autorisee(
+            0,
+            Some("chrome.exe"),
+            &autorisees(&["chrome.exe"]),
+            1,
+            2
+        ));
     }
 
     #[test]
@@ -405,14 +411,26 @@ mod tests {
     fn une_surface_non_nommee_ne_declenche_aucune_lecture() {
         // Un processus protege ou eleve ne se laisse pas nommer. On n'autorise
         // pas ce qu'on n'a pas su identifier.
-        assert!(!lecture_autorisee(1, None, &autorisees(&["chrome.exe"]), 1, 2));
+        assert!(!lecture_autorisee(
+            1,
+            None,
+            &autorisees(&["chrome.exe"]),
+            1,
+            2
+        ));
     }
 
     #[test]
     fn une_liste_vide_ne_declenche_jamais_de_lecture() {
         // Au premier lancement, le presse-papiers n'est jamais ouvert.
         for surface in [Some("chrome.exe"), Some("outlook.exe"), None] {
-            assert!(!lecture_autorisee(3, surface, &crate::surfaces::ListeBlanche::vide(), 1, 2));
+            assert!(!lecture_autorisee(
+                3,
+                surface,
+                &crate::surfaces::ListeBlanche::vide(),
+                1,
+                2
+            ));
         }
     }
 
@@ -433,5 +451,4 @@ mod tests {
         assert!(lecture_autorisee(1, Some("chrome.exe"), &liste, 7, 8));
         assert!(lecture_autorisee(1, Some("CHROME.EXE"), &liste, 7, 8));
     }
-
 }

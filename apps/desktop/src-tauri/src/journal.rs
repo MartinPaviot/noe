@@ -729,9 +729,11 @@ mod tests {
 
         let trouves = orphelins(&r).unwrap();
         assert_eq!(trouves.len(), 1, "l orphelin doit rester trouvable");
-        assert!(trouves[0].marqueur.is_none(), "identite illisible, et c est dit");
+        assert!(
+            trouves[0].marqueur.is_none(),
+            "identite illisible, et c est dit"
+        );
         assert!(clore_orphelin(&r, &trouves[0]).is_ok());
         assert!(!d.join(NOM_MARQUEUR).exists());
     }
-
 }

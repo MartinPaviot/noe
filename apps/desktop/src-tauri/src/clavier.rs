@@ -115,8 +115,7 @@ pub fn relever() -> Gestes {
 /// autorisée, on refuse aussi la première. On perd un appariement, on ne fuit
 /// rien.
 static FENETRE_COPIE: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
-static SEQUENCE_AVANT_COPIE: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(0);
+static SEQUENCE_AVANT_COPIE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 static FENETRE_COLLAGE: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
 /// Note où la frappe a eu lieu. Production seulement : sans bureau, il n'y a pas
@@ -383,7 +382,8 @@ mod tests {
     /// Prend le banc. Un test qui panique empoisonne le verrou ; on reprend la
     /// valeur plutot que de faire echouer tous les suivants pour la meme cause.
     fn banc() -> std::sync::MutexGuard<'static, ()> {
-        BANC.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        BANC.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     use super::*;
@@ -527,7 +527,12 @@ mod tests {
         compter(Geste::Collage);
         HookClavier::desarmer();
         let apres = relever();
-        assert!(apres.rien(), "copies={} collages={}", apres.copies, apres.collages);
+        assert!(
+            apres.rien(),
+            "copies={} collages={}",
+            apres.copies,
+            apres.collages
+        );
     }
 
     #[test]
@@ -547,5 +552,4 @@ mod tests {
         drop(nouveau);
         HookClavier::desarmer();
     }
-
 }

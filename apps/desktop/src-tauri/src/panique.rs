@@ -219,19 +219,18 @@ pub fn inventorier(racine: &Path, debut_ms: u64, fin_ms: u64) -> (Vec<Cible>, Ve
     let mut cibles = Vec::new();
     let mut indatables = Vec::new();
 
-    let mut examiner = |dossier: PathBuf, id: String, quarantaine: bool| {
-        match bornes(&dossier, &id) {
-            Some((t0, t1)) if intersecte(t0, t1, debut_ms, fin_ms) => cibles.push(Cible {
-                id,
-                octets: poids(&dossier),
-                chemin: dossier,
-                t0_ms: t0,
-                t1_ms: t1,
-                quarantaine,
-            }),
-            Some(_) => {}
-            None => indatables.push(id),
-        }
+    let mut examiner = |dossier: PathBuf, id: String, quarantaine: bool| match bornes(&dossier, &id)
+    {
+        Some((t0, t1)) if intersecte(t0, t1, debut_ms, fin_ms) => cibles.push(Cible {
+            id,
+            octets: poids(&dossier),
+            chemin: dossier,
+            t0_ms: t0,
+            t1_ms: t1,
+            quarantaine,
+        }),
+        Some(_) => {}
+        None => indatables.push(id),
     };
 
     if let Ok(entrees) = std::fs::read_dir(racine) {
@@ -366,7 +365,13 @@ mod tests {
 
     #[test]
     fn un_horodatage_illisible_ne_fait_pas_paniquer_la_panique() {
-        for mauvais in ["", "hier", "2026-01-14", "2026/01/14T09:12:03.000Z", "xxxx-xx-xxT"] {
+        for mauvais in [
+            "",
+            "hier",
+            "2026-01-14",
+            "2026/01/14T09:12:03.000Z",
+            "xxxx-xx-xxT",
+        ] {
             assert_eq!(depuis_iso(mauvais), None, "{mauvais}");
         }
     }
@@ -497,7 +502,11 @@ mod tests {
         assert_eq!(bilan.episodes, 0);
         assert_eq!(bilan.indatables, vec!["pas-un-ulid".to_string()]);
         assert!(d.exists(), "on n efface pas ce qu on n a pas su dater");
-        assert!(bilan.message().contains("PAS ete touches"), "{}", bilan.message());
+        assert!(
+            bilan.message().contains("PAS ete touches"),
+            "{}",
+            bilan.message()
+        );
     }
 
     #[test]
@@ -521,7 +530,11 @@ mod tests {
         episode(&r, "01ep-loin", T, T + 1_000);
         let bilan = effacer(&r, T + 10_000_000, T + 20_000_000);
         assert_eq!(bilan.episodes, 0);
-        assert!(bilan.message().contains("Rien a effacer"), "{}", bilan.message());
+        assert!(
+            bilan.message().contains("Rien a effacer"),
+            "{}",
+            bilan.message()
+        );
     }
 
     #[test]

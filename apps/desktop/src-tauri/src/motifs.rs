@@ -103,38 +103,38 @@ fn compile() -> &'static Compile {
             serde_json::from_str(MIROIR).expect("motifs.json illisible : la CI aurait du le voir");
         let compiler = |liste: &Vec<MotifPii>| -> Vec<(String, u32, Regex)> {
             liste
-            .iter()
-            .map(|m| {
-                // `unicode(false)` : en JavaScript, `\d`, `\w` et `\b` sont
-                // ASCII. En Rust ils sont Unicode par defaut, si bien que `\d`
-                // matcherait les chiffres arabes-indiens et `\b` changerait de
-                // sens autour des accents. Sans ce reglage, les deux
-                // implementations liraient la MEME chaine differemment — la
-                // divergence exacte que le miroir est cense empecher.
-                //
-                // Le seul drapeau qui a du sens ici est `g`. En JavaScript il
-                // rend `exec` iteratif ; en Rust, `find_iter` est global par
-                // nature. Un autre drapeau — `i`, `m`, `s` — changerait la
-                // semantique d un cote sans que l autre le sache, et le miroir
-                // cesserait de garantir quoi que ce soit. On refuse plutot que
-                // d ignorer.
-                assert_eq!(
-                    m.drapeaux, "g",
-                    "motif {} : drapeau « {} » non supporte par le miroir",
-                    m.type_pii, m.drapeaux
-                );
-                let re = RegexBuilder::new(&m.source)
-                    .unicode(false)
-                    .build()
-                    .unwrap_or_else(|e| {
-                        panic!(
-                            "motif {} ({}) refuse par le moteur Rust : {e}",
-                            m.type_pii, m.note
-                        )
-                    });
-                (m.type_pii.clone(), m.priorite, re)
-            })
-            .collect()
+                .iter()
+                .map(|m| {
+                    // `unicode(false)` : en JavaScript, `\d`, `\w` et `\b` sont
+                    // ASCII. En Rust ils sont Unicode par defaut, si bien que `\d`
+                    // matcherait les chiffres arabes-indiens et `\b` changerait de
+                    // sens autour des accents. Sans ce reglage, les deux
+                    // implementations liraient la MEME chaine differemment — la
+                    // divergence exacte que le miroir est cense empecher.
+                    //
+                    // Le seul drapeau qui a du sens ici est `g`. En JavaScript il
+                    // rend `exec` iteratif ; en Rust, `find_iter` est global par
+                    // nature. Un autre drapeau — `i`, `m`, `s` — changerait la
+                    // semantique d un cote sans que l autre le sache, et le miroir
+                    // cesserait de garantir quoi que ce soit. On refuse plutot que
+                    // d ignorer.
+                    assert_eq!(
+                        m.drapeaux, "g",
+                        "motif {} : drapeau « {} » non supporte par le miroir",
+                        m.type_pii, m.drapeaux
+                    );
+                    let re = RegexBuilder::new(&m.source)
+                        .unicode(false)
+                        .build()
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "motif {} ({}) refuse par le moteur Rust : {e}",
+                                m.type_pii, m.note
+                            )
+                        });
+                    (m.type_pii.clone(), m.priorite, re)
+                })
+                .collect()
         };
         Compile {
             version: miroir.version,
@@ -499,5 +499,4 @@ mod tests {
         );
         assert_eq!(miroir.compact[0].type_pii, "TEL_FR_COMPACT");
     }
-
 }

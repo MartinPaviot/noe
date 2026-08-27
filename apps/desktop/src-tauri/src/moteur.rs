@@ -884,8 +884,10 @@ mod tests {
         // R5.4 : le banc active ses propres surfaces. `outlook` n'y est
         // volontairement pas — c'est le cas reel, et le scenario de bascule
         // verifie qu'on voit le depart sans savoir ou il mene.
-        let mut moteur = Moteur::ouvrir(horloge.clone(), redacteur, application)
-            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["banc.exe", application]));
+        let mut moteur =
+            Moteur::ouvrir(horloge.clone(), redacteur, application).avec_liste_blanche(
+                crate::surfaces::ListeBlanche::depuis(["banc.exe", application]),
+            );
 
         for etape in etapes {
             match etape {
@@ -1895,7 +1897,8 @@ mod tests {
             m.battre();
         }
         assert!(
-            !m.declencheurs().contains(&Declencheur::SaisiePuisInactivite),
+            !m.declencheurs()
+                .contains(&Declencheur::SaisiePuisInactivite),
             "R5.2 : la pause n est pas une hesitation"
         );
         m.reprendre();
@@ -2116,7 +2119,10 @@ mod tests {
         );
         let texte = journal_serialise(&m);
         for interdit in ["keepass", "signal"] {
-            assert!(!texte.contains(interdit), "« {interdit} » a fuite :\n{texte}");
+            assert!(
+                !texte.contains(interdit),
+                "« {interdit} » a fuite :\n{texte}"
+            );
         }
     }
 
@@ -2185,7 +2191,6 @@ mod tests {
         assert!(!texte.contains("surface"), "aucun champ surface :\n{texte}");
         assert!(!texte.contains("chrome"), "ni sa valeur :\n{texte}");
     }
-
 
     // -- Une seule origine de temps (revue adverse) -------------------------
 
@@ -2258,7 +2263,6 @@ mod tests {
         assert_eq!(cloture, TIMEOUT_MS, "la borne est a 60 min de l OUVERTURE");
     }
 
-
     #[test]
     fn une_photo_hors_perimetre_est_refusee_et_comptee() {
         // R5.4 gardait les actions et laissait passer les photos. Le chemin est
@@ -2313,5 +2317,4 @@ mod tests {
             "un ecran verrouille n'est pas un refus de perimetre"
         );
     }
-
 }

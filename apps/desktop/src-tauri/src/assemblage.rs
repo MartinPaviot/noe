@@ -283,9 +283,9 @@ pub fn assembler(
                     // une decision de spec 001, a prendre au gate ; perdre
                     // l'information en attendant n'en est pas une.
                     payload: match genre {
-                        GenreEvenement::Collage { apparie } => Some(
-                            if *apparie { "paired" } else { "unpaired" }.to_string(),
-                        ),
+                        GenreEvenement::Collage { apparie } => {
+                            Some(if *apparie { "paired" } else { "unpaired" }.to_string())
+                        }
                         _ => None,
                     },
                 });

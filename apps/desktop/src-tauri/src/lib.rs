@@ -666,7 +666,6 @@ fn sur_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
             rafraichir_tray(app);
         }
 
-
         ID_DOSSIER => {
             let dossier = dossier_donnees(app);
             let _ = std::fs::create_dir_all(&dossier);
@@ -793,8 +792,7 @@ fn paniquer<R: Runtime>(app: &AppHandle<R>, minutes: u64) {
     // qui a ete copie pendant l'episode : les laisser survivre a une panique
     // ferait apparier un collage a une copie que l'operateur vient de faire
     // effacer.
-    *e.appariement.lock().expect("appariement empoisonne") =
-        presse_papiers::Appariement::nouveau();
+    *e.appariement.lock().expect("appariement empoisonne") = presse_papiers::Appariement::nouveau();
 
     // 2. Effacer. Le dossier de l'episode avorte est dans la fenetre : il vient
     //    de s'ouvrir, donc il intersecte forcement.
