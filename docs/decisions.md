@@ -1486,3 +1486,66 @@ qu'on assouplit pour la faire passer : c'est une exigence d'honnêteté qui
 **s'élargit**, parce que la version à deux raisons obligeait le système à
 affirmer une absence qu'il n'avait pas constatée. Le contraire aurait été d'écrire
 `not_found` et de passer à autre chose.
+
+## 2026-08-28 — D37 : ce que le contexte de rejeu ne doit pas contenir
+
+Trouvé par un audit adverse — treize agents sur six dimensions, chaque lot de
+trouvailles passant devant un sceptique chargé de les réfuter. Vingt et une ont
+survécu ; celle-ci est la plus grave.
+
+### La fuite
+
+`contexteDe` livrait à la politique **tous** les événements de l'épisode, y
+compris les `api_change`. Or ceux-ci portent `fields_changed` : l'ensemble exact
+des champs que le juge compare.
+
+Le commentaire du type disait la bonne chose — « `state_after` est volontairement
+absent : une politique ne doit jamais voir la réponse » — et il était appliqué,
+pour les **valeurs**. Personne n'avait vu que la **liste** partait par une autre
+porte.
+
+Ce n'est pas une nuance. `juger` fonde `manque` sur « observé et non proposé » et
+`excedent` sur « proposé et non observé » : une politique qui connaît la liste ne
+peut mécaniquement plus produire ni l'un ni l'autre. Deux des quatre classes du
+verdict disparaissent. Il resterait `desaccord`, puisque les valeurs restaient
+cachées — un juge à moitié aveugle, ce qui est pire qu'un juge aveugle, parce
+qu'il rend quand même un chiffre.
+
+### Ce qui la rendait invisible
+
+Rien ne fuyait en pratique : aucune politique ne lit `ctx.events` aujourd'hui.
+`politiqueParfaite` reçoit le corpus à la construction, `politiqueNulle` ne
+propose rien. Le corpus doré rendait donc 100 % d'accord avant comme après le
+correctif.
+
+**La fuite devient vivante au moment exact où elle compte** : quand une politique
+LLM se branchera — ce que R3.4 promet possible sans modifier le harness — et
+qu'on lui donnera tout le contexte parce qu'il est là.
+
+C'est la troisième fois que ce dépôt trouve un juge qui s'auto-valide, après D29
+et après le test à prémisse vide de la tâche 7. La forme change, le mécanisme
+non : **le contrôle et la chose contrôlée finissent par se toucher, et le vert
+qui en sort ressemble à tous les autres verts.**
+
+### Décision
+
+Le contexte de rejeu ne porte plus les `api_change`. Ils sont l'observation que
+le juge compare ; les donner à la politique, c'est lui donner la réponse.
+
+Ce qui reste suffit à décider : les actions de l'opérateur, l'état d'avant, les
+cibles, le périmètre. Un test le vérifie, pour que le correctif ne vide pas le
+contexte de sa substance en croyant le protéger.
+
+### Ce que le banc a appris en s'écrivant
+
+Son premier jet cherchait chaque **nom** de champ changé dans le contexte
+sérialisé. Il a accusé `derniere_connexion`, qui est dans `state_before` — et qui
+a le droit d'y être. *Savoir qu'un champ existe n'est pas savoir qu'il a changé*,
+et l'épisode 004 le montre : cinq champs lus, deux changés.
+
+Son deuxième jet cherchait l'**ensemble**, ce qui est juste. Il a accusé
+l'épisode 002, où tous les champs du périmètre ont changé — donc où l'ensemble
+égale `scope_fields`, que la tâche déclare publiquement.
+
+Deux faux positifs avant la bonne formulation. Un banc de fuite qui accuse ce qui
+est légitime finit par être désactivé, et c'est alors la vraie fuite qui passe.

@@ -20,6 +20,14 @@ export type Cible = {
  * `state_after` est volontairement absent : une politique ne doit jamais voir la
  * réponse. La politique parfaite ne la lit pas non plus — elle la reçoit à la
  * construction, depuis le corpus (voir `politiqueParfaite`).
+ *
+ * **Les événements `api_change` sont absents pour la même raison**, et il a fallu
+ * un audit adverse pour s'en apercevoir. Ils portent `fields_changed`,
+ * c'est-à-dire l'ensemble exact des champs que le juge compare : une politique
+ * qui les lisait ne pouvait mécaniquement plus produire ni `manque` ni
+ * `excedent`. `state_after` cachait les valeurs, ces événements donnaient la
+ * liste — la moitié de la réponse, ce qui suffit à fausser deux des quatre
+ * classes du verdict.
  */
 export type ReplayContext = {
   readonly episode_id: string;
@@ -60,7 +68,10 @@ export function contexteDe(ep: Episode): ReplayContext {
     scope_fields: [...ep.scope_fields].sort(),
     cibles,
     before,
-    events: ep.events,
+    // Ce que l'opérateur a fait, et ce que le système a signalé de lui-même —
+    // jamais ce que le monde a changé. Un `api_change` EST l'observation que le
+    // juge compare : la donner à la politique, c'est lui donner la réponse.
+    events: ep.events.filter((e) => e.kind !== 'api_change'),
   };
 }
 
