@@ -92,6 +92,17 @@ pub struct CleEntite {
     pub value_pseudo: String,
 }
 
+/// R2.3 (spec 003) : la clé qui a tranché la résolution, et quand.
+///
+/// **Sans elle, une résolution fausse est indiagnosticable** — on ne sait même
+/// pas ce qui l'a décidée. Le schéma TypeScript la porte depuis le début ; ce
+/// miroir l'avait oubliée, comme il avait oublié `state_meta`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct Resolue {
+    pub by: String,
+    pub at: String,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Entite {
     pub key: CleEntite,
@@ -101,6 +112,11 @@ pub struct Entite {
     pub state_before: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_after: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<Resolue>,
+    /// Les champs que le juge doit exclure de son verdict, et pourquoi (§7).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_meta: Option<crate::federation::MetaEtat>,
 }
 
 impl Entite {
@@ -390,6 +406,8 @@ pub fn assembler(
                 api_refs: Vec::new(),
                 state_before: None,
                 state_after: None,
+                resolved: None,
+                state_meta: None,
             }]
         })
         .unwrap_or_default();
@@ -1091,6 +1109,8 @@ mod tests {
                     api_refs: Vec::new(),
                     state_before: e.resolue.then(|| serde_json::json!({})),
                     state_after: e.resolue.then(|| serde_json::json!({})),
+                    resolved: None,
+                    state_meta: None,
                 })
                 .collect(),
             grade: String::new(),
@@ -1273,6 +1293,8 @@ mod tests {
                 })],
                 state_before: Some(serde_json::json!({ "statut": "nouveau" })),
                 state_after: Some(serde_json::json!({ "statut": "qualifie" })),
+                resolved: None,
+                state_meta: None,
             }],
             grade: String::new(),
             grade_reason: String::new(),
@@ -1304,5 +1326,296 @@ mod tests {
         let (grade, raison) = grade_de(&sans_refs);
         assert_eq!(grade, "B", "un A sans api_refs affirme sans avoir verifie");
         assert!(raison.contains("bornes non confirmees"), "{raison}");
+    }
+}
+
+/// Fait entrer les résultats de la fédération dans l'épisode (spec 003, R3, §7).
+///
+/// **Une fonction séparée, et pas un paramètre de plus sur `assembler`.** Un
+/// épisode repris après un crash n'a pas de résultats de fédération, et ce n'est
+/// pas un oubli : le worker est mort avec l'application. Les deux chemins
+/// d'assemblage n'ont pas la même matière, et une signature commune les ferait
+/// mentir tous les deux.
+///
+/// La fusion **remplace** les entités de la spec 002. Celles-ci existaient
+/// précisément parce que rien ne pouvait être résolu — elles portaient une cible
+/// pseudonymisée, sans état ni référence. Le jour où quelque chose peut être
+/// résolu, elles n'ont plus de raison d'être, et les garder ferait traîner une
+/// entité non résolue qui empêcherait à jamais le grade A.
+///
+/// Le grade est **recalculé** à la fin (tâche 10) : les règles ne bougent pas,
+/// ce sont les entités qui deviennent résolues.
+///
+/// **Pas encore appelée depuis la clôture.** Le registre qu'elle attend est
+/// produit par le worker, que rien ne démarre tant qu'il n'y a pas de jeton.
+/// Poser dès maintenant un appel qu'aucun test ne peut exercer serait pire que
+/// l'annotation : ce serait un garde-fou décoratif de plus, et ce dépôt en a
+/// déjà démasqué trois.
+#[allow(dead_code)] // retiré quand la tâche 0 permet de démarrer le worker
+pub fn fusionner_federation(
+    episode: &mut Episode,
+    entites: &std::collections::BTreeMap<String, crate::federation::EntiteFederee>,
+) {
+    if entites.is_empty() {
+        return;
+    }
+
+    let mut nouvelles: Vec<Entite> = Vec::new();
+    let mut trous = 0_u64;
+    for (candidate_id, federee) in entites {
+        // L'identifiant de candidate est `<connecteur>:<jeton>` — le jeton, et
+        // jamais la valeur claire : il traverse l'épisode et l'épisode est écrit.
+        let (type_entite, value_pseudo) = match candidate_id.split_once(':') {
+            Some((t, v)) if !t.is_empty() => (t.to_owned(), v.to_owned()),
+            // Un identifiant malformé ne fait pas disparaître l'entité : un
+            // épisode avec une entité en moins a l'air plus propre et ment. La
+            // clé vide sera vue par le grade, qui déclasse en C.
+            _ => ("capture".to_owned(), candidate_id.clone()),
+        };
+        trous += federee.trous.len() as u64;
+        nouvelles.push(Entite {
+            key: CleEntite {
+                type_entite,
+                value_pseudo,
+            },
+            first_seen_seq: federee.first_seen_seq,
+            api_refs: federee
+                .api_ref
+                .as_ref()
+                .and_then(|r| serde_json::to_value(r).ok())
+                .map(|v| vec![v])
+                .unwrap_or_default(),
+            state_before: federee
+                .state_before
+                .as_ref()
+                .and_then(|e| serde_json::to_value(e).ok()),
+            state_after: federee
+                .state_after
+                .as_ref()
+                .and_then(|e| serde_json::to_value(e).ok()),
+            resolved: federee.resolved.clone(),
+            state_meta: (!federee.state_meta.is_empty()).then(|| federee.state_meta.clone()),
+        });
+    }
+
+    episode.entities = nouvelles;
+    // R4.3 : les trous déclarés par la fédération comptent dans la complétude.
+    // Un trou de lecture qu'on ne compterait pas se lirait comme un système qui
+    // n'a rien fait.
+    episode.completeness.gaps += trous;
+
+    let (grade, raison) = grade_de(episode);
+    episode.grade = grade;
+    episode.grade_reason = raison;
+}
+
+#[cfg(test)]
+mod tests_fusion {
+    use super::*;
+    use crate::federation::{EntiteFederee, MetaChamp, RefApi};
+    use std::collections::BTreeMap;
+
+    /// 2026-01-01T00:00:00.000Z, comme le reste du module.
+    const T0: u64 = 1_767_225_600_000;
+
+    fn redacteur() -> Redacteur {
+        Redacteur::new(&crate::cle::CleHmac::generer().expect("alea"))
+    }
+
+    fn episode_de_base() -> Episode {
+        let j = vec![crate::moteur::EntreeJournal::UiAction {
+            seq: 1,
+            monotone_ms: 10,
+            source: crate::source::Source::Uia,
+            genre: crate::source::GenreEvenement::Soumission(crate::source::Cible::new(
+                "button",
+                "Enregistrer",
+            )),
+            unresolved: false,
+        }];
+        assembler("01TESTFUSION", "t", T0, T0 + 3_000, &j, &redacteur()).unwrap()
+    }
+
+    fn etat(valeur: &str) -> crate::federation::EtatPlat {
+        let mut e = crate::federation::EtatPlat::new();
+        e.insert("Statut__c".into(), valeur.into());
+        e
+    }
+
+    fn federee_resolue() -> EntiteFederee {
+        EntiteFederee {
+            api_ref: Some(RefApi {
+                connector: "salesforce".into(),
+                object: "Contact".into(),
+                id: "0035g00000LmT4EAAV".into(),
+            }),
+            state_before: Some(etat("Nouveau")),
+            state_after: Some(etat("Qualifie")),
+            state_meta: BTreeMap::new(),
+            resolved: Some(Resolue {
+                by: "system_id".into(),
+                at: "2026-08-27T10:00:00.000Z".into(),
+            }),
+            first_seen_seq: 7,
+            non_resolue: None,
+            trous: Vec::new(),
+        }
+    }
+
+    fn snapshot(e: EntiteFederee) -> BTreeMap<String, EntiteFederee> {
+        let mut m = BTreeMap::new();
+        m.insert("salesforce:CIBLE_aaaaaaaaaaaaa".to_owned(), e);
+        m
+    }
+
+    #[test]
+    fn sans_federation_l_episode_ne_bouge_pas() {
+        // Un episode repris apres un crash n'a pas de resultats de federation, et
+        // ce n'est pas un oubli : le worker est mort avec l'application.
+        let mut ep = episode_de_base();
+        let avant = ep.clone();
+        fusionner_federation(&mut ep, &BTreeMap::new());
+        assert_eq!(ep, avant);
+    }
+
+    #[test]
+    fn une_entite_federee_remplace_le_placeholder_de_la_002() {
+        // Le placeholder existait parce que rien ne pouvait etre resolu. Le
+        // garder ferait trainer une entite non resolue qui empecherait a jamais
+        // le grade A.
+        let mut ep = episode_de_base();
+        assert_eq!(ep.entities.len(), 1);
+        assert!(ep.entities[0].api_refs.is_empty(), "le placeholder");
+        fusionner_federation(&mut ep, &snapshot(federee_resolue()));
+        assert_eq!(ep.entities.len(), 1);
+        assert_eq!(ep.entities[0].key.type_entite, "salesforce");
+        assert_eq!(ep.entities[0].key.value_pseudo, "CIBLE_aaaaaaaaaaaaa");
+        assert_eq!(ep.entities[0].api_refs.len(), 1);
+    }
+
+    #[test]
+    fn une_entite_resolue_porte_la_cle_qui_a_tranche() {
+        // Sans elle, une resolution fausse est indiagnosticable : on ne sait meme
+        // pas ce qui l'a decidee.
+        let mut ep = episode_de_base();
+        fusionner_federation(&mut ep, &snapshot(federee_resolue()));
+        let r = ep.entities[0].resolved.as_ref().expect("resolved");
+        assert_eq!(r.by, "system_id");
+        assert_eq!(r.at, "2026-08-27T10:00:00.000Z");
+    }
+
+    #[test]
+    fn le_rang_de_premiere_vue_vient_de_la_capture() {
+        // Un compteur interne au worker compterait l'ordre des RESOLUTIONS, qui
+        // depend du reseau : deux rejeux du meme episode ne le rendraient pas
+        // pareil.
+        let mut ep = episode_de_base();
+        fusionner_federation(&mut ep, &snapshot(federee_resolue()));
+        assert_eq!(ep.entities[0].first_seen_seq, 7);
+    }
+
+    #[test]
+    fn une_entite_resolue_des_deux_cotes_ouvre_enfin_le_grade_a() {
+        // C'est ce que la spec 003 promet, et c'est la premiere fois qu'un
+        // episode de ce depot peut l'atteindre : l'INVARIANT 7 exige des
+        // `api_refs`, et rien ne pouvait en produire avant la federation.
+        let mut ep = episode_de_base();
+        assert_eq!(ep.grade, "B", "{}", ep.grade_reason);
+        fusionner_federation(&mut ep, &snapshot(federee_resolue()));
+        assert_eq!(ep.grade, "A", "{}", ep.grade_reason);
+    }
+
+    #[test]
+    fn une_entite_sans_api_ref_ne_monte_pas_en_a() {
+        // L'INVARIANT 7 : un A sans `api_refs`, c'est un episode qui affirme
+        // avoir tout explique sans avoir rien verifie.
+        let mut ep = episode_de_base();
+        let mut f = federee_resolue();
+        f.api_ref = None;
+        f.non_resolue = Some("blocked:droits insuffisants".into());
+        fusionner_federation(&mut ep, &snapshot(f));
+        assert_ne!(ep.grade, "A", "{}", ep.grade_reason);
+    }
+
+    #[test]
+    fn une_lecture_manquante_laisse_l_entite_non_resolue() {
+        // Un etat absent n'est pas un etat vide : le second se lirait comme
+        // « tous les champs sont nuls » et ferait inventer des changements.
+        let mut ep = episode_de_base();
+        let mut f = federee_resolue();
+        f.state_before = None;
+        fusionner_federation(&mut ep, &snapshot(f));
+        assert!(ep.entities[0].state_before.is_none());
+        assert_eq!(ep.grade, "B", "{}", ep.grade_reason);
+        assert!(
+            ep.grade_reason.contains("entite non resolue"),
+            "{}",
+            ep.grade_reason
+        );
+    }
+
+    #[test]
+    fn les_champs_retires_du_verdict_descendent_dans_l_episode() {
+        // §7 : le juge retire les champs `unknown_before` AVEC TRACE. Un retrait
+        // sans trace serait un verdict truque, d'autant plus flatteur qu'il
+        // regarde moins.
+        let mut ep = episode_de_base();
+        let mut f = federee_resolue();
+        f.state_meta.insert(
+            "Description".into(),
+            MetaChamp {
+                unknown_before: Some(true),
+                reason: Some("champ non historise".into()),
+                ..MetaChamp::default()
+            },
+        );
+        fusionner_federation(&mut ep, &snapshot(f));
+        let meta = ep.entities[0].state_meta.as_ref().expect("state_meta");
+        assert_eq!(
+            meta["Description"].reason.as_deref(),
+            Some("champ non historise")
+        );
+    }
+
+    #[test]
+    fn les_trous_de_la_federation_comptent_dans_la_completude() {
+        // Un trou de lecture qu'on ne compterait pas se lirait comme un systeme
+        // qui n'a rien fait.
+        let mut ep = episode_de_base();
+        let avant = ep.completeness.gaps;
+        let mut f = federee_resolue();
+        f.trous = vec!["quota : 429".into(), "lecture apres : 500".into()];
+        fusionner_federation(&mut ep, &snapshot(f));
+        assert_eq!(ep.completeness.gaps, avant + 2);
+    }
+
+    #[test]
+    fn un_identifiant_de_candidate_malforme_ne_fait_pas_disparaitre_l_entite() {
+        // Un episode avec une entite en moins a l'air plus propre et ment.
+        let mut ep = episode_de_base();
+        let mut m = BTreeMap::new();
+        m.insert("sansdeuxpoints".to_owned(), federee_resolue());
+        fusionner_federation(&mut ep, &m);
+        assert_eq!(ep.entities.len(), 1);
+        assert_eq!(ep.entities[0].key.value_pseudo, "sansdeuxpoints");
+    }
+
+    #[test]
+    fn un_etat_non_redacte_fait_tomber_l_episode_en_c() {
+        // La preuve que le filet du juge couvre AUSSI les etats federes, et pas
+        // seulement les evenements de capture. Un etat qui entrerait en clair
+        // ferait de l'episode une fuite gradee A.
+        let mut ep = episode_de_base();
+        let mut f = federee_resolue();
+        let mut sale = crate::federation::EtatPlat::new();
+        sale.insert("Email".into(), "jean.dupont@exemple.fr".into());
+        f.state_after = Some(sale);
+        fusionner_federation(&mut ep, &m_un(f));
+        assert_eq!(ep.grade, "C", "{}", ep.grade_reason);
+        assert!(ep.grade_reason.contains("redaction"), "{}", ep.grade_reason);
+    }
+
+    fn m_un(e: EntiteFederee) -> BTreeMap<String, EntiteFederee> {
+        snapshot(e)
     }
 }

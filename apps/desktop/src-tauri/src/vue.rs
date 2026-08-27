@@ -235,6 +235,8 @@ mod tests {
                 api_refs: Vec::new(),
                 state_before: None,
                 state_after: None,
+                resolved: None,
+                state_meta: None,
             }],
             grade: "B".into(),
             grade_reason: "declasse en B : 1 entite non resolue".into(),

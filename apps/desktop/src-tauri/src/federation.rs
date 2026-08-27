@@ -137,6 +137,12 @@ pub enum Demande {
     /// R3.1 : l'entité vient d'être vue pour la première fois.
     Resoudre {
         candidate_id: String,
+        /// Le rang de l'événement qui l'a fait apparaître.
+        ///
+        /// Il vient de la capture et de nulle part ailleurs : un compteur
+        /// interne au worker compterait l'ordre des RÉSOLUTIONS, qui dépend du
+        /// réseau, et deux rejeux du même épisode ne le rendraient pas pareil.
+        first_seen_seq: u64,
         cles: Vec<(String, String)>,
     },
     /// R3.2 : l'épisode se clôt, relire tout ce qui est résolu.
@@ -148,6 +154,7 @@ pub enum Demande {
 pub enum Reponse {
     Resolution {
         candidate_id: String,
+        first_seen_seq: u64,
         resolution: Resolution,
     },
     EtatAvant {
@@ -180,6 +187,12 @@ pub struct EntiteFederee {
     pub state_after: Option<EtatPlat>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub state_meta: MetaEtat,
+    /// R2.3 : la clé qui a tranché, et quand.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<crate::assemblage::Resolue>,
+    /// Le rang de l'événement de première vue, tel que la capture l'a donné.
+    #[serde(default)]
+    pub first_seen_seq: u64,
     /// La raison, quand la résolution a échoué. Jamais un silence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub non_resolue: Option<String>,
@@ -209,13 +222,22 @@ impl Registre {
         match r {
             Reponse::Resolution {
                 candidate_id,
+                first_seen_seq,
                 resolution,
             } => {
                 let entree = e.entry(candidate_id).or_default();
+                entree.first_seen_seq = first_seen_seq;
                 match resolution {
-                    Resolution::Resolue { reference, .. } => {
+                    Resolution::Resolue {
+                        reference,
+                        par,
+                        quand,
+                    } => {
                         entree.api_ref = Some(reference);
                         entree.non_resolue = None;
+                        // R2.3 : ce qui a tranché, et quand. Sans ça, une
+                        // résolution fausse est indiagnosticable.
+                        entree.resolved = Some(crate::assemblage::Resolue { by: par, at: quand });
                     }
                     autre => {
                         // R2.2 : la raison précise, jamais « non résolu » tout
@@ -345,9 +367,15 @@ impl Worker {
     }
 
     /// R3.1 — une entité vient d'apparaître.
-    pub fn premiere_vue(&self, candidate_id: &str, cles: Vec<(String, String)>) {
+    pub fn premiere_vue(
+        &self,
+        candidate_id: &str,
+        first_seen_seq: u64,
+        cles: Vec<(String, String)>,
+    ) {
         let _ = self.demandes.send(Demande::Resoudre {
             candidate_id: candidate_id.to_string(),
+            first_seen_seq,
             cles,
         });
     }
@@ -371,7 +399,11 @@ fn boucle(
 
     while let Ok(d) = reception.recv() {
         match d {
-            Demande::Resoudre { candidate_id, cles } => {
+            Demande::Resoudre {
+                candidate_id,
+                first_seen_seq,
+                cles,
+            } => {
                 if budget == 0 {
                     registre.appliquer(Reponse::EtatAvant {
                         candidate_id,
@@ -387,6 +419,7 @@ fn boucle(
                 };
                 registre.appliquer(Reponse::Resolution {
                     candidate_id: candidate_id.clone(),
+                    first_seen_seq,
                     resolution: r,
                 });
                 // R3.1 : la lecture suit **immédiatement** la résolution. Attendre
@@ -545,7 +578,7 @@ mod tests {
         let registre = Arc::new(Registre::nouveau());
         let banc = Arc::new(Banc::nouveau(resolue(), etat("nouveau")));
         let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
-        w.premiere_vue("c1", vec![("email_token".into(), "EMAIL_aaa".into())]);
+        w.premiere_vue("c1", 1, vec![("email_token".into(), "EMAIL_aaa".into())]);
         w.relire_tout();
         assert!(fil.join().is_ok());
 
@@ -563,7 +596,7 @@ mod tests {
         let registre = Arc::new(Registre::nouveau());
         let banc = Arc::new(Banc::nouveau(Resolution::Ambigue(3), etat("x")));
         let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
-        w.premiere_vue("c1", vec![]);
+        w.premiere_vue("c1", 1, vec![]);
         w.relire_tout();
         let _ = fil.join();
 
@@ -584,7 +617,7 @@ mod tests {
             Issue::Trou("api indisponible apres 5 tentatives".into()),
         ));
         let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
-        w.premiere_vue("c1", vec![]);
+        w.premiere_vue("c1", 1, vec![]);
         w.relire_tout();
         let _ = fil.join();
 
@@ -605,7 +638,7 @@ mod tests {
             Issue::HorsPerimetre("droits insuffisants sur Lead.Statut".into()),
         ));
         let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
-        w.premiere_vue("c1", vec![]);
+        w.premiere_vue("c1", 1, vec![]);
         w.relire_tout();
         let _ = fil.join();
 
@@ -622,7 +655,7 @@ mod tests {
         let (w, fil) = Worker::demarrer(banc.clone(), registre.clone(), champs(), redacteur());
         // Chaque premiere vue coute deux appels : resolution + lecture.
         for i in 0..(BUDGET_APPELS + 10) {
-            w.premiere_vue(&format!("c{i}"), vec![]);
+            w.premiere_vue(&format!("c{i}"), 1, vec![]);
         }
         w.relire_tout();
         let _ = fil.join();
@@ -644,7 +677,7 @@ mod tests {
         let mut banc = Banc::nouveau(resolue(), etat("x"));
         banc.lenteur_ms = 5_000;
         let (w, fil) = Worker::demarrer(Arc::new(banc), registre.clone(), champs(), redacteur());
-        w.premiere_vue("c1", vec![]);
+        w.premiere_vue("c1", 1, vec![]);
 
         let horloge: Arc<dyn crate::horloge::Horloge> =
             Arc::new(crate::horloge::HorlogeReelle::new());
@@ -667,6 +700,7 @@ mod tests {
         // juge : elle ne doit pas compter pour le grade A.
         let registre = Registre::nouveau();
         registre.appliquer(Reponse::Resolution {
+            first_seen_seq: 1,
             candidate_id: "c1".into(),
             resolution: resolue(),
         });
@@ -797,7 +831,7 @@ mod tests {
         ]);
         let banc = Arc::new(Banc::nouveau(resolue(), Issue::Lu(sale)));
         let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
-        w.premiere_vue("c1", vec![]);
+        w.premiere_vue("c1", 1, vec![]);
         w.relire_tout();
         let _ = fil.join();
 
