@@ -1,0 +1,17 @@
+{
+  "crm": "salesforce",
+  "mail": "gmail",
+  "tasks": {
+    "maj-crm-post-echange": {
+      "scope_fields": ["Status", "Rating"],
+      "objects": ["Lead", "Contact"]
+    },
+    "maj-crm-avec-note": {
+      "scope_fields": ["Status", "Description"],
+      "objects": ["Lead"]
+    }
+  },
+  "budgets": {
+    "reads_per_episode": 30
+  }
+}

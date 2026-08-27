@@ -369,6 +369,32 @@ mod tests {
         assert!(Terrain::analyser(&j).is_ok());
     }
 
+    /// Le miroir : l'exemple du dépôt doit être accepté par CE validateur.
+    ///
+    /// `docs/terrain.example.json` est généré par `apps/terrain/plan.mjs` et
+    /// vérifié côté TypeScript. Sans ce test-ci, rien ne dirait que le fichier
+    /// que l'outil produit est celui que l'application sait lire — et on ne
+    /// l'apprendrait que le jour de la tâche 0, au pire moment.
+    #[test]
+    fn l_exemple_du_depot_est_accepte_par_ce_validateur() {
+        const EXEMPLE: &str = include_str!("../../../../docs/terrain.example.json");
+        let t = Terrain::analyser(EXEMPLE).expect("l exemple du depot doit etre lisible");
+        assert_eq!(t.crm, "salesforce");
+        assert_eq!(t.budgets.reads_per_episode, BUDGET_PAR_DEFAUT);
+
+        // Les deux taches de reference, avec leur perimetre.
+        let propre = t
+            .perimetre("maj-crm-post-echange")
+            .expect("tache de reference");
+        assert_eq!(propre.scope_fields, vec!["Status", "Rating"]);
+        assert_eq!(propre.objects, vec!["Lead", "Contact"]);
+
+        // Celle qui porte le texte long expres — deuxieme piege du design §5 :
+        // l'historique d'un texte long ne stocke pas ses valeurs.
+        let avec_note = t.perimetre("maj-crm-avec-note").expect("tache avec note");
+        assert!(avec_note.scope_fields.contains(&"Description".to_owned()));
+    }
+
     #[test]
     fn le_terrain_fait_l_aller_retour_sans_perdre_de_champ() {
         let t = Terrain::analyser(&json_minimal()).unwrap();

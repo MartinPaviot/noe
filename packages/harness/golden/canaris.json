@@ -15,6 +15,6 @@
   },
   "hors_perimetre": {
     "role": "PLANTEES dans l'org de demo (spec 003, tache 0), dans des champs qui ne figurent PAS dans les scope_fields de la tache. Elles ne matchent aucun motif PII — donc la redaction ne les masquerait pas, et c'est voulu : leur role n'est pas d'eprouver la redaction mais la RESTRICTION AU PERIMETRE de R3.1. Si l'une apparait dans un episode, le connecteur a lu ce que personne ne lui a demande, et aucune redaction ne rattrape ca. Garde permanente ; elle ne mordra que le jour ou une org existe, et elle est ecrite avant pour etre en place quand la donnee arrive.",
-    "chaines": ["CANARY_HORS_PERIMETRE_DESCRIPTION", "CANARY_HORS_PERIMETRE_ADRESSE"]
+    "chaines": ["CANARY_HORS_PERIMETRE_TITRE", "CANARY_HORS_PERIMETRE_ADRESSE"]
   }
 }
