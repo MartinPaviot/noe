@@ -414,10 +414,10 @@ pub fn lire_en_tetes(message: &serde_json::Value) -> BTreeMap<String, String> {
 /// en produirait deux, dont une sans arobase. On suit donc l'état — dans les
 /// guillemets, dans les chevrons, ou dehors.
 ///
-/// La normalisation est celle de `normaliserIdentifiant('email_token')` côté
-/// TypeScript : `trim` puis minuscules. **Les mêmes règles des deux côtés**,
-/// sinon deux graphies d'une adresse donneraient deux jetons et la jointure
-/// serait perdue sans que personne ne le voie.
+/// La normalisation est celle de `normaliser_identifiant`, la seule du dépôt.
+/// **Les mêmes règles des deux côtés**, sinon deux graphies d'une adresse
+/// donneraient deux jetons et la jointure serait perdue sans que personne ne le
+/// voie — et c'est un miroir vérifié qui le garantit, plus un commentaire.
 pub fn adresses_de_liste(valeur: &str) -> Vec<String> {
     let mut sorties = Vec::new();
     let mut courant = String::new();
@@ -453,7 +453,7 @@ pub fn adresses_de_liste(valeur: &str) -> Vec<String> {
 }
 
 fn pousser_adresse(sorties: &mut Vec<String>, brut: &str) {
-    let a = brut.trim().to_lowercase();
+    let a = crate::federation::normaliser_identifiant("email_token", brut);
     // Une adresse sans arobase n'est pas une adresse : c'est un reste de nom
     // affiché, ou un groupe RFC (`undisclosed-recipients:;`).
     if a.contains('@') && !a.starts_with('@') && !a.ends_with('@') && !sorties.contains(&a) {

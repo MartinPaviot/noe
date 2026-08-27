@@ -14,7 +14,7 @@
     "typecheck": "pnpm -r --parallel typecheck",
     "test": "pnpm build && vitest run",
     "secrets": "gitleaks detect --no-banner --redact -c .gitleaks.toml",
-    "verify": "pnpm lint && pnpm lint:sql && pnpm typecheck && pnpm build && pnpm lint:motifs && pnpm lint:client && pnpm test:only",
+    "verify": "pnpm lint && pnpm lint:sql && pnpm typecheck && pnpm build && pnpm lint:motifs && pnpm lint:client && pnpm lint:resolution && pnpm test:only",
     "supabase": "supabase",
     "lint:sql": "node scripts/lint-anti-contenu-cli.mjs",
     "build": "pnpm -r build",
@@ -22,7 +22,8 @@
     "test:only": "vitest run",
     "lint:motifs": "node scripts/generer-motifs.mjs --verifier",
     "evidence": "node scripts/evidence-quotidienne.mjs",
-    "lint:client": "node scripts/generer-client.mjs --verifier"
+    "lint:client": "node scripts/generer-client.mjs --verifier",
+    "lint:resolution": "node scripts/generer-resolution.mjs --verifier"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.0",

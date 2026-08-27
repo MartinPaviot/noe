@@ -763,7 +763,7 @@ pub const CONNECTEUR: &str = "salesforce";
 /// c'est le système lui-même qui l'a émis, il ne peut pas désigner deux
 /// enregistrements. Le courriel ensuite. Le couple domaine + nom en dernier,
 /// parce que deux personnes peuvent porter le même nom dans la même entreprise.
-const PRIORITE: &[&str] = &["system_id", "email_token", "domain_name"];
+pub(crate) const PRIORITE: &[&str] = &["system_id", "email_token", "domain_name"];
 
 /// Le séparateur d'une clé `domain_name`.
 ///

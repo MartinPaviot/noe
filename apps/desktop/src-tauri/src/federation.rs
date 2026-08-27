@@ -206,6 +206,29 @@ pub enum Reponse {
     },
 }
 
+/// Normalise une valeur d'identification avant tokenisation (R2.1, R6.2).
+///
+/// **Miroir de `normaliserIdentifiant`.** La phrase « les mêmes règles des deux
+/// côtés » était écrite en commentaire dans quatre fichiers, et un commentaire ne
+/// vérifie rien : deux graphies d'une adresse qui ne convergeraient que d'un côté
+/// donneraient deux jetons pour une personne, et la jointure serait perdue sans
+/// que personne ne le voie. Les vecteurs de `vecteurs-resolution.json` la
+/// gardent.
+///
+/// - **courriel** : la casse d'une adresse n'est pas significative en pratique,
+///   et les blancs de bordure viennent des copier-coller — ils n'appartiennent à
+///   personne.
+/// - **domaine** : même chose.
+/// - **identifiant système** : opaque. On ne touche pas à sa casse, qui peut
+///   être significative — chez Salesforce elle porte le suffixe de contrôle,
+///   donc de l'information. Seuls les blancs de bordure partent.
+pub fn normaliser_identifiant(genre: &str, valeur: &str) -> String {
+    match genre {
+        "system_id" => valeur.trim().to_owned(),
+        _ => valeur.trim().to_lowercase(),
+    }
+}
+
 /// Normalise un libellé lu à l'écran, pour le rapprocher d'un libellé d'API.
 ///
 /// Un nom accessible n'est pas un libellé propre : il porte les deux-points du
@@ -1143,6 +1166,99 @@ impl Federation for Routeur {
                 Issue::HorsPerimetre(format!("connecteur non branche : {}", reference.connector))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_miroir_resolution {
+    use super::*;
+
+    /// Le miroir produit par `scripts/generer-resolution.mjs` depuis
+    /// `resolution.ts`.
+    #[derive(serde::Deserialize)]
+    struct Miroir {
+        priorite: Vec<String>,
+        normalisation: Vec<CasNormalisation>,
+        resolutions: Vec<CasResolution>,
+    }
+    #[derive(serde::Deserialize)]
+    struct CasNormalisation {
+        kind: String,
+        valeur: String,
+        attendu: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct CasResolution {
+        nom: String,
+        statut: String,
+        compte: Option<usize>,
+    }
+
+    const MIROIR: &str = include_str!("../../../../packages/core/vecteurs-resolution.json");
+
+    fn miroir() -> Miroir {
+        serde_json::from_str(MIROIR).expect("vecteurs-resolution.json")
+    }
+
+    #[test]
+    fn l_ordre_de_force_des_cles_est_le_meme_des_deux_cotes() {
+        // Inverser deux entrees ne casserait aucun test : ca deciderait seulement
+        // qu'une ambiguite de courriel se laisse trancher par un nom, ce que R2.2
+        // interdit — et le corpus aurait l'air juste.
+        assert_eq!(miroir().priorite, crate::salesforce::PRIORITE);
+    }
+
+    #[test]
+    fn la_normalisation_est_la_meme_des_deux_cotes() {
+        // « Les memes regles des deux cotes » etait ecrit en commentaire dans
+        // quatre fichiers. Un commentaire ne verifie rien.
+        let mut ecarts = Vec::new();
+        for cas in miroir().normalisation {
+            let obtenu = normaliser_identifiant(&cas.kind, &cas.valeur);
+            if obtenu != cas.attendu {
+                ecarts.push(format!(
+                    "{} sur « {} » : « {} » ici, « {} » en TypeScript",
+                    cas.kind, cas.valeur, obtenu, cas.attendu
+                ));
+            }
+        }
+        assert!(
+            ecarts.is_empty(),
+            "les deux normalisations divergent :\n{ecarts:#?}"
+        );
+    }
+
+    #[test]
+    fn la_casse_d_un_identifiant_systeme_survit_a_la_normalisation() {
+        // Le miroir doit CONTENIR ce cas, sinon le test precedent passerait sur
+        // un jeu qui ne l'exerce pas. Un vecteur absent est un controle absent.
+        let m = miroir();
+        let systeme: Vec<&CasNormalisation> = m
+            .normalisation
+            .iter()
+            .filter(|c| c.kind == "system_id")
+            .collect();
+        assert!(systeme.len() >= 2, "le miroir n eprouve pas la casse");
+        assert!(
+            systeme
+                .iter()
+                .any(|c| c.attendu.chars().any(char::is_uppercase)),
+            "aucun vecteur ne garde de majuscule : la regle ne serait pas eprouvee"
+        );
+    }
+
+    #[test]
+    fn une_ambiguite_reste_ambigue_des_deux_cotes() {
+        // Le scenario qui compte : deux candidats par courriel, un seul par
+        // domaine + nom. Affiner avec la cle plus faible, c'est deviner.
+        let m = miroir();
+        let cas = m
+            .resolutions
+            .iter()
+            .find(|c| c.nom.contains("deux candidats"))
+            .expect("le miroir doit porter ce scenario");
+        assert_eq!(cas.statut, "ambiguous");
+        assert_eq!(cas.compte, Some(2));
     }
 }
 

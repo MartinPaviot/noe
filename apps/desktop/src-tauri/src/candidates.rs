@@ -148,8 +148,8 @@ pub fn indices_de(texte: &str, aiguille: &str) -> Vec<usize> {
 /// l'autre attrape, et la valeur qui échappe à la résolution est justement celle
 /// qui a échappé à la redaction.
 ///
-/// La normalisation est celle de `normaliserIdentifiant('email_token')` :
-/// `trim` puis minuscules.
+/// La normalisation est celle de `normaliser_identifiant`, la seule du dépôt —
+/// et non une copie de ses règles, qui finirait par en différer.
 pub fn courriels(texte: &str) -> Vec<String> {
     let normalise = motifs::normaliser_blancs(texte);
     let mut trouves = Vec::new();
@@ -160,7 +160,7 @@ pub fn courriels(texte: &str) -> Vec<String> {
         let Some(brut) = normalise.get(occurrence.debut..occurrence.fin) else {
             continue;
         };
-        let adresse = brut.trim().to_lowercase();
+        let adresse = crate::federation::normaliser_identifiant("email_token", brut);
         if !adresse.is_empty() && !trouves.contains(&adresse) {
             trouves.push(adresse);
         }

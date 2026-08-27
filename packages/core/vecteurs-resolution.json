@@ -1,0 +1,104 @@
+{
+  "note": "Genere par scripts/generer-resolution.mjs. Ne pas editer a la main.",
+  "priorite": [
+    "system_id",
+    "email_token",
+    "domain_name"
+  ],
+  "normalisation": [
+    {
+      "kind": "email_token",
+      "valeur": "Jean.Dupont@Exemple.FR",
+      "attendu": "jean.dupont@exemple.fr"
+    },
+    {
+      "kind": "email_token",
+      "valeur": "  jean.dupont@exemple.fr  ",
+      "attendu": "jean.dupont@exemple.fr"
+    },
+    {
+      "kind": "email_token",
+      "valeur": "JEAN.DUPONT@EXEMPLE.FR",
+      "attendu": "jean.dupont@exemple.fr"
+    },
+    {
+      "kind": "email_token",
+      "valeur": "a@b.fr",
+      "attendu": "a@b.fr"
+    },
+    {
+      "kind": "email_token",
+      "valeur": "",
+      "attendu": ""
+    },
+    {
+      "kind": "domain_name",
+      "valeur": "  Exemple.FR ",
+      "attendu": "exemple.fr"
+    },
+    {
+      "kind": "domain_name",
+      "valeur": "exemple.fr",
+      "attendu": "exemple.fr"
+    },
+    {
+      "kind": "system_id",
+      "valeur": "0035g00000LmT4EAAV",
+      "attendu": "0035g00000LmT4EAAV"
+    },
+    {
+      "kind": "system_id",
+      "valeur": "  0035g00000LmT4EAAV  ",
+      "attendu": "0035g00000LmT4EAAV"
+    },
+    {
+      "kind": "system_id",
+      "valeur": "0035G00000LMT4EAAV",
+      "attendu": "0035G00000LMT4EAAV"
+    }
+  ],
+  "resolutions": [
+    {
+      "nom": "un seul candidat par courriel",
+      "statut": "resolved",
+      "par": "email_token",
+      "id": "003AAA",
+      "compte": null
+    },
+    {
+      "nom": "aucun candidat",
+      "statut": "not_found",
+      "par": null,
+      "id": null,
+      "compte": null
+    },
+    {
+      "nom": "deux candidats par courriel, un seul par domaine + nom",
+      "statut": "ambiguous",
+      "par": null,
+      "id": null,
+      "compte": 2
+    },
+    {
+      "nom": "l identifiant systeme passe avant le courriel ambigu",
+      "statut": "resolved",
+      "par": "system_id",
+      "id": "003AAA",
+      "compte": null
+    },
+    {
+      "nom": "deux graphies d une adresse designent la meme personne",
+      "statut": "resolved",
+      "par": "email_token",
+      "id": "003AAA",
+      "compte": null
+    },
+    {
+      "nom": "aucune cle exploitable",
+      "statut": "not_found",
+      "par": null,
+      "id": null,
+      "compte": null
+    }
+  ]
+}
