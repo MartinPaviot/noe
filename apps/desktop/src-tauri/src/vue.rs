@@ -262,6 +262,8 @@ mod tests {
                 state_after: None,
                 resolved: None,
                 state_meta: None,
+                unresolved_reason: None,
+                read_gaps: None,
             }],
             grade: "B".into(),
             grade_reason: "declasse en B : 1 entite non resolue".into(),

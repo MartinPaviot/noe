@@ -103,6 +103,10 @@ const episode = {
         Description: { unknown_before: true, reason: 'champ non historise par le systeme' },
         Rating: { reconstituted: true, reason: 'reconstitue depuis l historique' },
       },
+      // R2.2 et R5.2 : les raisons. Elles n'ont de valeur que si elles arrivent
+      // jusqu'a l'episode, et rien ne le verifiait avant ce champ.
+      unresolved_reason: 'blocked:droits insuffisants sur LeadHistory',
+      read_gaps: ['lecture apres : quota atteint (REQUEST_LIMIT_EXCEEDED)'],
     },
   ],
   // Le schema VERIFIE lui-meme que le grade declare est celui que les regles

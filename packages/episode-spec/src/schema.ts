@@ -154,6 +154,28 @@ export const Entity = z.object({
   resolved: z.object({ by: z.string().min(1), at: z.iso.datetime() }).optional(),
   /** Les champs que le juge doit exclure, et pourquoi. */
   state_meta: StateMeta.optional(),
+  /**
+   * R2.2 (spec 003) : pourquoi l'entité n'est pas résolue.
+   *
+   * `not_found` | `ambiguous:n` | `blocked:<cause>` — jamais « non résolu » tout
+   * court. Les trois n'appellent pas le même geste : le premier envoie créer
+   * l'enregistrement, le deuxième désambiguïser, le troisième regarder les
+   * droits ou le quota.
+   *
+   * Le champ manquait, et la conséquence était concrète : le capteur calculait
+   * cette raison puis la jetait au moment d'écrire l'épisode.
+   */
+  unresolved_reason: z.string().min(1).optional(),
+  /**
+   * R5.2 (spec 003) : les lectures d'état qui n'ont pas abouti, avec leur cause.
+   *
+   * **Ce ne sont pas des `gap` d'événement.** Un `gap` dit que le capteur a
+   * perdu le fil des actions ; ceci dit qu'une lecture d'API a échoué. Les
+   * compter ensemble ferait passer une panne réseau pour une perte de capture,
+   * et `completeness.gaps` doit rester égal au nombre d'événements `gap` — c'est
+   * ce que le raffinement plus bas vérifie.
+   */
+  read_gaps: z.array(z.string().min(1)).optional(),
 });
 
 export const Completeness = z.object({

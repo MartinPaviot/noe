@@ -104,7 +104,11 @@
           "reconstituted": true,
           "reason": "reconstitue depuis l historique"
         }
-      }
+      },
+      "unresolved_reason": "blocked:droits insuffisants sur LeadHistory",
+      "read_gaps": [
+        "lecture apres : quota atteint (REQUEST_LIMIT_EXCEEDED)"
+      ]
     }
   ],
   "grade": "B",

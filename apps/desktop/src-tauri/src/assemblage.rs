@@ -164,6 +164,16 @@ pub struct Entite {
     /// Les champs que le juge doit exclure de son verdict, et pourquoi (§7).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_meta: Option<crate::federation::MetaEtat>,
+    /// R2.2 — pourquoi l'entité n'est pas résolue. Jamais un silence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unresolved_reason: Option<String>,
+    /// R5.2 — les lectures d'état qui n'ont pas abouti, avec leur cause.
+    ///
+    /// **Ce ne sont pas des `gap`.** Un `gap` dit que le capteur a perdu le fil
+    /// des actions ; ceci dit qu'une lecture d'API a échoué. Les additionner
+    /// ferait passer une panne réseau pour une perte de capture.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_gaps: Option<Vec<String>>,
 }
 
 impl Entite {
@@ -465,6 +475,8 @@ pub fn assembler(
                 state_after: None,
                 resolved: None,
                 state_meta: None,
+                unresolved_reason: None,
+                read_gaps: None,
             }]
         })
         .unwrap_or_default();
@@ -1178,6 +1190,8 @@ mod tests {
                     state_after: e.resolue.then(|| serde_json::json!({})),
                     resolved: None,
                     state_meta: None,
+                    unresolved_reason: None,
+                    read_gaps: None,
                 })
                 .collect(),
             grade: String::new(),
@@ -1385,6 +1399,8 @@ mod tests {
                 state_after: Some(serde_json::json!({ "statut": "qualifie" })),
                 resolved: None,
                 state_meta: None,
+                unresolved_reason: None,
+                read_gaps: None,
             }],
             grade: String::new(),
             grade_reason: String::new(),
@@ -1452,7 +1468,6 @@ pub fn fusionner_federation(
     }
 
     let mut nouvelles: Vec<Entite> = Vec::new();
-    let mut trous = 0_u64;
     for (candidate_id, federee) in entites {
         // L'identifiant de candidate est `<connecteur>:<jeton>` — le jeton, et
         // jamais la valeur claire : il traverse l'épisode et l'épisode est écrit.
@@ -1463,7 +1478,6 @@ pub fn fusionner_federation(
             // clé vide sera vue par le grade, qui déclasse en C.
             _ => ("capture".to_owned(), candidate_id.clone()),
         };
-        trous += federee.trous.len() as u64;
         nouvelles.push(Entite {
             key: CleEntite {
                 type_entite,
@@ -1486,14 +1500,26 @@ pub fn fusionner_federation(
                 .and_then(|e| serde_json::to_value(e).ok()),
             resolved: federee.resolved.clone(),
             state_meta: (!federee.state_meta.is_empty()).then(|| federee.state_meta.clone()),
+            // R2.2 et R5.2 : les raisons entrent dans l'épisode. Elles étaient
+            // calculées puis jetées ici même — un silence, alors que l'exigence
+            // demande la raison précise.
+            unresolved_reason: federee.non_resolue.clone(),
+            read_gaps: (!federee.trous.is_empty()).then(|| federee.trous.clone()),
         });
     }
 
     episode.entities = nouvelles;
-    // R4.3 : les trous déclarés par la fédération comptent dans la complétude.
-    // Un trou de lecture qu'on ne compterait pas se lirait comme un système qui
-    // n'a rien fait.
-    episode.completeness.gaps += trous;
+    // **`completeness.gaps` n'est PAS touché ici**, et c'est une correction.
+    //
+    // Ce compteur dit, au contrat, le nombre d'événements `gap` de l'épisode —
+    // le schéma le vérifie explicitement. Y ajouter les trous de lecture de la
+    // fédération produisait un épisode que `load()` refuse : il disparaissait du
+    // juge et des statistiques, silencieusement, ce qui est exactement le
+    // contraire de ce que l'ajout cherchait.
+    //
+    // Les trous de lecture ne sont pas perdus pour autant : ils vivent sur
+    // l'entité, dans `read_gaps`, avec leur cause. Une panne réseau n'est pas
+    // une perte de capture, et les compter ensemble effacerait la différence.
 
     let (grade, raison) = grade_de(episode);
     episode.grade = grade;
@@ -1886,15 +1912,60 @@ mod tests_fusion {
     }
 
     #[test]
-    fn les_trous_de_la_federation_comptent_dans_la_completude() {
-        // Un trou de lecture qu'on ne compterait pas se lirait comme un systeme
-        // qui n'a rien fait.
+    fn les_trous_de_lecture_vivent_sur_l_entite_avec_leur_cause() {
+        // Ils etaient additionnes a `completeness.gaps`, ce qui produisait un
+        // episode que le contrat REFUSE — le raffinement du schema exige que ce
+        // compteur egale le nombre d'evenements `gap`. L'episode disparaissait
+        // alors du juge et des statistiques, en silence : le contraire exact de
+        // ce que l'ajout cherchait.
         let mut ep = episode_de_base();
         let avant = ep.completeness.gaps;
         let mut f = federee_resolue();
         f.trous = vec!["quota : 429".into(), "lecture apres : 500".into()];
         fusionner_federation(&mut ep, &snapshot(f));
-        assert_eq!(ep.completeness.gaps, avant + 2);
+
+        assert_eq!(ep.completeness.gaps, avant, "le compteur de gap a bouge");
+        let lus = ep.entities[0].read_gaps.as_ref().expect("read_gaps");
+        assert_eq!(lus.len(), 2);
+        assert!(lus[0].contains("429"), "{lus:?}");
+    }
+
+    #[test]
+    fn la_raison_de_non_resolution_entre_dans_l_episode() {
+        // R2.2 : « avec la raison precise ». Elle etait calculee puis jetee au
+        // moment d'ecrire l'episode — un silence, alors que l'exigence la
+        // reclame nommement.
+        let mut ep = episode_de_base();
+        let mut f = federee_resolue();
+        f.api_ref = None;
+        f.non_resolue = Some("blocked:droits insuffisants".into());
+        fusionner_federation(&mut ep, &snapshot(f));
+        assert_eq!(
+            ep.entities[0].unresolved_reason.as_deref(),
+            Some("blocked:droits insuffisants")
+        );
+    }
+
+    #[test]
+    fn apres_fusion_le_compteur_de_trous_egale_toujours_les_evenements_gap() {
+        // Le miroir Rust du raffinement TypeScript. Il n'existait que la-bas,
+        // donc le capteur pouvait produire un episode invalide sans qu'aucun
+        // banc de ce cote ne le dise — et c'est exactement ce qui est arrive.
+        let mut ep = episode_de_base();
+        let mut f = federee_resolue();
+        f.trous = vec!["a".into(), "b".into(), "c".into()];
+        fusionner_federation(&mut ep, &snapshot(f));
+
+        let gaps = ep
+            .events
+            .iter()
+            .filter(|e| matches!(e, Evenement::Gap { .. }))
+            .count();
+        assert_eq!(
+            ep.completeness.gaps as usize, gaps,
+            "completeness.gaps = {} mais {gaps} evenement(s) gap",
+            ep.completeness.gaps
+        );
     }
 
     #[test]
