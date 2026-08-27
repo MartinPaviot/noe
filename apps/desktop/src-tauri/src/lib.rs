@@ -13,6 +13,7 @@ mod config;
 mod empreinte;
 mod etat;
 mod federation;
+mod gmail;
 mod horloge;
 mod journal;
 mod moteur;
