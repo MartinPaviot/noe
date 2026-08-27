@@ -12,7 +12,8 @@
       "!packages/episode-spec/motifs.json",
       "!packages/episode-spec/vecteurs-redaction.json",
       "!packages/episode-spec/causes-gap.json",
-      "!packages/episode-spec/vecteurs-grade.json"
+      "!packages/episode-spec/vecteurs-grade.json",
+      "!packages/core/vecteurs-client.json"
     ]
   },
   "formatter": {

@@ -50,7 +50,11 @@ importers:
 
   packages/connectors: {}
 
-  packages/core: {}
+  packages/core:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
 
   packages/episode-spec:
     dependencies:

@@ -1,0 +1,311 @@
+{
+  "note": "Genere par scripts/generer-client.mjs. Ne pas editer a la main.",
+  "constantes": {
+    "tentatives_max": 5,
+    "delai_base_ms": 250,
+    "delai_max_ms": 8000,
+    "budget_par_episode": 30
+  },
+  "delais": [
+    {
+      "tentative": 1,
+      "alea": 0,
+      "attendu_ms": 125
+    },
+    {
+      "tentative": 1,
+      "alea": 0.25,
+      "attendu_ms": 156
+    },
+    {
+      "tentative": 1,
+      "alea": 0.5,
+      "attendu_ms": 187
+    },
+    {
+      "tentative": 1,
+      "alea": 0.75,
+      "attendu_ms": 218
+    },
+    {
+      "tentative": 1,
+      "alea": 0.999999,
+      "attendu_ms": 249
+    },
+    {
+      "tentative": 1,
+      "alea": 1,
+      "attendu_ms": 250
+    },
+    {
+      "tentative": 2,
+      "alea": 0,
+      "attendu_ms": 250
+    },
+    {
+      "tentative": 2,
+      "alea": 0.25,
+      "attendu_ms": 312
+    },
+    {
+      "tentative": 2,
+      "alea": 0.5,
+      "attendu_ms": 375
+    },
+    {
+      "tentative": 2,
+      "alea": 0.75,
+      "attendu_ms": 437
+    },
+    {
+      "tentative": 2,
+      "alea": 0.999999,
+      "attendu_ms": 499
+    },
+    {
+      "tentative": 2,
+      "alea": 1,
+      "attendu_ms": 500
+    },
+    {
+      "tentative": 3,
+      "alea": 0,
+      "attendu_ms": 500
+    },
+    {
+      "tentative": 3,
+      "alea": 0.25,
+      "attendu_ms": 625
+    },
+    {
+      "tentative": 3,
+      "alea": 0.5,
+      "attendu_ms": 750
+    },
+    {
+      "tentative": 3,
+      "alea": 0.75,
+      "attendu_ms": 875
+    },
+    {
+      "tentative": 3,
+      "alea": 0.999999,
+      "attendu_ms": 999
+    },
+    {
+      "tentative": 3,
+      "alea": 1,
+      "attendu_ms": 1000
+    },
+    {
+      "tentative": 4,
+      "alea": 0,
+      "attendu_ms": 1000
+    },
+    {
+      "tentative": 4,
+      "alea": 0.25,
+      "attendu_ms": 1250
+    },
+    {
+      "tentative": 4,
+      "alea": 0.5,
+      "attendu_ms": 1500
+    },
+    {
+      "tentative": 4,
+      "alea": 0.75,
+      "attendu_ms": 1750
+    },
+    {
+      "tentative": 4,
+      "alea": 0.999999,
+      "attendu_ms": 1999
+    },
+    {
+      "tentative": 4,
+      "alea": 1,
+      "attendu_ms": 2000
+    },
+    {
+      "tentative": 5,
+      "alea": 0,
+      "attendu_ms": 2000
+    },
+    {
+      "tentative": 5,
+      "alea": 0.25,
+      "attendu_ms": 2500
+    },
+    {
+      "tentative": 5,
+      "alea": 0.5,
+      "attendu_ms": 3000
+    },
+    {
+      "tentative": 5,
+      "alea": 0.75,
+      "attendu_ms": 3500
+    },
+    {
+      "tentative": 5,
+      "alea": 0.999999,
+      "attendu_ms": 3999
+    },
+    {
+      "tentative": 5,
+      "alea": 1,
+      "attendu_ms": 4000
+    },
+    {
+      "tentative": 6,
+      "alea": 0,
+      "attendu_ms": 4000
+    },
+    {
+      "tentative": 6,
+      "alea": 0.25,
+      "attendu_ms": 5000
+    },
+    {
+      "tentative": 6,
+      "alea": 0.5,
+      "attendu_ms": 6000
+    },
+    {
+      "tentative": 6,
+      "alea": 0.75,
+      "attendu_ms": 7000
+    },
+    {
+      "tentative": 6,
+      "alea": 0.999999,
+      "attendu_ms": 7999
+    },
+    {
+      "tentative": 6,
+      "alea": 1,
+      "attendu_ms": 8000
+    },
+    {
+      "tentative": 8,
+      "alea": 0,
+      "attendu_ms": 4000
+    },
+    {
+      "tentative": 8,
+      "alea": 0.25,
+      "attendu_ms": 5000
+    },
+    {
+      "tentative": 8,
+      "alea": 0.5,
+      "attendu_ms": 6000
+    },
+    {
+      "tentative": 8,
+      "alea": 0.75,
+      "attendu_ms": 7000
+    },
+    {
+      "tentative": 8,
+      "alea": 0.999999,
+      "attendu_ms": 7999
+    },
+    {
+      "tentative": 8,
+      "alea": 1,
+      "attendu_ms": 8000
+    },
+    {
+      "tentative": 12,
+      "alea": 0,
+      "attendu_ms": 4000
+    },
+    {
+      "tentative": 12,
+      "alea": 0.25,
+      "attendu_ms": 5000
+    },
+    {
+      "tentative": 12,
+      "alea": 0.5,
+      "attendu_ms": 6000
+    },
+    {
+      "tentative": 12,
+      "alea": 0.75,
+      "attendu_ms": 7000
+    },
+    {
+      "tentative": 12,
+      "alea": 0.999999,
+      "attendu_ms": 7999
+    },
+    {
+      "tentative": 12,
+      "alea": 1,
+      "attendu_ms": 8000
+    },
+    {
+      "tentative": 20,
+      "alea": 0,
+      "attendu_ms": 4000
+    },
+    {
+      "tentative": 20,
+      "alea": 0.25,
+      "attendu_ms": 5000
+    },
+    {
+      "tentative": 20,
+      "alea": 0.5,
+      "attendu_ms": 6000
+    },
+    {
+      "tentative": 20,
+      "alea": 0.75,
+      "attendu_ms": 7000
+    },
+    {
+      "tentative": 20,
+      "alea": 0.999999,
+      "attendu_ms": 7999
+    },
+    {
+      "tentative": 20,
+      "alea": 1,
+      "attendu_ms": 8000
+    },
+    {
+      "tentative": 40,
+      "alea": 0,
+      "attendu_ms": 4000
+    },
+    {
+      "tentative": 40,
+      "alea": 0.25,
+      "attendu_ms": 5000
+    },
+    {
+      "tentative": 40,
+      "alea": 0.5,
+      "attendu_ms": 6000
+    },
+    {
+      "tentative": 40,
+      "alea": 0.75,
+      "attendu_ms": 7000
+    },
+    {
+      "tentative": 40,
+      "alea": 0.999999,
+      "attendu_ms": 7999
+    },
+    {
+      "tentative": 40,
+      "alea": 1,
+      "attendu_ms": 8000
+    }
+  ]
+}

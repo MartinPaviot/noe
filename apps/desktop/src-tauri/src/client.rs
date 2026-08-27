@@ -350,16 +350,65 @@ mod tests {
 
     // -- Le delai ----------------------------------------------------------
 
+    /// Le miroir produit par `scripts/generer-client.mjs` depuis `client.ts`.
+    #[derive(serde::Deserialize)]
+    struct Miroir {
+        constantes: Constantes,
+        delais: Vec<Vecteur>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Constantes {
+        tentatives_max: u32,
+        delai_base_ms: u64,
+        delai_max_ms: u64,
+        budget_par_episode: u32,
+    }
+    #[derive(serde::Deserialize)]
+    struct Vecteur {
+        tentative: u32,
+        alea: f64,
+        attendu_ms: u64,
+    }
+
+    const MIROIR: &str = include_str!("../../../../packages/core/vecteurs-client.json");
+
     #[test]
-    fn le_delai_est_le_meme_que_celui_du_client_typescript() {
-        // Miroir exact de `delaiMs`. Deux clients qui reprendraient differemment
-        // produiraient deux corpus incomparables, et l'ecart ne se verrait qu'au
-        // moment ou on essaierait de les additionner.
-        assert_eq!(delai_ms(1, 1.0), 250);
-        assert_eq!(delai_ms(2, 1.0), 500);
-        assert_eq!(delai_ms(3, 1.0), 1_000);
-        assert_eq!(delai_ms(1, 0.0), 125);
-        assert_eq!(delai_ms(2, 0.0), 250);
+    fn les_constantes_sont_celles_du_client_typescript() {
+        // Recopiees a la main le 2026-08-27 ; gardees par un miroir depuis.
+        let m: Miroir = serde_json::from_str(MIROIR).expect("vecteurs-client.json");
+        assert_eq!(m.constantes.tentatives_max, TENTATIVES_MAX);
+        assert_eq!(m.constantes.delai_base_ms, DELAI_BASE_MS);
+        assert_eq!(m.constantes.delai_max_ms, DELAI_MAX_MS);
+        assert_eq!(
+            m.constantes.budget_par_episode,
+            crate::terrain::BUDGET_PAR_DEFAUT
+        );
+    }
+
+    #[test]
+    fn le_delai_rend_les_memes_valeurs_que_le_client_typescript() {
+        // **Comparer les constantes ne prouve presque rien** : ce sont elles
+        // qu'on relit. Ce qui diverge en silence, c'est l'arithmetique — un
+        // `Math.floor` contre une troncature de cast, un `2 ** n` en flottant
+        // contre un decalage entier, un plafond applique avant ou apres le
+        // jitter. On compare donc les SORTIES sur les memes entrees.
+        let m: Miroir = serde_json::from_str(MIROIR).expect("vecteurs-client.json");
+        assert!(m.delais.len() >= 40, "miroir trop maigre");
+        let mut ecarts = Vec::new();
+        for v in &m.delais {
+            let obtenu = delai_ms(v.tentative, v.alea);
+            if obtenu != v.attendu_ms {
+                ecarts.push(format!(
+                    "tentative {} alea {} : {} ici, {} en TypeScript",
+                    v.tentative, v.alea, obtenu, v.attendu_ms
+                ));
+            }
+        }
+        assert!(
+            ecarts.is_empty(),
+            "les deux clients divergent :
+{ecarts:#?}"
+        );
     }
 
     #[test]

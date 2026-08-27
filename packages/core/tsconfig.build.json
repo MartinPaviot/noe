@@ -1,0 +1,17 @@
+{
+  // Le build EXCLUT les tests, et c'est ce qui a revele le probleme : le type de
+  // `setTimeout` n'arrivait dans la compilation que par les fichiers de test,
+  // qui importent vitest. Le typage d'un module de production dependait donc de
+  // la presence de ses tests — vrai jusqu'au jour ou on compile sans eux.
+  //
+  // `@noe/core` planifie bel et bien un minuteur : il declare desormais le type
+  // qu'il utilise, au lieu de l'emprunter a son banc.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["node"]
+  },
+  "exclude": ["src/**/*.test.ts"]
+}
