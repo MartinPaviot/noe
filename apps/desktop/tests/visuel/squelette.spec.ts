@@ -28,6 +28,16 @@ test('etat nominal — avec des episodes', async ({ page }) => {
   await expect(page.locator('.grade-C')).toHaveCount(1);
   await expect(page.locator('.pt-trou')).toHaveCount(2);
 
+  // R5.4 : le hors-perimetre se voit, et seulement quand il y en a.
+  //
+  // Une assertion de texte plutot qu'un pixel : la tolerance de la baseline
+  // (1 % du viewport, soit dix mille pixels) absorbe sans broncher une ligne de
+  // chiffres. Un controle qui ne dirait rien si la ligne disparaissait ne
+  // controlerait pas grand-chose.
+  const horsPerimetre = page.locator('.episode', { hasText: 'hors périmètre' });
+  await expect(horsPerimetre).toHaveCount(1);
+  await expect(horsPerimetre.locator('dd.hors')).toHaveText('3');
+
   await expect(page).toHaveScreenshot('nominal.png', { fullPage: true });
 });
 

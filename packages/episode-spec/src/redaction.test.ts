@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { episodeValide } from './fixtures.js';
 import {
+  chercherCompact,
   chercherPii,
   MOTIFS_PII,
+  normaliserBlancs,
   resoudreChevauchements,
   resumerOccurrences,
   VERSION_MOTIFS,
@@ -21,7 +23,71 @@ describe('bibliotheque de motifs', () => {
   // un effet de bord. Ce test a fait son travail — il a rougi quand la v2 a
   // corrigé le trou téléphonique, et a forcé l'entrée dans `decisions.md`.
   it('est versionnee — un corpus juge sous une version anterieure reste interpretable', () => {
-    expect(VERSION_MOTIFS).toBe(3);
+    expect(VERSION_MOTIFS).toBe(4);
+  });
+
+  // Les trois graphies trouvees par revue adverse (D29). Chacune traversait la
+  // redaction en clair ; chacune est une forme d'affichage courante, pas une
+  // curiosite de laboratoire.
+  it.each([
+    ['parenthese de conduite, mobile', 'Mobile +33 (0)6 12 34 56 78'],
+    ['parenthese de conduite, fixe', 'Standard +33 (0)1 42 68 53 00'],
+    ['parenthese sans separateurs', 'Direct +33 (0)612345678'],
+    ['indicatif 0033', 'Depuis l etranger 0033 6 12 34 56 78'],
+    ['espace insecable', 'Ligne 06\u00a012\u00a034\u00a056\u00a078'],
+    ['espace insecable etroite', 'Ligne 06\u202f12\u202f34\u202f56\u202f78'],
+    ['espace de largeur nulle', 'Ligne 06\u200b12\u200b34\u200b56\u200b78'],
+  ])('detecte un numero francais ecrit avec %s', (_nom, texte) => {
+    expect(chercherPii(texte).map((o) => o.type)).toContain('TEL_FR');
+  });
+
+  it('ne fabrique pas de numero en collant deux groupes separes', () => {
+    // La normalisation remplace le caractere de largeur nulle par une espace,
+    // pas par rien : sinon `06<ZWSP>12` se lirait `0612` et on inventerait une
+    // graphie que personne n'a ecrite.
+    expect(normaliserBlancs('06\u200b12')).toBe('06 12');
+  });
+
+  it('les graphies d un meme numero convergent apres compactage', () => {
+    const compactes = [
+      '+33 (0)6 12 34 56 78',
+      '+33 6 12 34 56 78',
+      '06 12 34 56 78',
+      '0033 6 12 34 56 78',
+      '06\u00a012\u00a034\u00a056\u00a078',
+    ].map((t) => chercherCompact(t).map((o) => o.type));
+    for (const c of compactes) expect(c).toContain('TEL_FR_COMPACT');
+  });
+
+  // Le filet doit rester muet sur ce qui n'est pas un numero, sinon il declasse
+  // des episodes honnetes sans recours.
+  it.each([
+    ['un horodatage en millisecondes', '1767225600000'],
+    ['une date ISO', '2026-01-14T09:12:03.000Z'],
+    ['un montant', 'Montant 1 234,56 EUR'],
+    ['un code postal', 'Code postal 75011 Paris'],
+    ['un SIRET', 'SIRET 12345678900011'],
+    ['un ULID', '01JQA1B2C3D4E5F6G7H8J9K0M1'],
+    ['un jeton de redaction', 'TEL_FR_1a2b3c4d'],
+  ])('le filet ne mord pas sur %s', (_nom, texte) => {
+    expect(chercherCompact(texte)).toEqual([]);
+  });
+
+  it('le filet voit ce que la bibliotheque raterait', () => {
+    // Une graphie qu'aucun motif ne connait : le tiret cadratin comme
+    // separateur. La bibliotheque ne la voit pas ; le filet, si — et c'est
+    // exactement sa raison d'etre. Le jour ou il parle seul, c'est la
+    // bibliotheque qu'il faut corriger.
+    const exotique = '06\u201412\u201434\u201456\u201478';
+    expect(chercherPii(exotique).map((o) => o.type)).not.toContain('TEL_FR');
+    expect(chercherCompact(exotique).map((o) => o.type)).toContain('TEL_FR_COMPACT');
+  });
+
+  it('validerRedaction refuse un episode que le filet seul denonce', () => {
+    const episode = { events: [{ target: { name: '06\u201412\u201434\u201456\u201478' } }] };
+    const v = validerRedaction(episode);
+    expect(v.valide).toBe(false);
+    expect(v.occurrences.map((o) => o.type)).toContain('TEL_FR_COMPACT');
   });
 
   it('couvre les quatre familles exigees par R4.1', () => {

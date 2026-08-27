@@ -11,9 +11,13 @@ export { cloturer, type EpisodeClos, estClos, remplacer } from './close.js';
 export { load, MigrationError, versionsMigrables } from './migrate.js';
 
 export {
+  chercherCompact,
   chercherPii,
+  compacter,
+  MOTIFS_COMPACT,
   MOTIFS_PII,
   type MotifPii,
+  normaliserBlancs,
   type OccurrencePii,
   resoudreChevauchements,
   resumerOccurrences,

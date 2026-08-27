@@ -46,6 +46,14 @@ function carteEpisode(e: ResumeEpisode): string {
       <div><dt>actions</dt><dd>${e.actions}</dd></div>
       <div><dt>trous</dt><dd class="${e.trous > 0 ? 'alerte' : ''}">${e.trous}</dd></div>
       <div><dt>complétude</dt><dd>${e.completude_pct} %</dd></div>
+      ${
+        // R5.4 : silencieux quand il n'y a rien a dire. Une colonne « 0 » a
+        // chaque carte apprendrait a l'oeil a ne plus la lire, et c'est
+        // precisement le chiffre qu'il ne faut pas rater.
+        e.hors_perimetre > 0
+          ? `<div><dt>hors périmètre</dt><dd class="alerte hors">${e.hors_perimetre}</dd></div>`
+          : ''
+      }
     </dl>
     <p class="perimetre">${e.scope_fields.map((c) => `<span>${echapper(c)}</span>`).join('')}</p>
     <div class="frise" data-frise></div>

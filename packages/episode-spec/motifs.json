@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "motifs": [
     {
       "type": "CARTE",
@@ -24,7 +24,7 @@
     },
     {
       "type": "TEL_FR",
-      "source": "(?:\\+33[ .-]?|0)[1-9](?:[ .-]?\\d{2}){4}",
+      "source": "(?:\\+?0033[ .-]?|\\+33[ .-]?(?:\\(0\\)[ .-]?)?|0)[1-9](?:[ .-]?\\d{2}){4}",
       "drapeaux": "g",
       "priorite": 40,
       "note": "numero francais, indicatif +33 ou 0, avec ou sans separateurs"
@@ -35,6 +35,15 @@
       "drapeaux": "g",
       "priorite": 50,
       "note": "numero international ; la France est captee par TEL_FR, plus prioritaire"
+    }
+  ],
+  "compact": [
+    {
+      "type": "TEL_FR_COMPACT",
+      "source": "(?:\\+?0033|\\+?33|0)[1-9]\\d{8}",
+      "drapeaux": "g",
+      "priorite": 100,
+      "note": "filet du juge : numero francais une fois les separateurs otes"
     }
   ]
 }

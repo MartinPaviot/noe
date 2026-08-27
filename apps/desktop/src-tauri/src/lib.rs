@@ -18,6 +18,7 @@ mod presse_papiers;
 mod redaction;
 mod snapshot;
 mod source;
+mod surfaces;
 mod uia;
 mod veille;
 mod vue;
@@ -60,6 +61,8 @@ const ID_DOSSIER: &str = "dossier";
 const ID_QUITTER: &str = "quitter";
 /// Les entrées du sous-menu portent l'identifiant `tache:<slug>`.
 const PREFIXE_TACHE: &str = "tache:";
+/// R5.4 : une entree cochable par surface offerte a l'activation.
+const PREFIXE_SURFACE: &str = "surface:";
 
 struct Etat {
     session: Mutex<Session>,
@@ -168,7 +171,16 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
             // La source d'abord : c'est elle qui fournit le photographe, et le
             // moteur doit le recevoir avant de traiter le premier declencheur.
             let mut native = UiaSource::new();
+            // R5.4 : l'episode ne capture que sur les surfaces activees. La
+            // liste est copiee a l'ouverture et re-poussee a chaque
+            // changement — un episode en cours doit pouvoir suivre une
+            // activation sans qu'on le rouvre.
+            let liste = {
+                let c = e.config.lock().expect("config empoisonnee");
+                c.surfaces.clone()
+            };
             let mut moteur = Moteur::ouvrir(e.horloge.clone(), e.redacteur.clone(), "poste")
+                .avec_liste_blanche(liste)
                 .avec_snapshotteur(std::sync::Arc::new(native.snapshotteur()));
 
             // R3.1 : le journal s'ouvre AVEC l'episode. S'il refuse, la capture
@@ -273,6 +285,12 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
                 moteur.gaps().len(),
                 moteur.declencheurs().len(),
                 moteur.snapshots_pris(),
+                // R5.4 : ce que l'episode n'a PAS vu se dit aussi. Un episode
+                // presente comme complet alors que la moitie du travail s'est
+                // faite hors des surfaces activees induirait en erreur celui
+                // qui le relit — et c'est exactement ce que la regle 4
+                // interdit.
+                moteur.hors_perimetre(),
             )
         })
     };
@@ -310,8 +328,8 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
 
     match resultat {
         Ok(ep) => {
-            let (_, entrees, unresolved, echecs, trous, declencheurs, photos) =
-                bilan.unwrap_or((Vec::new(), 0, 0, 0, 0, 0, 0));
+            let (_, entrees, unresolved, echecs, trous, declencheurs, photos, hors) =
+                bilan.unwrap_or((Vec::new(), 0, 0, 0, 0, 0, 0, 0));
             // R3.4 : un echec d'ecriture se DIT. Un episode incomplet qu'on
             // annonce complet est pire qu'un episode manquant.
             let alerte = if echecs > 0 {
@@ -319,11 +337,16 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
             } else {
                 String::new()
             };
+            let dehors = if hors > 0 {
+                format!(" · {hors} actions hors perimetre")
+            } else {
+                String::new()
+            };
             notifier(
                 app,
                 "Noe a borne l'episode",
                 &format!(
-                    "{} — tache « {} » · {entrees} entrees, {declencheurs} declencheurs,                      {photos} photos, {trous} trous, {unresolved} non resolues{alerte}.
+                    "{} — tache « {} » · {entrees} entrees, {declencheurs} declencheurs,                      {photos} photos, {trous} trous, {unresolved} non resolues{dehors}{alerte}.
 {}",
                     ep.id,
                     ep.task_slug,
@@ -354,6 +377,41 @@ fn construire_menu<R: Runtime>(app: &AppHandle<R>, cfg: &Config) -> tauri::Resul
         .collect();
     let taches = Submenu::with_id_and_items(app, "taches", "Tache active", true, &refs)?;
 
+    // R5.4 : les surfaces activees, plus celles que l'operateur a sous les yeux.
+    //
+    // L'union des deux, et pas seulement les visibles : une application activee
+    // puis fermee doit rester decochable, sinon elle resterait autorisee sans
+    // que rien ne le montre. Cette liste ne s'ecrit nulle part — seuls les choix
+    // de l'operateur partent en configuration.
+    let mut noms: Vec<String> = cfg.surfaces.liste();
+    for v in uia::surfaces_visibles() {
+        if !noms.iter().any(|n| n == &v) {
+            noms.push(v);
+        }
+    }
+    noms.sort();
+    let mut cases: Vec<CheckMenuItem<R>> = Vec::new();
+    for n in &noms {
+        cases.push(CheckMenuItem::with_id(
+            app,
+            format!("{PREFIXE_SURFACE}{n}"),
+            n,
+            true,
+            cfg.surfaces.autorise(Some(n)),
+            None::<&str>,
+        )?);
+    }
+    let refs_surfaces: Vec<&dyn tauri::menu::IsMenuItem<R>> = cases
+        .iter()
+        .map(|i| i as &dyn tauri::menu::IsMenuItem<R>)
+        .collect();
+    let titre = if cfg.surfaces.est_vide() {
+        "Surfaces observees — AUCUNE"
+    } else {
+        "Surfaces observees"
+    };
+    let surfaces = Submenu::with_id_and_items(app, "surfaces", titre, true, &refs_surfaces)?;
+
     let en_pause = {
         let e: State<Etat> = app.state();
         let s = e.session.lock().expect("session empoisonnee");
@@ -379,6 +437,7 @@ fn construire_menu<R: Runtime>(app: &AppHandle<R>, cfg: &Config) -> tauri::Resul
             &fenetre,
             &separateur,
             &taches,
+            &surfaces,
             &pause,
             &panique,
             &separateur,
@@ -463,9 +522,50 @@ fn sur_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
         autre => {
             if let Some(slug) = autre.strip_prefix(PREFIXE_TACHE) {
                 choisir_tache(app, slug);
+            } else if let Some(surface) = autre.strip_prefix(PREFIXE_SURFACE) {
+                basculer_surface(app, surface);
             }
         }
     }
+}
+
+/// R5.4 — l'operateur active ou desactive une surface.
+///
+/// Le changement prend effet TOUT DE SUITE, y compris sur un episode ouvert :
+/// desactiver une application pendant qu'on travaille dedans doit arreter la
+/// capture a l'instant, pas a l'episode suivant. C'est la moitie utile du
+/// controle ; l'autre moitie — ce qui a deja ete capture — reste, parce qu'on
+/// ne reecrit pas un journal.
+fn basculer_surface<R: Runtime>(app: &AppHandle<R>, surface: &str) {
+    let e: State<Etat> = app.state();
+    let (cfg, actif) = {
+        let mut c = e.config.lock().expect("config empoisonnee");
+        let actif = c.surfaces.basculer(surface);
+        if let Err(err) = c.enregistrer(&chemin_config(app)) {
+            eprintln!("[noe] configuration non enregistree : {err}");
+        }
+        (c.clone(), actif)
+    };
+
+    // L'episode en cours suit, s'il y en a un.
+    if let Some(m) = e.moteur.lock().expect("moteur empoisonne").as_mut() {
+        m.definir_liste_blanche(cfg.surfaces.clone());
+    }
+
+    if let Some(tray) = app.tray_by_id("principal") {
+        if let Ok(menu) = construire_menu(app, &cfg) {
+            let _ = tray.set_menu(Some(menu));
+        }
+    }
+    notifier(
+        app,
+        if actif {
+            "Surface observee"
+        } else {
+            "Surface retiree"
+        },
+        surface,
+    );
 }
 
 fn choisir_tache<R: Runtime>(app: &AppHandle<R>, slug: &str) {
@@ -927,6 +1027,10 @@ pub fn run() {
                                     source: source::Source::Uia,
                                     monotone_ms: maintenant,
                                     genre: source::GenreEvenement::Copie,
+                                    // Le geste vient du clavier, pas d'une
+                                    // fenetre identifiee : la surface est celle
+                                    // qui a le focus au moment de la frappe.
+                                    surface: uia::surface_au_premier_plan(),
                                 });
                             }
                             for _ in 0..gestes.collages {
@@ -938,6 +1042,7 @@ pub fn run() {
                                     source: source::Source::Uia,
                                     monotone_ms: maintenant,
                                     genre: source::GenreEvenement::Collage { apparie },
+                                    surface: uia::surface_au_premier_plan(),
                                 });
                             }
                         }

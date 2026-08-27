@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "note": "Sorties de reference. Toute implementation doit rendre exactement ceci.",
   "cas": [
     {
@@ -150,6 +150,91 @@
           "type": "TEL_FR",
           "index": 27,
           "fin": 41
+        }
+      ]
+    },
+    {
+      "entree": "Standard +33 (0)1 42 68 53 00",
+      "occurrences": [
+        {
+          "type": "TEL_FR",
+          "index": 9,
+          "fin": 29
+        }
+      ],
+      "retenues": [
+        {
+          "type": "TEL_FR",
+          "index": 9,
+          "fin": 29
+        }
+      ]
+    },
+    {
+      "entree": "Mobile +33 (0)6 12 34 56 78",
+      "occurrences": [
+        {
+          "type": "TEL_FR",
+          "index": 7,
+          "fin": 27
+        }
+      ],
+      "retenues": [
+        {
+          "type": "TEL_FR",
+          "index": 7,
+          "fin": 27
+        }
+      ]
+    },
+    {
+      "entree": "Depuis l etranger 0033 6 12 34 56 78",
+      "occurrences": [
+        {
+          "type": "TEL_FR",
+          "index": 18,
+          "fin": 36
+        }
+      ],
+      "retenues": [
+        {
+          "type": "TEL_FR",
+          "index": 18,
+          "fin": 36
+        }
+      ]
+    },
+    {
+      "entree": "Ligne directe 06 12 34 56 78",
+      "occurrences": [
+        {
+          "type": "TEL_FR",
+          "index": 14,
+          "fin": 28
+        }
+      ],
+      "retenues": [
+        {
+          "type": "TEL_FR",
+          "index": 14,
+          "fin": 28
+        }
+      ]
+    },
+    {
+      "entree": "Ligne directe 06 12 34 56 78",
+      "occurrences": [
+        {
+          "type": "TEL_FR",
+          "index": 14,
+          "fin": 28
+        }
+      ],
+      "retenues": [
+        {
+          "type": "TEL_FR",
+          "index": 14,
+          "fin": 28
         }
       ]
     },

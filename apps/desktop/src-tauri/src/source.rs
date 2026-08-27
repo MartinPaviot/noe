@@ -119,6 +119,12 @@ pub struct RawEvent {
     pub source: Source,
     pub monotone_ms: u64,
     pub genre: GenreEvenement,
+    /// D'où vient l'événement — le nom de l'exécutable, en minuscules (R5.4).
+    ///
+    /// `None` quand la source n'a pas su le déterminer. Ce n'est pas un détail :
+    /// la liste blanche refuse ce qu'elle ne sait pas nommer, donc un `None`
+    /// coûte l'événement. C'est le bon sens de l'erreur.
+    pub surface: Option<String>,
 }
 
 #[derive(Debug)]
@@ -214,6 +220,7 @@ impl FakeSource {
                     source: Source::Fake,
                     monotone_ms,
                     genre,
+                    surface: Some("banc.exe".into()),
                 })
                 .is_ok(),
             None => false,

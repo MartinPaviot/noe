@@ -962,3 +962,135 @@ lecture.
 R5.4. Aujourd'hui la copie est lue dès qu'un `Ctrl+C` est observé pendant un
 épisode ; il manque la vérification que la fenêtre au premier plan fait partie
 des surfaces autorisées.
+
+## 2026-08-27 — D28 : hors périmètre, on compte, on ne raconte pas
+
+**Contexte.** La tâche 9 de la spec 002 pose R5.4 : « LE SYSTÈME NE DOIT capturer
+que sur les surfaces explicitement activées par l'opérateur ». L'exigence dit ce
+qu'il ne faut pas capturer. Elle ne dit pas ce qu'il faut écrire *à la place* —
+et la règle 4 du projet, elle, interdit les trous silencieux.
+
+Les deux se tirent dessus. Si un épisode ne dit rien du temps passé hors des
+surfaces observées, il se présente comme continu alors qu'il ne l'est pas : un
+champ se retrouve rempli d'une valeur venue de nulle part, et le rejeu ne peut
+pas l'expliquer. Mais si l'épisode déclare « à 10 h 03, l'opérateur a fait
+quelque chose dans une application non observée », il vient d'observer ce que la
+liste blanche existe pour ne pas observer.
+
+**Arbitrage.** L'épisode porte le **nombre** d'actions refusées, et rien d'autre.
+
+- Le journal écrit une entrée `hors_perimetre { combien }` par **plage
+  contiguë** — pas une par action. Dix minutes dans une application non activée
+  produiraient des milliers de lignes disant chacune la même chose.
+- L'entrée va au journal, pas en mémoire : après un crash, un épisode réassemblé
+  doit encore dire qu'il n'a pas tout vu.
+- Le compte remonte dans `completeness.out_of_scope`, un champ que la spec 001
+  avait défini et que rien n'alimentait. Il n'y avait pas besoin d'une huitième
+  cause de trou : le format savait déjà nommer ça.
+- Ni horodatage individuel, ni nom d'application, ni nature du geste. Le nombre
+  dit « je n'ai pas tout vu » ; les bornes diraient « voici quand il était
+  ailleurs », ce qui est précisément la surveillance que la liste blanche évite.
+
+**Trois exceptions, et leurs raisons.**
+
+1. **La veille et le réveil** ne sont pas gouvernés par la liste blanche. Ce sont
+   des faits de la machine, pas d'une application. Les refuser ferait disparaître
+   les trous de veille que R3.3 exige — un trou perdu, exactement ce que la règle
+   4 interdit.
+2. **La bascule d'application entre toujours**, mais sa destination est remplacée
+   par la constante `hors-perimetre` quand elle sort du périmètre. Ce que le
+   journal a le droit de savoir : l'opérateur a quitté la surface observée. Ce
+   qu'il n'a pas à savoir : où il est allé. La refuser tout court coûterait le
+   déclencheur « bascule avec retour » — sans l'aller, jamais de retour.
+3. **Deux applications non observées portent le même nom.** Sinon le journal
+   reconstitue par recoupement ce que la liste blanche lui interdit de nommer :
+   « il alterne entre deux applications » en dit déjà trop. Effet de bord voulu :
+   un détour par deux applications au lieu d'une ne casse plus le déclencheur de
+   retour, alors qu'il le cassait avant.
+
+**Ce que cette tâche a corrigé au passage.** `Moteur::traiter()` ne consultait
+jamais `pause_depuis`. Le journal écrivait un trou disant « rien n'a été capturé
+ici » pendant que les événements continuaient d'entrer. Le journal mentait — un
+défaut introduit en tâche 5 et invisible parce qu'aucun test ne vérifiait
+l'absence d'écriture, seulement la présence du trou.
+
+**Reste ouvert.** `completeness.out_of_scope` n'entre pas dans le grade. Un
+épisode de deux actions avec quarante refus est aujourd'hui gradé comme un
+épisode de deux actions sans refus. Le seuil de grade appartient à la spec 001 et
+il est miroité en dix vecteurs ; le modifier est une décision de format, pas une
+correction. À trancher au gate de la 002.
+
+---
+
+## 2026-08-27 — D29 : la bibliothèque de motifs passe en v4, et le juge cesse de s'auto-valider
+
+**Contexte.** Une revue adverse (trente agents, cinq angles, réfutation
+contradictoire) a rendu quinze trouvailles confirmées sur le capteur. La
+première touche la règle 1.
+
+**Trois graphies fuyaient**, vérifiées par exécution sur `motifs.json` v3 :
+
+```
+"Rappeler au +33 (0)6 12 34 56 78"  -> AUCUN
+"0033 6 12 34 56 78"                -> AUCUN
+"06<U+00A0>12<U+00A0>34<U+00A0>56<U+00A0>78" -> AUCUN
+"+33 6 12 34 56 78"                 -> TEL_FR   (contrôle)
+```
+
+`+33 (0)X` est la graphie d'affichage standard en France : en-têtes de courriel,
+signatures, cartes de visite — donc titres de fenêtre et noms accessibles. Après
+`+33`, la parenthèse cassait la branche ; le `0` de `(0)` était suivi de `)` là
+où le motif attend `[1-9]`.
+
+L'insécable est de la même famille mais se corrige ailleurs : les motifs sont
+compilés en ASCII des deux côtés — `unicode(false)` en Rust, `\d` ASCII en
+JavaScript — précisément pour que les deux moteurs lisent la même chaîne de la
+même façon. Le prix de cette garantie, c'est qu'un `U+00A0` n'est pas un
+séparateur reconnu. Word, les signatures et beaucoup de champs de CRM en
+produisent.
+
+**Détail qui compte : le générateur de vecteurs interdisait de tester la
+classe.** Il refusait tout vecteur non-ASCII, au motif que les index TypeScript
+(UTF-16) et Rust (octets) ne seraient pas comparables. La règle protégeait la
+comparabilité en supprimant le cas à comparer. Elle porte désormais sur la forme
+**normalisée**, qui est ASCII dès que l'entrée ne portait que des blancs
+exotiques.
+
+**Décision.**
+
+1. `TEL_FR` accepte `(0)` et `0033`. La normalisation du jeton ôte l'indicatif
+   *puis* le zéro de conduite, dans cet ordre : sans ça, « +33 (0)6 … » et
+   « +33 6 … » donneraient deux jetons pour le même numéro, donc une jointure
+   perdue.
+2. Une normalisation des blancs (`normaliser_blancs` / `normaliserBlancs`)
+   s'applique **avant** toute recherche, des deux côtés. Les bornes rendues
+   portent sur le texte normalisé ; qui remplace normalise d'abord.
+3. **Le juge R4.6 ne s'appuie plus uniquement sur la bibliothèque qu'il
+   valide.**
+
+**Sur ce troisième point, qui est le vrai sujet.** R4.6 validait la redaction en
+cherchant des PII avec `MOTIFS_PII` — la bibliothèque même qui avait servi à
+redacter. Un juge adossé à ce qu'il contrôle est aveugle par construction : tout
+trou de motif passe deux fois, à l'écriture puis à la validation, et l'épisode
+ressort gradé « rédaction validée ». C'est arrivé trois fois : D24, puis les deux
+graphies ci-dessus. La règle 2 dit que seul le juge mécanique promeut ; un juge
+qui ne peut pas voir la classe d'erreur la plus fréquente ne promeut rien, il
+tamponne.
+
+Le filet (`MOTIFS_COMPACT`) applique un motif au texte **compacté** — tout ce qui
+n'est ni alphanumérique ni `+` est ôté. N'importe quelle graphie d'un numéro
+français s'y réduit à la même suite de chiffres, y compris celles que personne
+n'a encore imaginées.
+
+Deux garde-fous sur le filet, tous deux nécessaires :
+
+- **Il ne redacte jamais.** Un filet qui remplacerait pseudonymiserait des
+  montants et des références, et abîmerait des données que la spec 003 doit
+  pouvoir comparer. Il refuse de valider, ce qui est le bon sens de l'erreur.
+- **Il s'applique champ par champ, jamais sur l'épisode sérialisé.** En
+  compactant un JSON entier, les chiffres de deux champs voisins se colleraient
+  et fabriqueraient des numéros que personne n'a écrits. Un faux positif ici
+  déclasse un épisode honnête sans recours.
+
+Le jour où le filet parle seul, c'est la bibliothèque qu'il faut corriger — pas
+lui qu'il faut taire.

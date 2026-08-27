@@ -39,6 +39,12 @@ pub struct Config {
     pub taches: Vec<String>,
     /// Celle qui sera étiquetée sur le prochain épisode. `None` = aucune.
     pub tache_active: Option<String>,
+    /// R5.4 : les applications sur lesquelles la capture a le droit d'avoir
+    /// lieu. Vide à l'installation, et vide aussi pour une configuration écrite
+    /// par une version qui ne connaissait pas ce champ — `serde(default)` fait
+    /// pencher la mise à jour du côté qui n'observe pas.
+    #[serde(default)]
+    pub surfaces: crate::surfaces::ListeBlanche,
 }
 
 impl Default for Config {
@@ -51,6 +57,10 @@ impl Default for Config {
         Self {
             taches: vec!["maj-crm-post-echange".to_string()],
             tache_active: None,
+            // R5.4 : aucune surface activée au premier lancement. Une liste
+            // pré-remplie « pour rendre service » ferait exactement ce que le
+            // produit promet de ne pas faire.
+            surfaces: crate::surfaces::ListeBlanche::vide(),
         }
     }
 }
@@ -129,6 +139,34 @@ mod tests {
         let mut p = std::env::temp_dir();
         p.push(format!("noe-test-{nom}-{}.json", std::process::id()));
         p
+    }
+
+    #[test]
+    fn aucune_surface_activee_au_premier_lancement() {
+        // R5.4 : le moteur tourne, la capture non. C'est l'etat voulu.
+        assert!(Config::default().surfaces.est_vide());
+    }
+
+    #[test]
+    fn une_config_ecrite_avant_la_liste_blanche_se_relit_sans_surface() {
+        // Une mise a jour ne doit pas activer une capture que l'operateur n'a
+        // pas demandee. Le champ absent vaut « aucune surface », jamais
+        // « toutes ».
+        let p = temporaire("ancienne");
+        std::fs::write(&p, r#"{"taches":["a-faire"],"tache_active":null}"#).unwrap();
+        let c = Config::charger(&p);
+        assert!(c.surfaces.est_vide());
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn les_surfaces_survivent_a_un_aller_retour_disque() {
+        let p = temporaire("surfaces");
+        let mut c = Config::default();
+        c.surfaces.autoriser("chrome.exe");
+        c.enregistrer(&p).unwrap();
+        assert!(Config::charger(&p).surfaces.autorise(Some("chrome.exe")));
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]

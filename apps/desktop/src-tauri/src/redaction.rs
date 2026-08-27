@@ -47,11 +47,16 @@ fn normaliser(type_pii: &str, brut: &str) -> String {
         // Sans ça, « 06… » et « +33 6… » seraient deux personnes.
         "TEL_FR" => {
             let d = chiffres(brut);
-            let national = d
-                .strip_prefix("33")
-                .map(str::to_string)
-                .or_else(|| d.strip_prefix('0').map(str::to_string))
-                .unwrap_or(d);
+            // L'indicatif d'abord, le zero de conduite ensuite — dans cet
+            // ordre, et les deux. « +33 (0)6 12 34 56 78 » donne les chiffres
+            // « 330612345678 » : oter le seul « 33 » laisserait « 0612345678 »,
+            // donc un jeton different de « +33 6 12 34 56 78 » pour le meme
+            // numero. Deux jetons pour une entite, c'est une jointure perdue.
+            let sans_indicatif = d
+                .strip_prefix("0033")
+                .or_else(|| d.strip_prefix("33"))
+                .unwrap_or(&d);
+            let national = sans_indicatif.strip_prefix('0').unwrap_or(sans_indicatif);
             format!("+33{national}")
         }
 
@@ -97,6 +102,13 @@ impl Redacteur {
     /// l'avant décalerait toutes les positions suivantes, et les occurrences
     /// restantes viseraient à côté.
     pub fn redacter(&self, texte: &str) -> String {
+        // Les bornes rendues par `chercher` portent sur le texte NORMALISE :
+        // c'est la seule facon qu'un insecable entre deux groupes de chiffres
+        // ne fasse pas passer un numero en clair. On remplace donc dans la
+        // meme chaine que celle qui a ete fouillee — sinon les positions
+        // viseraient a cote des la premiere PII precedee d'un blanc exotique.
+        let texte = crate::motifs::normaliser_blancs(texte);
+        let texte = texte.as_str();
         let retenues = resoudre_chevauchements(&chercher(texte));
         if retenues.is_empty() {
             return texte.to_string();

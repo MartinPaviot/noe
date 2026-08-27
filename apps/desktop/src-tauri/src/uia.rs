@@ -249,6 +249,7 @@ fn boucle_uia(
                 source: Source::Uia,
                 monotone_ms: debut.elapsed().as_millis() as u64,
                 genre: notre.genre(cible),
+                surface: surface_de(sender),
             });
             Ok(())
         }) as Box<CustomEventHandlerFn>)
@@ -276,6 +277,7 @@ fn boucle_uia(
                 source: Source::Uia,
                 monotone_ms: debut.elapsed().as_millis() as u64,
                 genre: EvenementUia::Focus.genre(cible),
+                surface: surface_de(sender),
             });
             Ok(())
         }) as Box<CustomFocusChangedEventHandlerFn>)
@@ -318,6 +320,154 @@ fn boucle_uia(
         }
     }
     let _ = automation.remove_all_event_handlers();
+}
+
+/// Les applications actuellement visibles a l'ecran (R5.4).
+///
+/// Sert a garnir le sous-menu « Surfaces observees » : sans liste a cocher, une
+/// liste blanche vide par defaut serait vide pour toujours.
+///
+/// **Rien de tout cela n'est ecrit.** Cette liste se calcule a l'ouverture du
+/// menu et meurt avec lui. Elle ne revele que ce que l'operateur a deja sous les
+/// yeux dans sa barre des taches ; l'ecrire, en revanche, constituerait
+/// l'inventaire du poste que la liste blanche existe pour ne pas faire.
+///
+/// Seules les fenetres de premier niveau, visibles et titrees, sont retenues :
+/// les processus de service n'ont rien a faire dans un menu de choix.
+#[cfg(not(test))]
+pub fn surfaces_visibles() -> Vec<String> {
+    use std::collections::BTreeSet;
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowTextLengthW, GetWindowThreadProcessId, IsWindowVisible,
+    };
+
+    unsafe extern "system" fn visiter(fenetre: HWND, lparam: LPARAM) -> BOOL {
+        // SAFETY : `lparam` porte le pointeur du BTreeSet passe juste en
+        // dessous, vivant pendant toute l'enumeration.
+        let vues = unsafe { &mut *(lparam.0 as *mut BTreeSet<String>) };
+        unsafe {
+            if !IsWindowVisible(fenetre).as_bool() || GetWindowTextLengthW(fenetre) == 0 {
+                return BOOL(1);
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(fenetre, Some(&mut pid));
+            if pid != 0 {
+                if let Some(nom) = nom_executable(pid) {
+                    vues.insert(nom);
+                }
+            }
+        }
+        BOOL(1)
+    }
+
+    let mut vues: BTreeSet<String> = BTreeSet::new();
+    // SAFETY : le pointeur ne sort pas de l'appel ; `EnumWindows` est
+    // synchrone.
+    unsafe {
+        let _ = EnumWindows(
+            Some(visiter),
+            LPARAM(&mut vues as *mut BTreeSet<String> as isize),
+        );
+    }
+    vues.into_iter().collect()
+}
+
+/// Sans bureau, rien n'est visible.
+#[cfg(test)]
+pub fn surfaces_visibles() -> Vec<String> {
+    Vec::new()
+}
+
+/// L'application au premier plan (R5.4).
+///
+/// Les gestes du clavier n'ont pas d'élément UIA d'origine : c'est la fenêtre
+/// qui a le focus qui les reçoit. Sans cette fonction, une copie faite dans un
+/// gestionnaire de mots de passe serait attribuée à `None`, donc refusée — ce
+/// qui est sûr, mais aussi faux : une copie faite dans une surface autorisée
+/// serait refusée pour la même raison.
+#[cfg(not(test))]
+pub fn surface_au_premier_plan() -> Option<String> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
+    // SAFETY : deux lectures de l'état global des fenêtres, sans allocation ni
+    // poignée à relâcher. On passe par le pid de la fenêtre et non par un
+    // élément UIA : la frappe arrive sur le fil du pompage de messages, et un
+    // aller-retour COM par touche coûterait plus cher que tout le reste du
+    // battement.
+    let pid = unsafe {
+        let fenetre = GetForegroundWindow();
+        if fenetre.is_invalid() {
+            return None;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(fenetre, Some(&mut pid));
+        pid
+    };
+    if pid == 0 {
+        return None;
+    }
+    nom_executable(pid)
+}
+
+/// Sans bureau, aucune surface n'est nommable — donc rien n'est autorisé.
+#[cfg(test)]
+pub fn surface_au_premier_plan() -> Option<String> {
+    None
+}
+
+/// De quelle application vient cet élément (R5.4).
+///
+/// Le nom de l'**exécutable**, pas le titre de la fenêtre. Un titre change à
+/// chaque fiche ouverte et porte souvent le nom d'un client ; il ne peut être ni
+/// une clé stable pour une liste blanche, ni une chaîne qu'on écrit en clair
+/// dans une configuration.
+///
+/// Rend `None` si le processus ne se laisse pas nommer — un service protégé, une
+/// application élevée. La liste blanche refuse alors l'événement, ce qui est le
+/// bon sens de l'erreur.
+#[cfg(not(test))]
+fn surface_de(el: &uiautomation::UIElement) -> Option<String> {
+    nom_executable(el.get_process_id().ok()? as u32)
+}
+
+/// Le nom de fichier de l'exécutable d'un processus, en minuscules.
+///
+/// Rend `None` si le processus ne se laisse pas nommer — un service protégé, une
+/// application élevée, un processus déjà mort. La liste blanche refuse alors
+/// l'événement, ce qui est le bon sens de l'erreur.
+#[cfg(not(test))]
+fn nom_executable(pid: u32) -> Option<String> {
+    use windows::Win32::Foundation::{CloseHandle, MAX_PATH};
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    // SAFETY : la poignée est refermée sur tous les chemins, y compris en cas
+    // d'échec de la requête — une fuite de poignée par événement épuiserait le
+    // processus en quelques minutes de capture.
+    unsafe {
+        let poignee = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut tampon = [0u16; MAX_PATH as usize];
+        let mut taille = tampon.len() as u32;
+        let ok = QueryFullProcessImageNameW(
+            poignee,
+            PROCESS_NAME_FORMAT(0),
+            windows::core::PWSTR(tampon.as_mut_ptr()),
+            &mut taille,
+        );
+        let _ = CloseHandle(poignee);
+        if ok.is_err() {
+            return None;
+        }
+        let chemin = String::from_utf16_lossy(&tampon[..taille as usize]);
+        chemin
+            .rsplit(['\\', '/'])
+            .next()
+            .map(crate::surfaces::normaliser)
+            .filter(|s| !s.is_empty())
+    }
 }
 
 /// Remonte l'arbre pour trouver la région, dans les budgets du spike.

@@ -10,7 +10,8 @@
       "actions": 14,
       "trous": 0,
       "completude_pct": 100,
-      "scope_fields": ["Description", "Statut de la piste"]
+      "scope_fields": ["Description", "Statut de la piste"],
+      "hors_perimetre": 0
     },
     "frise": [
       {
@@ -82,7 +83,8 @@
       "actions": 9,
       "trous": 2,
       "completude_pct": 81,
-      "scope_fields": ["Description"]
+      "scope_fields": ["Description"],
+      "hors_perimetre": 0
     },
     "frise": [
       {
@@ -138,7 +140,8 @@
       "actions": 6,
       "trous": 0,
       "completude_pct": 100,
-      "scope_fields": ["Montant", "Echeance", "Contact"]
+      "scope_fields": ["Montant", "Echeance", "Contact"],
+      "hors_perimetre": 0
     },
     "frise": [
       {

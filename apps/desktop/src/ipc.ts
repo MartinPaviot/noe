@@ -20,6 +20,7 @@ export type ResumeEpisode = {
   readonly actions: number;
   readonly trous: number;
   readonly completude_pct: number;
+  readonly hors_perimetre: number;
   readonly scope_fields: readonly string[];
 };
 

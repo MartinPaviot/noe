@@ -32,6 +32,13 @@ pub struct ResumeEpisode {
     pub trous: u64,
     /// Part des événements qui sont des actions, en pourcentage entier.
     pub completude_pct: u64,
+    /// R5.4 : combien d'actions ont eu lieu hors des surfaces activées.
+    ///
+    /// Affiché parce qu'il change la lecture de tout le reste : quatorze
+    /// actions sur une tâche qui en comptait quarante ne dit pas la même chose
+    /// selon qu'on a refusé zéro ou vingt-six gestes. L'épisode n'en sait pas
+    /// plus — ni où, ni quoi — et la vue n'invente rien.
+    pub hors_perimetre: u64,
     pub scope_fields: Vec<String>,
 }
 
@@ -91,6 +98,7 @@ pub fn resumer(episode: &Episode) -> ResumeEpisode {
         actions,
         trous,
         completude_pct: completude_pct(actions, trous),
+        hors_perimetre: episode.completeness.out_of_scope,
         scope_fields: episode.scope_fields.clone(),
     }
 }
@@ -236,6 +244,21 @@ mod tests {
         let d = racine.join(&ep.id);
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join("episode.json"), serde_json::to_string(ep).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn le_resume_porte_le_hors_perimetre() {
+        // R5.4 : le fondateur doit VOIR ce que l'episode n'a pas vu. Quatorze
+        // actions ne disent pas la meme chose selon qu'on a refuse zero ou
+        // vingt-six gestes — et la vue est le seul endroit ou ce chiffre
+        // rencontre un oeil humain.
+        let mut ep = episode(
+            "01A",
+            "2026-01-01T00:00:00.000Z",
+            vec![action(1, "input", "Description")],
+        );
+        ep.completeness.out_of_scope = 26;
+        assert_eq!(resumer(&ep).hors_perimetre, 26);
     }
 
     #[test]

@@ -222,6 +222,7 @@ pub fn assembler(
     let mut champs: Vec<String> = Vec::new();
     let mut noms_touches: Vec<String> = Vec::new();
     let mut trous = 0u64;
+    let mut hors_perimetre = 0u64;
     let mut dernier_seq_utile = 0u64;
     let mut seq = 0u64;
 
@@ -303,6 +304,16 @@ pub fn assembler(
             // Déclencheurs, snapshots et clôture appartiennent au film. Le récit
             // n'en a pas besoin : le premier est une raison de photographier, le
             // deuxième une photo, le troisième une borne déjà portée par `t1`.
+            // R5.4 : ce que l'episode n'a pas vu se compte, mais ne se raconte
+            // pas. La completude porte le nombre ; la frise n'a rien a montrer,
+            // parce qu'il n'y a rien eu a observer.
+            EntreeJournal::HorsPerimetre { combien, .. } => {
+                hors_perimetre += combien;
+            }
+
+            // Déclencheurs, snapshots et clôture appartiennent au film. Le récit
+            // n'en a pas besoin : le premier est une raison de photographier, le
+            // deuxième une photo, le troisième une borne déjà portée par `t1`.
             EntreeJournal::Declencheur { .. }
             | EntreeJournal::Snapshot { .. }
             | EntreeJournal::ClotureAuto { .. } => {}
@@ -365,7 +376,7 @@ pub fn assembler(
         scope_fields,
         completeness: Completude {
             explained,
-            out_of_scope: 0,
+            out_of_scope: hors_perimetre,
             gaps: trous,
         },
     };
@@ -384,6 +395,33 @@ pub fn assembler(
 /// comportement — mieux vaut un épisode rejeté qu'un corpus dont les grades ne
 /// veulent rien dire — mais ça n'excuse pas la divergence, et un test croisé la
 /// surveille.
+/// Toutes les chaînes d'une valeur JSON, clés comprises.
+///
+/// Sert au filet du juge : il s'applique champ par champ, jamais sur l'objet
+/// entier. Miroir de la fonction `chaines` de `redaction.ts`.
+fn chaines(valeur: &serde_json::Value) -> Vec<String> {
+    let mut vues = Vec::new();
+    fn descendre(v: &serde_json::Value, vues: &mut Vec<String>) {
+        match v {
+            serde_json::Value::String(s) => vues.push(s.clone()),
+            serde_json::Value::Array(a) => {
+                for x in a {
+                    descendre(x, vues);
+                }
+            }
+            serde_json::Value::Object(o) => {
+                for (k, x) in o {
+                    vues.push(k.clone());
+                    descendre(x, vues);
+                }
+            }
+            _ => {}
+        }
+    }
+    descendre(valeur, &mut vues);
+    vues
+}
+
 pub fn grade_de(episode: &Episode) -> (String, String) {
     let gaps = episode
         .events
@@ -409,9 +447,25 @@ pub fn grade_de(episode: &Episode) -> (String, String) {
     }
 
     // La seconde est celle que R4.6 définit mécaniquement : zéro motif PII dans
-    // l'épisode entièrement sérialisé.
+    // l'épisode entièrement sérialisé — plus le filet, champ par champ.
+    //
+    // **Le filet ne partage pas les motifs**, et c'est tout l'intérêt. Un juge
+    // adossé à la bibliothèque qui a servi à redacter est aveugle par
+    // construction : tout trou de motif passe deux fois, à l'écriture puis à la
+    // validation, et l'épisode ressort gradé « redaction validée ». Trois fois
+    // que ça arrive — D24, puis les graphies `(0)` et insécable.
+    //
+    // Champ par champ et jamais sur l'objet sérialisé : en compactant un JSON
+    // entier, les chiffres de deux champs voisins se colleraient et
+    // fabriqueraient des numéros que personne n'a écrits. Un faux positif ici
+    // déclasse un épisode honnête sans recours.
     if let Ok(serialise) = serde_json::to_string(episode) {
-        let occurrences = crate::motifs::chercher(&serialise);
+        let mut occurrences = crate::motifs::chercher(&serialise);
+        if let Ok(valeur) = serde_json::to_value(episode) {
+            for c in chaines(&valeur) {
+                occurrences.extend(crate::motifs::chercher_compact(&c));
+            }
+        }
         if !occurrences.is_empty() {
             let mut par_type: std::collections::BTreeMap<&str, usize> =
                 std::collections::BTreeMap::new();
@@ -573,6 +627,41 @@ mod tests {
     }
 
     // -- Le récit et le film ne contiennent pas la même chose -----------------
+
+    #[test]
+    fn le_hors_perimetre_remonte_dans_la_completude() {
+        // R5.4 : l'episode dit combien d'actions il n'a pas vues. Le compte, et
+        // rien d'autre — ni quand, ni ou, ni quoi. Sans lui, un episode de deux
+        // actions passerait pour complet alors que le travail s'est fait
+        // ailleurs.
+        let mut j = journal_ordinaire();
+        j.push(EntreeJournal::HorsPerimetre {
+            seq: 9,
+            monotone_ms: 2_500,
+            combien: 7,
+        });
+        let ep = assembler("01TEST", "t", T0, T0 + 3_000, &j, &redacteur()).unwrap();
+        assert_eq!(ep.completeness.out_of_scope, 7);
+        assert_eq!(ep.completeness.gaps, 0, "un refus n'est pas un trou");
+
+        // Et il ne raconte rien : le recit ne porte aucun evenement de plus.
+        let texte = serde_json::to_string(&ep).unwrap();
+        assert!(!texte.contains("hors_perimetre"), "{texte}");
+    }
+
+    #[test]
+    fn sans_refus_la_completude_hors_perimetre_reste_a_zero() {
+        let ep = assembler(
+            "01TEST",
+            "t",
+            T0,
+            T0 + 3_000,
+            &journal_ordinaire(),
+            &redacteur(),
+        )
+        .unwrap();
+        assert_eq!(ep.completeness.out_of_scope, 0);
+    }
 
     #[test]
     fn un_re_rendu_de_conteneur_n_entre_pas_dans_le_recit() {

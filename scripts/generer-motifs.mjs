@@ -38,8 +38,16 @@ const DEST_GRADES = join(RACINE, 'packages', 'episode-spec', 'vecteurs-grade.jso
 
 // `pathToFileURL` : sur Windows, un chemin absolu commence par une lettre de
 // lecteur, que le chargeur ESM lit comme un schema d URL inconnu.
-const { CAUSES_GAP, MOTIFS_PII, VERSION_MOTIFS, chercherPii, gradeOf, resoudreChevauchements } =
-  await import(pathToFileURL(join(RACINE, 'packages', 'episode-spec', 'dist', 'index.js')).href);
+const {
+  CAUSES_GAP,
+  MOTIFS_COMPACT,
+  MOTIFS_PII,
+  VERSION_MOTIFS,
+  chercherPii,
+  gradeOf,
+  normaliserBlancs,
+  resoudreChevauchements,
+} = await import(pathToFileURL(join(RACINE, 'packages', 'episode-spec', 'dist', 'index.js')).href);
 
 /**
  * Les entrées sur lesquelles TOUTES les implémentations doivent s'accorder.
@@ -59,6 +67,14 @@ const ENTREES = [
   'Virement sur FR7630006000011234567890189',
   'Carte 4970 1234 5678 9012',
   'Deux a la fois : a@b.fr et 06.12.34.56.78',
+  // v4 : les trois graphies trouvees par revue adverse. Chacune traversait la
+  // redaction en clair ; chacune est la forme d'affichage courante d'un numero
+  // francais, pas une curiosite.
+  'Standard +33 (0)1 42 68 53 00',
+  'Mobile +33 (0)6 12 34 56 78',
+  'Depuis l etranger 0033 6 12 34 56 78',
+  'Ligne directe 06\u00a012\u00a034\u00a056\u00a078',
+  'Ligne directe 06\u202f12\u202f34\u202f56\u202f78',
 
   // --- ce qui ne doit PAS l etre ---
   'Reference interne 2026-08-26',
@@ -87,6 +103,18 @@ const motifs = {
       note,
     }))
     .sort((a, b) => a.type.localeCompare(b.type)),
+  // Le filet du juge (v4). Il vit dans le meme miroir parce qu'il doit etre lu
+  // par les memes trois moteurs — mais il porte son propre nom, parce qu'il ne
+  // redacte jamais : il ne fait que refuser de valider.
+  compact: [...MOTIFS_COMPACT]
+    .map(({ type, source, drapeaux, priorite, note }) => ({
+      type,
+      source,
+      drapeaux,
+      priorite,
+      note,
+    }))
+    .sort((a, b) => a.type.localeCompare(b.type)),
 };
 
 const vecteurs = {
@@ -97,12 +125,19 @@ const vecteurs = {
     // octets. Sur de l'ASCII les deux coincident ; ailleurs ils ne seraient pas
     // comparables, et le test inter-implementations comparerait des pommes et
     // des poires sans le dire.
+    //
+    // v4 : c'est la forme NORMALISEE qui doit etre ASCII, pas l'entree. La
+    // regle precedente interdisait les vecteurs a insecable — donc interdisait
+    // de tester la classe de fuite qui a le plus longtemps traverse la
+    // redaction. Les index portent sur la forme normalisee des deux cotes ;
+    // exiger l'ASCII sur l'entree brute protegeait la comparabilite en
+    // supprimant le cas a comparer.
     // Test sur les points de code plutot que par expression reguliere : une
     // classe de caracteres de controle dans une regex est precisement ce que
     // le lint interdit, et il a raison — elle se relit mal et se corrige de
     // travers, comme la premiere version de cette ligne l'a montre.
-    if ([...entree].some((c) => (c.codePointAt(0) ?? 0) > 0x7f)) {
-      throw new Error(`vecteur non-ASCII, les index ne seraient pas comparables : ${entree}`);
+    if ([...normaliserBlancs(entree)].some((c) => (c.codePointAt(0) ?? 0) > 0x7f)) {
+      throw new Error(`vecteur non-ASCII apres normalisation : ${entree}`);
     }
     const brutes = chercherPii(entree);
     return {

@@ -88,6 +88,25 @@ pub enum EntreeJournal {
     },
     /// R1.3 : la borne oubliée.
     ClotureAuto { seq: u64, monotone_ms: u64 },
+    /// R5.4 : des actions ont eu lieu hors des surfaces activées.
+    ///
+    /// **Combien, et rien d'autre.** Ni le nom de l'application, ni la nature
+    /// des actions : la liste blanche existe précisément pour que ce qui se
+    /// passe ailleurs ne soit pas observé, et un journal qui nommerait ce qu'il
+    /// refuse d'observer aurait observé quand même.
+    ///
+    /// Une entrée par *plage* contiguë, pas une par action refusée. Dix minutes
+    /// passées dans une application non activée produiraient des milliers de
+    /// lignes disant chacune la même chose ; elles en produisent une, avec son
+    /// décompte.
+    ///
+    /// Elle est écrite au journal, pas tenue en mémoire : après un crash, un
+    /// épisode réassemblé doit encore dire qu'il n'a pas tout vu.
+    HorsPerimetre {
+        seq: u64,
+        monotone_ms: u64,
+        combien: u64,
+    },
 }
 
 impl EntreeJournal {
@@ -97,7 +116,8 @@ impl EntreeJournal {
             | Self::Declencheur { seq, .. }
             | Self::Gap { seq, .. }
             | Self::Snapshot { seq, .. }
-            | Self::ClotureAuto { seq, .. } => *seq,
+            | Self::ClotureAuto { seq, .. }
+            | Self::HorsPerimetre { seq, .. } => *seq,
         }
     }
 
@@ -107,7 +127,8 @@ impl EntreeJournal {
             | Self::Declencheur { monotone_ms, .. }
             | Self::Gap { monotone_ms, .. }
             | Self::Snapshot { monotone_ms, .. }
-            | Self::ClotureAuto { monotone_ms, .. } => *monotone_ms,
+            | Self::ClotureAuto { monotone_ms, .. }
+            | Self::HorsPerimetre { monotone_ms, .. } => *monotone_ms,
         }
     }
 }
@@ -131,6 +152,13 @@ pub trait Snapshotteur: Send + Sync {
     fn photographier(&self) -> Option<Noeud>;
 }
 
+/// Le nom que porte une application non activee, dans le journal.
+///
+/// Il n'y en a qu'un pour toutes : deux applications non observees ne doivent
+/// pas etre distinguables, sinon le journal reconstitue par recoupement ce que
+/// la liste blanche lui interdit de nommer.
+pub const HORS_PERIMETRE: &str = "hors-perimetre";
+
 pub struct Moteur {
     horloge: std::sync::Arc<dyn Horloge>,
     /// R4.1 : rien n'entre au journal sans etre passe par la.
@@ -149,6 +177,12 @@ pub struct Moteur {
     veille_depuis: Option<u64>,
     /// Instant d'entree en pause, tant qu'elle dure (R5.2).
     pause_depuis: Option<u64>,
+    /// R5.4 : les seules surfaces sur lesquelles la capture a le droit d'avoir
+    /// lieu. Vide par defaut, et c'est le point.
+    liste_blanche: crate::surfaces::ListeBlanche,
+    /// Combien d'actions refusees depuis la derniere action admise. Vide au
+    /// journal des qu'une action admise arrive, ou a la cloture.
+    hors_perimetre_en_cours: u64,
 
     /// Le writer, quand il y en a un. Les tests s'en passent : ils verifient la
     /// logique temporelle, et un disque dans la boucle la rendrait plus lente
@@ -188,11 +222,27 @@ impl Moteur {
             quittee: None,
             veille_depuis: None,
             pause_depuis: None,
+            liste_blanche: crate::surfaces::ListeBlanche::vide(),
+            hors_perimetre_en_cours: 0,
             journal: None,
             echecs_ecriture: 0,
             snapshotteur: None,
             snapshots_pris: 0,
         }
+    }
+
+    /// R5.4 — les surfaces sur lesquelles la capture a le droit d'avoir lieu.
+    ///
+    /// Reglable en cours d'episode : l'operateur qui autorise une application
+    /// alors qu'il travaille dedans ne devrait pas avoir a rouvrir l'episode.
+    /// Ce qui a ete refuse avant reste refuse — on ne recapture pas le passe.
+    pub fn definir_liste_blanche(&mut self, liste: crate::surfaces::ListeBlanche) {
+        self.liste_blanche = liste;
+    }
+
+    pub fn avec_liste_blanche(mut self, liste: crate::surfaces::ListeBlanche) -> Self {
+        self.liste_blanche = liste;
+        self
     }
 
     /// Branche ce qui sait photographier. Sans lui, les déclencheurs se
@@ -275,6 +325,74 @@ impl Moteur {
         self.snapshots_pris
     }
 
+    /// R5.2 — l'episode est-il suspendu ?
+    ///
+    /// Le menu, lui, lit l'etat de la `Session` : c'est elle qui porte la pause
+    /// hors episode. Cet accesseur sert au banc, qui verifie la garantie a la
+    /// source plutot que sur son reflet.
+    #[cfg(test)]
+    pub fn en_pause(&self) -> bool {
+        self.pause_depuis.is_some()
+    }
+
+    /// R5.4 — combien d'actions ont ete refusees, plage en cours comprise.
+    pub fn hors_perimetre(&self) -> u64 {
+        self.hors_perimetre_en_cours
+            + self
+                .entrees
+                .iter()
+                .filter_map(|e| match e {
+                    EntreeJournal::HorsPerimetre { combien, .. } => Some(*combien),
+                    _ => None,
+                })
+                .sum::<u64>()
+    }
+
+    /// R5.4 — cet événement a-t-il le droit d'entrer ?
+    ///
+    /// Trois cas, et ils ne se ressemblent pas.
+    ///
+    /// **La veille et le réveil** sont des faits de la machine, pas d'une
+    /// application. Aucune liste blanche ne les gouverne, et les refuser ferait
+    /// disparaître les trous de veille que R3.3 exige.
+    ///
+    /// **La bascule d'application** entre toujours — mais quand elle mène hors
+    /// du périmètre, sa destination est remplacée par une constante. Ce que le
+    /// journal a le droit de savoir, c'est que l'opérateur a quitté la surface
+    /// observée ; ce qu'il n'a pas à savoir, c'est où il est allé. La refuser
+    /// tout court coûterait le déclencheur « bascule avec retour » : sans
+    /// l'aller, le moteur ne verrait jamais le retour.
+    ///
+    /// **Tout le reste** est une observation faite SUR une surface. Hors liste,
+    /// elle n'a pas lieu — y compris quand la surface n'a pas pu être nommée :
+    /// on n'autorise pas ce qu'on n'a pas su identifier.
+    fn admissible(&self, ev: &mut RawEvent) -> bool {
+        if matches!(ev.genre, GenreEvenement::Veille | GenreEvenement::Reveil) {
+            return true;
+        }
+        if let GenreEvenement::BasculeApplication { vers } = &mut ev.genre {
+            if !self.liste_blanche.autorise(Some(vers)) {
+                *vers = HORS_PERIMETRE.to_string();
+            }
+            return true;
+        }
+        self.liste_blanche.autorise(ev.surface.as_deref())
+    }
+
+    /// Declare la plage hors perimetre qui vient de s'achever, s'il y en a une.
+    fn vider_hors_perimetre(&mut self, maintenant: u64) {
+        let combien = std::mem::take(&mut self.hors_perimetre_en_cours);
+        if combien == 0 {
+            return;
+        }
+        let seq = self.prochain_seq();
+        self.pousser(EntreeJournal::HorsPerimetre {
+            seq,
+            monotone_ms: maintenant,
+            combien,
+        });
+    }
+
     fn trou(&mut self, cause: CauseGap, debut_ms: u64, fin_ms: u64) {
         let seq = self.prochain_seq();
         self.pousser(EntreeJournal::Gap {
@@ -297,6 +415,13 @@ impl Moteur {
             return self.clos;
         }
         let borne = self.t0 + TIMEOUT_MS;
+        // Une pause encore ouverte se termine a la borne, AVANT le trou de
+        // timeout : sinon l'episode se clot sur un trou jamais declare, ce que
+        // R3.4 refuse au meme titre qu'un crash silencieux.
+        if let Some(debut) = self.pause_depuis.take() {
+            self.trou(CauseGap::Pause, debut, borne);
+        }
+        self.vider_hors_perimetre(borne);
         self.trou(CauseGap::Timeout, borne, borne);
         let seq = self.prochain_seq();
         self.pousser(EntreeJournal::ClotureAuto {
@@ -329,13 +454,33 @@ impl Moteur {
         if self.verifier_timeout(maintenant) {
             return;
         }
+        // R5.2 : en pause, le temps ne produit rien non plus. Un declencheur
+        // d'inactivite pose ici daterait une hesitation qui n'a pas eu lieu —
+        // l'operateur n'hesitait pas, il avait suspendu.
+        if self.pause_depuis.is_some() {
+            return;
+        }
         self.verifier_inactivite(maintenant);
     }
 
     /// Consomme un événement de capture.
-    pub fn traiter(&mut self, ev: RawEvent) {
+    pub fn traiter(&mut self, mut ev: RawEvent) {
         // R1.2 : après clôture, plus rien n'entre. Jamais.
         if self.clos {
+            return;
+        }
+        // R5.2 : pendant la pause, ZERO ecriture. Pas de journal, pas de
+        // temporel, pas d'etat interne — l'evenement n'est pas mis de cote pour
+        // plus tard, il n'a jamais eu lieu pour cet episode. C'est le sens de
+        // « suspendre » ; un moteur qui continuerait a compter en silence
+        // rendrait la pause decorative.
+        if self.pause_depuis.is_some() {
+            return;
+        }
+        // R5.4 : hors des surfaces activees, rien n'entre. Le refus se compte,
+        // il ne se decrit pas.
+        if !self.admissible(&mut ev) {
+            self.hors_perimetre_en_cours += 1;
             return;
         }
         let maintenant = ev.monotone_ms;
@@ -346,6 +491,9 @@ impl Moteur {
         // se consigner avant lui, sinon le journal raconte les choses à
         // l'envers.
         self.verifier_inactivite(maintenant);
+        // La plage hors perimetre s'achevait a l'instant : elle se declare
+        // avant l'action qui y met fin, pour que la chronologie tienne.
+        self.vider_hors_perimetre(maintenant);
 
         match &ev.genre {
             GenreEvenement::Veille => {
@@ -409,6 +557,15 @@ impl Moteur {
     }
 
     fn basculer(&mut self, vers: String, maintenant: u64) {
+        // Sauter d'une application non observee vers une autre n'est pas un
+        // depart : l'operateur etait deja ailleurs, il y reste. Ecraser
+        // `quittee` ici perdrait le retour vers la surface observee — un detour
+        // par deux applications au lieu d'une suffirait a effacer le
+        // declencheur, et c'est un detour tres ordinaire.
+        if self.app_courante == HORS_PERIMETRE && vers == HORS_PERIMETRE {
+            self.derniere_action = maintenant;
+            return;
+        }
         if let Some((partie, quitte_a)) = self.quittee.take() {
             if partie == vers && maintenant.saturating_sub(quitte_a) <= RETOUR_MAX_MS {
                 self.declencher(Declencheur::BasculeAvecRetour, maintenant);
@@ -433,6 +590,8 @@ impl Moteur {
         if let Some(debut) = self.pause_depuis.take() {
             self.trou(CauseGap::Pause, debut, maintenant);
         }
+        // R5.4 : ce que l'episode n'a pas vu se declare aussi a la fin.
+        self.vider_hors_perimetre(maintenant);
         self.clos = true;
         if let Some(j) = self.journal.as_mut() {
             if let Err(e) = j.clore() {
@@ -566,7 +725,11 @@ mod tests {
         let mut source = FakeSource::new();
         let (tx, rx) = channel();
         let _abonnement = source.abonner(tx).expect("abonnement");
-        let mut moteur = Moteur::ouvrir(horloge.clone(), redacteur, application);
+        // R5.4 : le banc active ses propres surfaces. `outlook` n'y est
+        // volontairement pas — c'est le cas reel, et le scenario de bascule
+        // verifie qu'on voit le depart sans savoir ou il mene.
+        let mut moteur = Moteur::ouvrir(horloge.clone(), redacteur, application)
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["banc.exe", application]));
 
         for etape in etapes {
             match etape {
@@ -924,10 +1087,12 @@ mod tests {
     #[test]
     fn clore_ne_perd_pas_un_delai_deja_expire() {
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 0,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Saisie(cible("textbox", "Note")),
         });
         horloge.avancer(Duration::from_secs(5));
@@ -944,12 +1109,14 @@ mod tests {
     #[test]
     fn apres_cloture_manuelle_plus_rien_n_entre() {
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         m.clore();
         let avant = m.journal().len();
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 10,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Invocation(cible("button", "Enregistrer")),
         });
         assert_eq!(m.journal().len(), avant, "R1.2 : rien apres la cloture");
@@ -961,11 +1128,13 @@ mod tests {
         // la cloture doit avoir eu lieu quand meme. Un compteur incremente a
         // chaque battement raterait ce cas.
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         horloge.avancer(Duration::from_secs(4_000));
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: horloge.monotone_ms(),
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Invocation(cible("button", "Enregistrer")),
         });
         assert!(m.clos(), "R1.3 doit tenir sans battement intermediaire");
@@ -1023,7 +1192,8 @@ mod tests {
     #[test]
     fn une_veille_mesuree_produit_un_trou_avec_ses_bornes() {
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         horloge.avancer(Duration::from_secs(300));
 
         m.signaler_veille(&crate::veille::Veille {
@@ -1051,7 +1221,8 @@ mod tests {
     #[test]
     fn apres_une_veille_la_reprise_n_est_pas_une_hesitation() {
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         horloge.avancer(Duration::from_secs(600));
 
         m.signaler_veille(&crate::veille::Veille {
@@ -1062,6 +1233,7 @@ mod tests {
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 600_100,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Invocation(cible("button", "Enregistrer")),
         });
 
@@ -1076,7 +1248,8 @@ mod tests {
         // Tant que la pause dure, sa borne de fin n'existe pas : ecrire le trou
         // tout de suite obligerait a le corriger apres coup.
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         m.mettre_en_pause();
         horloge.avancer(Duration::from_secs(120));
 
@@ -1086,7 +1259,8 @@ mod tests {
     #[test]
     fn la_reprise_ecrit_le_trou_de_pause_avec_ses_bornes() {
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         horloge.avancer(Duration::from_secs(10));
         m.mettre_en_pause();
         horloge.avancer(Duration::from_secs(120));
@@ -1113,7 +1287,8 @@ mod tests {
         // Sinon l'episode se clorait sur un trou jamais declare, ce que R3.4
         // interdit — et la statistique de completude serait fausse a la hausse.
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         horloge.avancer(Duration::from_secs(5));
         m.mettre_en_pause();
         horloge.avancer(Duration::from_secs(60));
@@ -1125,7 +1300,8 @@ mod tests {
     #[test]
     fn deux_pauses_successives_donnent_deux_trous() {
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         for _ in 0..2 {
             m.mettre_en_pause();
             horloge.avancer(Duration::from_secs(30));
@@ -1143,7 +1319,8 @@ mod tests {
         // Un double appui sur « pause » ne doit pas raccourcir le trou : la
         // borne reste celle de la PREMIERE mise en pause.
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         m.mettre_en_pause();
         horloge.avancer(Duration::from_secs(50));
         m.mettre_en_pause();
@@ -1169,7 +1346,8 @@ mod tests {
     #[test]
     fn reprendre_sans_pause_ne_fabrique_pas_de_trou() {
         let horloge = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(horloge.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         m.reprendre();
         assert!(m.gaps().is_empty(), "un trou invente salirait le corpus");
     }
@@ -1218,7 +1396,9 @@ mod tests {
         photo: std::sync::Arc<dyn Snapshotteur>,
     ) -> (Moteur, std::sync::Arc<HorlogeSimulee>) {
         let h = std::sync::Arc::new(HorlogeSimulee::new());
-        let m = Moteur::ouvrir(h.clone(), redacteur(), "chrome").avec_snapshotteur(photo);
+        let m = Moteur::ouvrir(h.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]))
+            .avec_snapshotteur(photo);
         (m, h)
     }
 
@@ -1239,6 +1419,7 @@ mod tests {
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 100,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
         });
         assert_eq!(photo.prises(), 1);
@@ -1254,6 +1435,7 @@ mod tests {
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 10,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
         });
         let genres: Vec<&str> = m
@@ -1280,12 +1462,14 @@ mod tests {
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 0,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
         });
         // 2. saisie puis 2 s d inactivite
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 1_000,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Saisie(cible("textbox", "Note")),
         });
         h.avancer(Duration::from_secs(3));
@@ -1294,6 +1478,7 @@ mod tests {
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 5_000,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::BasculeApplication {
                 vers: "outlook".into(),
             },
@@ -1301,6 +1486,7 @@ mod tests {
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 10_000,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::BasculeApplication {
                 vers: "chrome".into(),
             },
@@ -1309,12 +1495,14 @@ mod tests {
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 30_000,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Invocation(cible("button", "Ouvrir")),
         });
         // 5. copier-coller apparie
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 31_000,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Collage { apparie: true },
         });
 
@@ -1344,6 +1532,7 @@ mod tests {
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 100,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Collage { apparie: false },
         });
         assert!(!m.declencheurs().contains(&Declencheur::CopierColler));
@@ -1355,10 +1544,12 @@ mod tests {
         // Le declencheur EST l'information ; le snapshot est le detail qu'on
         // peut perdre sans perdre la chronologie.
         let h = std::sync::Arc::new(HorlogeSimulee::new());
-        let mut m = Moteur::ouvrir(h, redacteur(), "chrome");
+        let mut m = Moteur::ouvrir(h, redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 0,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
         });
         assert!(m.declencheurs().contains(&Declencheur::Soumission));
@@ -1371,10 +1562,12 @@ mod tests {
         // pire que pas de snapshot du tout.
         let h = std::sync::Arc::new(HorlogeSimulee::new());
         let mut m = Moteur::ouvrir(h, redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]))
             .avec_snapshotteur(std::sync::Arc::new(PhotographeAveugle));
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 0,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
         });
         assert!(m.declencheurs().contains(&Declencheur::Soumission));
@@ -1390,6 +1583,7 @@ mod tests {
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 0,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
         });
         let serialise = serde_json::to_string(m.journal()).expect("serialisable");
@@ -1407,6 +1601,7 @@ mod tests {
             m.traiter(RawEvent {
                 source: Source::Fake,
                 monotone_ms: i * 100,
+                surface: Some("chrome".into()),
                 genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
             });
         }
@@ -1425,8 +1620,406 @@ mod tests {
         m.traiter(RawEvent {
             source: Source::Fake,
             monotone_ms: 10,
+            surface: Some("chrome".into()),
             genre: GenreEvenement::Soumission(cible("button", "Enregistrer")),
         });
         assert_eq!(photo.prises(), avant, "R1.2 : rien apres la cloture");
     }
+
+    // ---------------------------------------------------------------------
+    // Tache 9 : la pause etanche et la liste blanche (R5.2, R5.4).
+    // ---------------------------------------------------------------------
+
+    fn moteur_neuf(h: &std::sync::Arc<HorlogeSimulee>) -> Moteur {
+        Moteur::ouvrir(h.clone(), redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]))
+    }
+
+    fn depuis(surface: &str, monotone_ms: u64, genre: GenreEvenement) -> RawEvent {
+        RawEvent {
+            source: Source::Fake,
+            monotone_ms,
+            surface: Some(surface.to_string()),
+            genre,
+        }
+    }
+
+    /// Tout ce que le journal a ecrit, en une seule chaine.
+    ///
+    /// Un test qui ne regarderait que les variantes attendues laisserait passer
+    /// une fuite logee dans un champ auquel il ne pense pas. Celui-ci balaie le
+    /// texte entier.
+    fn journal_serialise(m: &Moteur) -> String {
+        m.journal()
+            .iter()
+            .map(|e| serde_json::to_string(e).expect("serialisation"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn pendant_la_pause_zero_ecriture() {
+        // R5.2 dans sa forme litterale. Le defaut qu'il ferme est reel : avant
+        // la tache 9, `traiter` ne consultait jamais la pause. Le journal
+        // ecrivait un trou disant « rien n'a ete capture ici » pendant que les
+        // evenements continuaient d'entrer — il mentait.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Focus(cible("tab", "Fiche")),
+        ));
+        let avant = m.journal().len();
+        assert_eq!(avant, 1, "l action d avant-pause est bien entree");
+
+        m.mettre_en_pause();
+        assert!(m.en_pause());
+        for (i, genre) in [
+            GenreEvenement::Focus(cible("textbox", "Note")),
+            GenreEvenement::Saisie(cible("textbox", "Note")),
+            GenreEvenement::Invocation(cible("button", "Enregistrer")),
+            GenreEvenement::Soumission(cible("button", "Envoyer")),
+            GenreEvenement::Copie,
+            GenreEvenement::Collage { apparie: true },
+            GenreEvenement::ChangementValeur(cible("combobox", "Statut")),
+            GenreEvenement::ChangementStructure(cible("group", "Panneau")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            h.avancer(Duration::from_secs(3));
+            m.traiter(depuis("chrome", (i as u64 + 1) * 3_000, genre));
+            m.battre();
+            assert_eq!(
+                m.journal().len(),
+                avant,
+                "R5.2 : zero ecriture pendant la pause"
+            );
+        }
+        // Ni declencheur, ni photo, ni compteur : la pause ne met rien de cote
+        // pour plus tard non plus.
+        assert_eq!(m.declencheurs().len(), 0);
+        assert_eq!(m.snapshots_pris(), 0);
+        assert_eq!(
+            m.hors_perimetre(),
+            0,
+            "un refus de pause n est pas un refus de perimetre"
+        );
+
+        m.reprendre();
+        assert!(!m.en_pause());
+        assert_eq!(m.gaps(), vec![CauseGap::Pause], "un trou, avec ses bornes");
+    }
+
+    #[test]
+    fn la_pause_ne_fabrique_pas_de_declencheur_d_inactivite() {
+        // Une saisie juste avant la pause, puis vingt secondes de pause : le
+        // delai d inactivite expire pendant la suspension. Le consigner
+        // daterait une hesitation qui n a pas eu lieu — l operateur n hesitait
+        // pas, il avait suspendu.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Saisie(cible("textbox", "Note")),
+        ));
+        m.mettre_en_pause();
+        for _ in 0..10 {
+            h.avancer(Duration::from_secs(2));
+            m.battre();
+        }
+        assert!(
+            !m.declencheurs().contains(&Declencheur::SaisiePuisInactivite),
+            "R5.2 : la pause n est pas une hesitation"
+        );
+        m.reprendre();
+        assert_eq!(m.gaps(), vec![CauseGap::Pause]);
+    }
+
+    #[test]
+    fn une_pause_jamais_reprise_se_ferme_au_timeout() {
+        // R1.3 croise R3.4 : l episode se clot tout seul a soixante minutes,
+        // mais il ne peut pas se clore sur un trou jamais declare.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.mettre_en_pause();
+        h.avancer(Duration::from_millis(TIMEOUT_MS + 1_000));
+        m.battre();
+        assert!(m.clos());
+        assert_eq!(
+            m.gaps(),
+            vec![CauseGap::Pause, CauseGap::Timeout],
+            "la pause se ferme AVANT le timeout, pas apres"
+        );
+    }
+
+    #[test]
+    fn une_liste_blanche_vide_ne_laisse_rien_entrer() {
+        // R5.4 au premier lancement : le moteur tourne, la capture non.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(h.clone(), redacteur(), "chrome");
+        for (i, genre) in [
+            GenreEvenement::Focus(cible("tab", "Fiche")),
+            GenreEvenement::Invocation(cible("button", "Enregistrer")),
+            GenreEvenement::Soumission(cible("button", "Envoyer")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            m.traiter(depuis("chrome", i as u64 * 100, genre));
+        }
+        assert!(
+            m.journal().is_empty(),
+            "R5.4 : rien n est capture par defaut"
+        );
+        assert_eq!(m.hors_perimetre(), 3, "mais le refus se compte");
+    }
+
+    #[test]
+    fn une_surface_non_nommee_est_refusee() {
+        // On n autorise pas ce qu on n a pas su identifier : un processus
+        // protege ou eleve ne se nomme pas, et le doute ne profite pas a la
+        // capture.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 0,
+            surface: None,
+            genre: GenreEvenement::Invocation(cible("button", "Enregistrer")),
+        });
+        assert!(m.journal().is_empty());
+        assert_eq!(m.hors_perimetre(), 1);
+    }
+
+    #[test]
+    fn le_hors_perimetre_se_compte_par_plage_et_non_par_action() {
+        // Dix minutes dans une application non activee produiraient des
+        // milliers de lignes disant chacune la meme chose. Elles en produisent
+        // une, avec son decompte.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        for i in 0..3 {
+            m.traiter(depuis(
+                "keepass.exe",
+                i * 100,
+                GenreEvenement::Saisie(cible("textbox", "Mot de passe")),
+            ));
+        }
+        m.traiter(depuis(
+            "chrome",
+            400,
+            GenreEvenement::Focus(cible("tab", "Fiche")),
+        ));
+        for i in 0..2 {
+            m.traiter(depuis(
+                "keepass.exe",
+                500 + i * 100,
+                GenreEvenement::Invocation(cible("button", "Copier")),
+            ));
+        }
+        m.clore();
+
+        let plages: Vec<u64> = m
+            .journal()
+            .iter()
+            .filter_map(|e| match e {
+                EntreeJournal::HorsPerimetre { combien, .. } => Some(*combien),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(plages, vec![3, 2], "une entree par plage contigue");
+        assert_eq!(m.hors_perimetre(), 5);
+    }
+
+    #[test]
+    fn le_journal_ne_nomme_jamais_ce_qu_il_refuse_d_observer() {
+        // La liste blanche existe pour que ce qui se passe ailleurs ne soit pas
+        // observe. Un journal qui nommerait l application refusee, ou le champ
+        // sur lequel on a tape dedans, aurait observe quand meme.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.traiter(depuis(
+            "keepass.exe",
+            0,
+            GenreEvenement::Saisie(cible("textbox", "Coffre Elevay")),
+        ));
+        m.traiter(depuis(
+            "chrome",
+            100,
+            GenreEvenement::Focus(cible("tab", "Fiche")),
+        ));
+        m.clore();
+
+        let texte = journal_serialise(&m);
+        for interdit in ["keepass", "Coffre", "Elevay", "textbox"] {
+            assert!(
+                !texte.contains(interdit),
+                "« {interdit} » a fuite dans le journal :\n{texte}"
+            );
+        }
+        assert!(
+            texte.contains("hors_perimetre"),
+            "mais le refus est declare"
+        );
+    }
+
+    #[test]
+    fn la_bascule_hors_perimetre_entre_mais_sans_dire_ou() {
+        // Ce que le journal a le droit de savoir : l operateur a quitte la
+        // surface observee, et il est revenu. Ce qu il n a pas a savoir : ou il
+        // est alle. Refuser la bascule tout court couterait le declencheur
+        // « bascule avec retour » — sans l aller, jamais de retour.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Focus(cible("textbox", "Note")),
+        ));
+        m.traiter(depuis(
+            "outlook.exe",
+            100,
+            GenreEvenement::BasculeApplication {
+                vers: "outlook.exe".into(),
+            },
+        ));
+        m.traiter(depuis(
+            "chrome",
+            12_000,
+            GenreEvenement::BasculeApplication {
+                vers: "chrome".into(),
+            },
+        ));
+        m.traiter(depuis(
+            "chrome",
+            12_500,
+            GenreEvenement::Invocation(cible("button", "Enregistrer")),
+        ));
+
+        assert!(
+            m.declencheurs().contains(&Declencheur::BasculeAvecRetour),
+            "le declencheur doit survivre a un detour hors perimetre"
+        );
+        let texte = journal_serialise(&m);
+        assert!(
+            !texte.contains("outlook"),
+            "la destination ne se nomme pas :\n{texte}"
+        );
+        // Le journal porte le declencheur, jamais la destination : une bascule
+        // n'ecrit pas d'action, elle change l'etat du moteur. La constante
+        // `HORS_PERIMETRE` protege donc la memoire, pas le disque — et les deux
+        // se verifient, parce qu'une spec ulterieure pourrait ecrire l'une a
+        // partir de l'autre.
+        assert!(
+            !texte.contains(HORS_PERIMETRE),
+            "pas meme le marqueur : rien de la destination n'est ecrit"
+        );
+    }
+
+    #[test]
+    fn un_detour_par_deux_applications_non_observees_garde_le_retour() {
+        // Deux applications non observees deviennent la meme : « ailleurs ».
+        // C'est ce qui permet au retour d'etre vu. Si chacune gardait son
+        // identite, le second saut ecraserait le souvenir du depart, et un
+        // detour par deux applications au lieu d'une effacerait le
+        // declencheur — alors que c'est un detour tres ordinaire.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        let bascule = |vers: &str, ms: u64| {
+            depuis(
+                vers,
+                ms,
+                GenreEvenement::BasculeApplication {
+                    vers: vers.to_string(),
+                },
+            )
+        };
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Focus(cible("textbox", "Note")),
+        ));
+        m.traiter(bascule("keepass.exe", 1_000));
+        m.traiter(bascule("signal.exe", 3_000));
+        m.traiter(bascule("chrome", 9_000));
+
+        assert!(
+            m.declencheurs().contains(&Declencheur::BasculeAvecRetour),
+            "parti de chrome a 1 s, revenu a 9 s : le retour doit se voir"
+        );
+        let texte = journal_serialise(&m);
+        for interdit in ["keepass", "signal"] {
+            assert!(!texte.contains(interdit), "« {interdit} » a fuite :\n{texte}");
+        }
+    }
+
+    #[test]
+    fn la_veille_ne_depend_pas_de_la_liste_blanche() {
+        // La veille est un fait de la machine, pas d une application. La
+        // refuser ferait disparaitre le trou que R3.3 exige — et un trou perdu
+        // est exactement ce que la regle 4 interdit.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(h.clone(), redacteur(), "chrome");
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 0,
+            surface: None,
+            genre: GenreEvenement::Veille,
+        });
+        m.traiter(RawEvent {
+            source: Source::Fake,
+            monotone_ms: 60_000,
+            surface: None,
+            genre: GenreEvenement::Reveil,
+        });
+        assert_eq!(m.gaps(), vec![CauseGap::Sleep]);
+    }
+
+    #[test]
+    fn autoriser_en_cours_d_episode_ne_recapture_pas_le_passe() {
+        // L operateur qui active une application alors qu il travaille dedans
+        // ne devrait pas avoir a rouvrir l episode. Mais ce qui a ete refuse
+        // reste refuse : on n invente pas apres coup une observation qu on n a
+        // pas faite.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(h.clone(), redacteur(), "chrome");
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Focus(cible("tab", "Avant")),
+        ));
+        assert!(m.journal().is_empty());
+
+        m.definir_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome"]));
+        m.traiter(depuis(
+            "chrome",
+            100,
+            GenreEvenement::Focus(cible("tab", "Apres")),
+        ));
+
+        let texte = journal_serialise(&m);
+        assert!(texte.contains("Apres"), "ce qui suit l activation entre");
+        assert!(!texte.contains("Avant"), "ce qui precede reste dehors");
+        assert_eq!(m.hors_perimetre(), 1);
+    }
+
+    #[test]
+    fn la_surface_n_entre_jamais_au_journal() {
+        // `surface` sert a decider, pas a raconter. Le journal porte ce que
+        // l operateur a fait, pas l inventaire des executables de son poste.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Invocation(cible("button", "Enregistrer")),
+        ));
+        let texte = journal_serialise(&m);
+        assert!(!texte.contains("surface"), "aucun champ surface :\n{texte}");
+        assert!(!texte.contains("chrome"), "ni sa valeur :\n{texte}");
+    }
+
 }

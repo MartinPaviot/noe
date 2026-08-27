@@ -31,6 +31,49 @@ pub struct MotifPii {
 struct Miroir {
     version: u32,
     motifs: Vec<MotifPii>,
+    /// Le filet du juge (v4). Voir `chercher_compact`.
+    compact: Vec<MotifPii>,
+}
+
+/// Ramène les blancs exotiques à l'espace ASCII, avant toute recherche.
+///
+/// Miroir exact de `normaliserBlancs`. Les motifs sont compilés `unicode(false)`
+/// pour que les deux moteurs lisent la même chaîne de la même façon ; le prix de
+/// cette garantie, c'est qu'un `U+00A0` entre deux groupes de chiffres n'est pas
+/// un séparateur reconnu. « 06<NBSP>12<NBSP>34… » traversait la redaction en
+/// clair, et l'insécable est ce que produisent Word, les signatures de courriel
+/// et beaucoup de champs de CRM.
+///
+/// Les caractères de largeur nulle deviennent une espace et non rien : sinon
+/// `06<ZWSP>12` se lirait `0612` et on inventerait un numéro que personne n'a
+/// écrit.
+pub fn normaliser_blancs(texte: &str) -> String {
+    texte
+        .chars()
+        .map(|c| {
+            if c.is_ascii() {
+                c
+            } else if c.is_whitespace()
+                || matches!(c, '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{feff}')
+            {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// La même chaîne, réduite à ses caractères signifiants.
+///
+/// Miroir exact de `compacter`. Tout ce qui n'est ni alphanumérique ASCII ni `+`
+/// disparaît : une graphie que la bibliothèque ne connaît pas encore s'y réduit
+/// à la même suite de chiffres que la graphie canonique.
+pub fn compacter(texte: &str) -> String {
+    texte
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '+')
+        .collect()
 }
 
 /// Une PII repérée : son type et ses bornes en octets.
@@ -50,6 +93,7 @@ impl Occurrence {
 struct Compile {
     version: u32,
     motifs: Vec<(String, u32, Regex)>,
+    compact: Vec<(String, u32, Regex)>,
 }
 
 fn compile() -> &'static Compile {
@@ -57,8 +101,8 @@ fn compile() -> &'static Compile {
     CACHE.get_or_init(|| {
         let miroir: Miroir =
             serde_json::from_str(MIROIR).expect("motifs.json illisible : la CI aurait du le voir");
-        let motifs = miroir
-            .motifs
+        let compiler = |liste: &Vec<MotifPii>| -> Vec<(String, u32, Regex)> {
+            liste
             .iter()
             .map(|m| {
                 // `unicode(false)` : en JavaScript, `\d`, `\w` et `\b` sont
@@ -90,10 +134,12 @@ fn compile() -> &'static Compile {
                     });
                 (m.type_pii.clone(), m.priorite, re)
             })
-            .collect();
+            .collect()
+        };
         Compile {
             version: miroir.version,
-            motifs,
+            motifs: compiler(&miroir.motifs),
+            compact: compiler(&miroir.compact),
         }
     })
 }
@@ -108,10 +154,41 @@ pub fn types() -> Vec<String> {
 
 /// Toutes les occurrences, triées comme le fait `chercherPii` côté TypeScript :
 /// par position, puis par type à position égale.
+///
+/// **Les bornes portent sur `normaliser_blancs(texte)`, pas sur `texte`.** Qui
+/// remplace doit donc normaliser d'abord — c'est ce que fait `Redacteur`.
 pub fn chercher(texte: &str) -> Vec<Occurrence> {
+    let texte = normaliser_blancs(texte);
+    let texte = texte.as_str();
     let mut trouvees: Vec<Occurrence> = Vec::new();
     for (type_pii, _, re) in &compile().motifs {
         for m in re.find_iter(texte) {
+            trouvees.push(Occurrence {
+                type_pii: type_pii.clone(),
+                debut: m.start(),
+                fin: m.end(),
+            });
+        }
+    }
+    trouvees.sort_by(|a, b| a.debut.cmp(&b.debut).then(a.type_pii.cmp(&b.type_pii)));
+    trouvees
+}
+
+/// Le filet du juge : les motifs appliqués au texte **compacté** (v4).
+///
+/// R4.6 valide la redaction avec la bibliothèque même qui a servi à redacter. Un
+/// juge adossé à ce qu'il contrôle est aveugle par construction : tout trou de
+/// motif passe deux fois, à l'écriture puis à la validation, et l'épisode
+/// ressort gradé « redaction validée ». C'est ce qui s'est produit trois fois.
+///
+/// Ce filet ne partage pas les motifs et ne redacte jamais. Il refuse de
+/// valider, ce qui est le bon sens de l'erreur : le jour où il parle seul, c'est
+/// la bibliothèque qu'il faut corriger.
+pub fn chercher_compact(texte: &str) -> Vec<Occurrence> {
+    let texte = compacter(&normaliser_blancs(texte));
+    let mut trouvees: Vec<Occurrence> = Vec::new();
+    for (type_pii, _, re) in &compile().compact {
+        for m in re.find_iter(&texte) {
             trouvees.push(Occurrence {
                 type_pii: type_pii.clone(),
                 debut: m.start(),
@@ -263,12 +340,18 @@ mod tests {
 
         let mut desaccords = Vec::new();
         for cas in &v.cas {
-            // Les vecteurs sont ASCII a dessein : l'index TypeScript compte en
-            // unites UTF-16, l'index Rust en octets. Sur de l'ASCII, les deux
-            // coincident ; ailleurs, ils ne seraient pas comparables.
+            // L'index TypeScript compte en unites UTF-16, l'index Rust en
+            // octets. Sur de l'ASCII, les deux coincident ; ailleurs, ils ne
+            // seraient pas comparables.
+            //
+            // v4 : c'est la forme NORMALISEE qui doit etre ASCII, pas l'entree.
+            // Exiger l'ASCII sur le brut interdisait les vecteurs a insecable,
+            // donc interdisait de tester la classe de fuite qui a le plus
+            // longtemps traverse la redaction. On protegeait la comparabilite
+            // en supprimant le cas a comparer.
             assert!(
-                cas.entree.is_ascii(),
-                "vecteur non-ASCII, les index ne sont pas comparables : {:?}",
+                normaliser_blancs(&cas.entree).is_ascii(),
+                "vecteur non-ASCII apres normalisation : {:?}",
                 cas.entree
             );
 
@@ -339,4 +422,82 @@ mod tests {
             "D24 : cette graphie traversait la redaction, obtenu {trouvees:?}"
         );
     }
+
+    // -- v4 : les graphies qui traversaient la redaction (D29) --------------
+
+    #[test]
+    fn les_graphies_trouvees_par_revue_adverse_sont_detectees() {
+        // Chacune est une forme d'affichage courante d'un numero francais, pas
+        // une curiosite de laboratoire : en-tetes de courriel, signatures,
+        // champs de CRM.
+        for texte in [
+            "Mobile +33 (0)6 12 34 56 78",
+            "Standard +33 (0)1 42 68 53 00",
+            "Direct +33 (0)612345678",
+            "Depuis l etranger 0033 6 12 34 56 78",
+            "Ligne 06\u{a0}12\u{a0}34\u{a0}56\u{a0}78",
+            "Ligne 06\u{202f}12\u{202f}34\u{202f}56\u{202f}78",
+            "Ligne 06\u{200b}12\u{200b}34\u{200b}56\u{200b}78",
+        ] {
+            let types: Vec<String> = chercher(texte).into_iter().map(|o| o.type_pii).collect();
+            assert!(
+                types.iter().any(|t| t == "TEL_FR"),
+                "non detecte : {texte:?} -> {types:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn la_largeur_nulle_devient_une_espace_pas_rien() {
+        // Sinon `06<ZWSP>12` se lirait `0612` et on inventerait une graphie que
+        // personne n'a ecrite.
+        assert_eq!(normaliser_blancs("06\u{200b}12"), "06 12");
+    }
+
+    #[test]
+    fn le_filet_voit_ce_que_la_bibliotheque_raterait() {
+        // Le tiret cadratin comme separateur : aucun motif ne le connait. Le
+        // filet, si — et c'est exactement sa raison d'etre.
+        let exotique = "06\u{2014}12\u{2014}34\u{2014}56\u{2014}78";
+        let vus: Vec<String> = chercher(exotique).into_iter().map(|o| o.type_pii).collect();
+        assert!(!vus.iter().any(|t| t == "TEL_FR"), "{vus:?}");
+        let filet: Vec<String> = chercher_compact(exotique)
+            .into_iter()
+            .map(|o| o.type_pii)
+            .collect();
+        assert_eq!(filet, vec!["TEL_FR_COMPACT".to_string()]);
+    }
+
+    #[test]
+    fn le_filet_ne_mord_pas_sur_ce_qui_n_est_pas_un_numero() {
+        // Un faux positif ici declasse un episode honnete sans recours.
+        for texte in [
+            "1767225600000",
+            "2026-01-14T09:12:03.000Z",
+            "Montant 1 234,56 EUR",
+            "Code postal 75011 Paris",
+            "SIRET 12345678900011",
+            "01JQA1B2C3D4E5F6G7H8J9K0M1",
+            "TEL_FR_1a2b3c4d",
+        ] {
+            assert!(
+                chercher_compact(texte).is_empty(),
+                "faux positif du filet sur {texte:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn le_filet_est_le_meme_des_deux_cotes() {
+        // Meme dispositif que les motifs : le miroir porte les deux listes, et
+        // une divergence ferait diverger les grades sans que personne le voie.
+        let miroir: Miroir = serde_json::from_str(MIROIR).unwrap();
+        assert_eq!(
+            miroir.compact.len(),
+            1,
+            "le filet doit rester minuscule : chaque motif y est un risque de faux positif"
+        );
+        assert_eq!(miroir.compact[0].type_pii, "TEL_FR_COMPACT");
+    }
+
 }
