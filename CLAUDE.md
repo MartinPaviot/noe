@@ -60,7 +60,7 @@ On ne coche une case que sur une vérification de bout en bout, et on n'édite
 | --- | --- |
 | `001-socle-de-preuve` | ✅ 15/15 — format d'épisode, rejeu, juge mécanique |
 | `002-capture-bornee` | ✅ 20/20 — gate franchi le 2026-08-27 |
-| `003-federation-boucle` | scellée, ouvre au gate de la 002 |
+| `003-federation-boucle` | en cours — 9/14 ; tout ce qui ne demande pas l'org est écrit et vert. **Bloquée sur la tâche 0** : incident du coffre, voir `docs/decisions.md` |
 | `004-politique-shadow` | déposée (opérateur), ouvre au gate de la 003 |
 | `005-modes-promotion` | déposée (opérateur), ouvre au gate de la 004 |
 | `006-assiste` | déposée (opérateur), ouvre au gate de la 004 |

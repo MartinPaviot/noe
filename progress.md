@@ -575,3 +575,89 @@ le manifeste d'hôte sous le dossier de données de l'application, et une clé s
 deux-là.
 
 ---
+
+## 2026-08-27 (4) — La spec 003 jusqu'au mur, et le mur est un coffre
+
+### Ce qui s'est passé
+
+Le gate de la spec 002 est franchi, la 003 est ouverte, et son premier prérequis
+est tombé : le coffre DPAPI qui portait les identifiants de l'org de démo a
+disparu du poste. L'incident est daté dans `docs/decisions.md`. Les pistes
+**locales** de récupération sont désormais épuisées, et c'est consigné : aucun
+fichier `.dpapi` ne subsiste dans le profil utilisateur, la corbeille n'en
+contient aucun, et les clichés instantanés de volume demandent des droits
+d'administration que la session n'a pas.
+
+La consigne était de continuer sur ce qui n'est pas bloqué. Il restait plus de
+travail que prévu.
+
+### Fait
+
+- **Tâche 4** — l'adaptateur CRM. Tout ce qui transforme et tout ce qui construit
+  une requête, plus l'implémentation complète de `Federation`. 40 tests.
+- **Tâche 11** — l'adaptateur Gmail, même forme. 41 tests.
+- **Tâche 2** — l'échange de jetons et le rafraîchissement. 47 tests.
+- **Tâche 6** — les candidates : d'où viennent les clés fortes, et à qui elles
+  s'adressent. Plus un routeur qui porte les deux connecteurs derrière un seul
+  `Federation`. 23 tests.
+- **Tâche 10** — la fédération entre dans l'épisode, et **le grade A s'ouvre**.
+  11 tests.
+- **D35** — le transport HTTP, et ce qu'un porteur de jeton doit refuser.
+  19 tests.
+- **D36** — une résolution empêchée n'est pas une résolution négative.
+
+### Ce que l'écriture a trouvé et que la relecture n'aurait pas vu
+
+Trois défauts, tous de la même famille : **un miroir qui ne transporte pas ce
+qu'il ressemble.**
+
+1. **`resoudre` rendait trois issues au lieu de quatre.** Un adaptateur qui prend
+   un `403` n'avait qu'un choix : répondre `Introuvable`. Or `not_found` affirme
+   que l'enregistrement n'existe pas — c'est une conclusion, et elle envoie
+   chercher au mauvais endroit. Le contrat TypeScript, lui, rend un `Result` : le
+   miroir Rust l'avait aplati en oubliant ce qu'il portait.
+2. **Le miroir de `Entity` avait perdu deux champs.** `resolved` — la clé qui a
+   tranché, sans laquelle une résolution fausse est indiagnosticable — et
+   `state_meta`. Le registre jetait la première ; il la garde.
+3. **Le `Debug` de `Jetons` était dérivé.** Il imprimait le jeton d'accès et
+   celui de rafraîchissement en clair, à côté d'un `Pkce` et d'un `ClientHttp`
+   qui masquent tous les deux les leurs.
+
+Et un quatrième, trouvé par un contrôle qui a mordu : le suffixe de contrôle des
+identifiants Salesforce a **refusé deux valeurs que j'avais inventées pour les
+tests**. C'est la quatrième fois de la journée qu'un garde-fou est vu échouer
+avant d'être cru.
+
+### Ce qui n'est toujours pas prouvé
+
+- **Aucun de ces adaptateurs n'a parlé à une org.** Tout est vérifié contre des
+  réponses enregistrées et un serveur de boucle locale. C'est honnête, ce n'est
+  pas la même chose.
+- **Six modules attendent un jeton** — `federation`, `oauth`, `transport`,
+  `salesforce`, `gmail`, `candidates` — chacun avec un `allow(dead_code)` qui
+  nomme la tâche chargée de le retirer. C'est beaucoup, et c'est le prix de
+  l'incident.
+- **Le worker n'a jamais démarré en production.** `fusionner_federation` n'a pas
+  d'appelant pour la même raison : poser un appel qu'aucun test ne peut exercer
+  aurait été un garde-fou décoratif de plus.
+
+### Vert
+
+`pnpm verify` · `cargo test --all-targets` : **517 tests Rust + 2 d'intégration
++ 5 visuels**, 248 TypeScript. Clippy strict propre. Six commits poussés.
+
+### Prochaine tâche
+
+**0** — le terrain, et il faut pour cela reprendre la main sur
+`contact+noespike@elevay.app`. Tout le reste de la 003 en dépend : les tests
+d'intégration de la 4 et de la 11, la connexion de la 2, les canaris de la 9, la
+cohérence de la 12, et le jalon de la 13.
+
+### Coûts
+
+Aucune écriture hors dépôt cette session. Une dépendance ajoutée : `ureq` et ses
+dix caisses transitives, choisie contre `reqwest` parce que tout le code de Noe
+est synchrone et qu'un ordonnanceur complet pour faire des GET dans un fil qui
+n'a rien d'autre à faire serait du poids sans contrepartie.
+
+---
