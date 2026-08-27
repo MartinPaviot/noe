@@ -165,6 +165,63 @@ pub fn verifier_url(url: &str, politique: &Politique) -> Result<(), String> {
     }
 }
 
+/// Un POST de formulaire — l'échange de jetons, et rien d'autre.
+///
+/// **Volontairement hors du trait `Transport`.** Le trait dit « aucune
+/// écriture », et il parle des systèmes de vérité : y ajouter `post` rendrait
+/// cette phrase fausse au premier coup d'œil, et un adaptateur pourrait s'en
+/// servir. Demander un jeton n'écrit rien chez personne.
+///
+/// Le corps porte le code d'autorisation et le vérificateur PKCE. Il n'est
+/// **jamais** remis dans un message d'erreur : une erreur se lit dans un journal,
+/// et un journal se partage.
+pub fn poster_formulaire(
+    url: &str,
+    champs: &[(&str, String)],
+    politique: &Politique,
+    delai: Duration,
+) -> Result<(u16, String), String> {
+    verifier_url(url, politique)?;
+    let corps = champs
+        .iter()
+        .map(|(nom, valeur)| {
+            format!(
+                "{}={}",
+                crate::oauth::encoder_composant(nom),
+                crate::oauth::encoder_composant(valeur)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("&");
+
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(delai))
+        .timeout_connect(Some(DELAI_CONNEXION))
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+
+    let reponse = agent
+        .post(url)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Accept", "application/json")
+        .send(&corps)
+        // Surtout pas `{corps}` : ce message finirait dans un journal.
+        .map_err(|e| format!("echange refuse : {e}"))?;
+    let statut = reponse.status().as_u16();
+    if (300..400).contains(&statut) {
+        return Err(format!("redirection {statut} non suivie"));
+    }
+    let recu = reponse
+        .into_body()
+        .with_config()
+        .limit(PLAFOND_REPONSE)
+        .read_to_string()
+        .map_err(|e| format!("corps illisible : {e}"))?;
+    Ok((statut, recu))
+}
+
 /// Le client HTTP réel.
 pub struct ClientHttp {
     agent: ureq::Agent,
@@ -364,7 +421,24 @@ mod tests {
                         break;
                     }
                 }
-                let _ = tx.send(String::from_utf8_lossy(&tete).into_owned());
+                // Le corps, quand il y en a un : sans lui, on ne peut rien
+                // verifier de ce qu'un POST envoie.
+                let entete = String::from_utf8_lossy(&tete).to_lowercase();
+                let taille = entete
+                    .split("content-length:")
+                    .nth(1)
+                    .and_then(|r| r.split(['\r', '\n']).next())
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                let mut corps_recu = vec![0_u8; taille];
+                if taille > 0 {
+                    let _ = flux.read_exact(&mut corps_recu);
+                }
+                let _ = tx.send(format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&tete),
+                    String::from_utf8_lossy(&corps_recu)
+                ));
                 let _ = flux.write_all(&reponse);
                 let _ = flux.flush();
             }
@@ -463,6 +537,67 @@ mod tests {
         let c = ClientHttp::nouveau("https://monorg.my.salesforce.com", "J", sf()).unwrap();
         let e = c.get("@ailleurs.example/x").unwrap_err();
         assert!(e.contains("identifiants"), "{e}");
+    }
+
+    #[test]
+    fn un_post_de_formulaire_encode_et_envoie_son_corps() {
+        let (port, rx) = servir(reponse("200 OK", "{}"), 1);
+        let champs = vec![
+            ("grant_type", "authorization_code".to_owned()),
+            ("code", "LE CODE/+".to_owned()),
+        ];
+        let (statut, _) = poster_formulaire(
+            &format!("http://127.0.0.1:{port}/token"),
+            &champs,
+            &locale(),
+            Duration::from_millis(800),
+        )
+        .unwrap();
+        assert_eq!(statut, 200);
+        let vu = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(vu.to_lowercase().contains("post /token"), "{vu}");
+        assert!(
+            vu.to_lowercase()
+                .contains("content-type: application/x-www-form-urlencoded"),
+            "{vu}"
+        );
+        // Les caracteres reserves sont encodes : un `+` non encode se relit
+        // comme une espace cote serveur, et le code ne correspond plus a rien.
+        assert!(vu.contains("code=LE%20CODE%2F%2B"), "{vu}");
+    }
+
+    #[test]
+    fn un_echange_qui_echoue_ne_recrache_pas_son_corps() {
+        // Le corps porte le code d'autorisation et le verificateur PKCE. Ce
+        // message finit dans un journal, et un journal se partage.
+        let ecouteur = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = ecouteur.local_addr().unwrap().port();
+        drop(ecouteur); // plus personne n'ecoute : l'appel echoue.
+        let champs = vec![
+            ("code", "CODESECRET".to_owned()),
+            ("code_verifier", "VERIFSECRET".to_owned()),
+        ];
+        let e = poster_formulaire(
+            &format!("http://127.0.0.1:{port}/token"),
+            &champs,
+            &locale(),
+            Duration::from_millis(500),
+        )
+        .unwrap_err();
+        assert!(!e.contains("CODESECRET"), "{e}");
+        assert!(!e.contains("VERIFSECRET"), "{e}");
+    }
+
+    #[test]
+    fn un_post_hors_liste_blanche_est_refuse_avant_de_partir() {
+        let e = poster_formulaire(
+            "https://collecteur.example/token",
+            &[],
+            &sf(),
+            Duration::from_millis(500),
+        )
+        .unwrap_err();
+        assert!(e.contains("liste blanche"), "{e}");
     }
 
     #[test]

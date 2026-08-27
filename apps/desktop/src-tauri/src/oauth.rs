@@ -143,7 +143,7 @@ impl Pkce {
 }
 
 /// Ce que le fournisseur a rendu.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Jetons {
     pub acces: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -153,6 +153,24 @@ pub struct Jetons {
     /// L'instance du fournisseur — Salesforce en donne une par org.
     #[serde(default)]
     pub instance: String,
+}
+
+/// Le `Debug` est écrit à la main : un jeton dans une trace est un jeton publié.
+///
+/// L'instance et l'expiration restent lisibles — ce sont les deux choses qu'on
+/// veut voir quand on cherche pourquoi ça ne marche plus.
+impl std::fmt::Debug for Jetons {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Jetons")
+            .field("acces", &"[masque]")
+            .field(
+                "rafraichissement",
+                &self.rafraichissement.as_ref().map(|_| "[masque]"),
+            )
+            .field("expire_a_ms", &self.expire_a_ms)
+            .field("instance", &self.instance)
+            .finish()
+    }
 }
 
 impl Jetons {
@@ -926,5 +944,367 @@ mod tests {
             !reponse.contains("ETATSECRET"),
             "l etat a fuite :\n{reponse}"
         );
+    }
+}
+
+/// La durée retenue quand le fournisseur ne dit **pas** combien de temps son
+/// jeton vit.
+///
+/// Salesforce ne rend pas `expires_in` : la durée de vie d'un jeton d'accès y
+/// est un réglage d'org. Il faut donc supposer, et le sens de l'erreur n'est pas
+/// symétrique. Supposer **long** laisse un jeton mourir au milieu d'une clôture,
+/// ce qui coûte un trou. Supposer **court** coûte un aller-retour de plus, que le
+/// budget d'appels absorbe. Trente minutes, donc — bien en deçà des deux heures
+/// qui sont le réglage le plus courant.
+pub const DUREE_PAR_DEFAUT_MS: u64 = 30 * 60 * 1000;
+
+/// Pourquoi un échange de jetons n'a rien rendu.
+///
+/// Trois issues, parce que trois gestes différents : se reconnecter, réessayer,
+/// ou s'arrêter. Les confondre coûte cher dans les deux sens — réessayer un
+/// `invalid_grant` boucle sans fin sur un jeton mort, et demander une reconnexion
+/// sur une panne passagère réveille l'opérateur pour rien.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EchecJetons {
+    /// Le jeton de rafraîchissement est mort. Seule une reconnexion répare.
+    ReauthRequise(String),
+    /// Panne passagère : réessayer a un sens.
+    Reessayable(String),
+    /// Réponse définitive et inexploitable. Réessayer ne changerait rien.
+    Refusee(String),
+}
+
+/// Le corps d'un échange code → jetons.
+///
+/// **Aucun `client_secret`.** Une application de bureau qui en porterait un le
+/// livrerait à chaque poste où elle est installée, et un secret distribué à tout
+/// le monde n'est pas un secret. C'est exactement le problème que PKCE résout :
+/// le vérificateur, lui, est tiré à chaque échange et ne vit que le temps de
+/// l'aller-retour.
+pub fn corps_echange(
+    code: &str,
+    verificateur: &str,
+    client_id: &str,
+    redirection: &str,
+) -> Vec<(&'static str, String)> {
+    vec![
+        ("grant_type", "authorization_code".to_owned()),
+        ("code", code.to_owned()),
+        ("code_verifier", verificateur.to_owned()),
+        ("client_id", client_id.to_owned()),
+        ("redirect_uri", redirection.to_owned()),
+    ]
+}
+
+/// Le corps d'un rafraîchissement.
+pub fn corps_rafraichissement(
+    rafraichissement: &str,
+    client_id: &str,
+) -> Vec<(&'static str, String)> {
+    vec![
+        ("grant_type", "refresh_token".to_owned()),
+        ("refresh_token", rafraichissement.to_owned()),
+        ("client_id", client_id.to_owned()),
+    ]
+}
+
+/// Lit une réponse du point de terminaison de jetons.
+///
+/// `precedents` porte ce qu'on avait déjà, et il sert à deux endroits qui sont
+/// chacun un piège :
+///
+/// 1. **Un rafraîchissement ne rend pas toujours un nouveau jeton de
+///    rafraîchissement.** Salesforce n'en rend jamais ; Google en rend un
+///    seulement quand il en fait tourner un. Écraser l'ancien par l'absence
+///    perdrait la capacité de se rafraîchir — définitivement, et sans erreur
+///    visible avant la prochaine expiration.
+/// 2. **L'URL d'instance ne revient pas non plus à chaque fois.**
+///
+/// Et l'URL d'instance, quand elle revient, **passe la liste blanche** : elle
+/// arrive du réseau, et la croire sans la vérifier laisserait la réponse choisir
+/// où le jeton s'en va (D35).
+pub fn analyser_reponse_jetons(
+    statut: u16,
+    corps: &str,
+    maintenant_ms: u64,
+    precedents: Option<&Jetons>,
+    politique: &crate::transport::Politique,
+) -> Result<Jetons, EchecJetons> {
+    let v: Option<serde_json::Value> = serde_json::from_str(corps).ok();
+
+    if statut != 200 {
+        let code = v
+            .as_ref()
+            .and_then(|v| v.get("error"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        // La classification porte sur le CODE et jamais sur la description, qui
+        // est en anglais chez l'un, traduite chez l'autre, et reformulée sans
+        // prévenir chez les deux.
+        return Err(match (statut, code.as_str()) {
+            (_, "invalid_grant" | "invalid_client" | "unauthorized_client") => {
+                EchecJetons::ReauthRequise(format!("{code} : reconnexion necessaire"))
+            }
+            (429, _) | (500..=599, _) | (_, "temporarily_unavailable" | "server_error") => {
+                EchecJetons::Reessayable(format!("{statut} {code}"))
+            }
+            _ => EchecJetons::Refusee(format!("{statut} {code}")),
+        });
+    }
+
+    let Some(v) = v else {
+        // Un 200 illisible est définitif : un proxy qui rend du HTML sur un 200
+        // ne rendra pas du JSON à la tentative suivante.
+        return Err(EchecJetons::Refusee("reponse de jetons illisible".into()));
+    };
+    let Some(acces) = v.get("access_token").and_then(serde_json::Value::as_str) else {
+        return Err(EchecJetons::Refusee("reponse sans jeton d acces".into()));
+    };
+
+    // `expires_in` arrive en nombre chez l'un, en texte chez l'autre.
+    let duree_ms = v
+        .get("expires_in")
+        .and_then(|e| match e {
+            serde_json::Value::Number(n) => n.as_u64(),
+            serde_json::Value::String(s) => s.parse::<u64>().ok(),
+            _ => None,
+        })
+        .map_or(DUREE_PAR_DEFAUT_MS, |s| s.saturating_mul(1000));
+
+    let instance = match v.get("instance_url").and_then(serde_json::Value::as_str) {
+        Some(u) => {
+            crate::transport::verifier_url(u, politique)
+                .map_err(|e| EchecJetons::Refusee(format!("url d instance refusee : {e}")))?;
+            u.to_owned()
+        }
+        None => precedents.map(|p| p.instance.clone()).unwrap_or_default(),
+    };
+
+    Ok(Jetons {
+        acces: acces.to_owned(),
+        rafraichissement: v
+            .get("refresh_token")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| precedents.and_then(|p| p.rafraichissement.clone())),
+        expire_a_ms: maintenant_ms.saturating_add(duree_ms),
+        instance,
+    })
+}
+
+#[cfg(test)]
+mod tests_echange {
+    use super::*;
+
+    const T: u64 = 1_800_000_000_000;
+
+    fn sf() -> crate::transport::Politique {
+        crate::transport::Politique::salesforce()
+    }
+
+    fn precedents() -> Jetons {
+        Jetons {
+            acces: "VIEUX".into(),
+            rafraichissement: Some("REFRESH_ORIGINE".into()),
+            expire_a_ms: T,
+            instance: "https://monorg.my.salesforce.com".into(),
+        }
+    }
+
+    fn reponse(v: serde_json::Value) -> String {
+        v.to_string()
+    }
+
+    #[test]
+    fn un_echange_rend_des_jetons_utilisables() {
+        let corps = reponse(serde_json::json!({
+            "access_token": "NEUF",
+            "refresh_token": "REFRESH_NEUF",
+            "expires_in": 3600,
+            "instance_url": "https://monorg.my.salesforce.com"
+        }));
+        let j = analyser_reponse_jetons(200, &corps, T, None, &sf()).unwrap();
+        assert_eq!(j.acces, "NEUF");
+        assert_eq!(j.rafraichissement.as_deref(), Some("REFRESH_NEUF"));
+        assert_eq!(j.expire_a_ms, T + 3_600_000);
+        assert_eq!(j.instance, "https://monorg.my.salesforce.com");
+    }
+
+    #[test]
+    fn un_rafraichissement_sans_nouveau_jeton_garde_l_ancien() {
+        // Salesforce ne rend JAMAIS de `refresh_token` sur un rafraichissement.
+        // Ecraser l'ancien par l'absence perdrait la capacite de se rafraichir —
+        // definitivement, et sans erreur visible avant la prochaine expiration.
+        let corps = reponse(serde_json::json!({"access_token": "NEUF", "expires_in": 3600}));
+        let j = analyser_reponse_jetons(200, &corps, T, Some(&precedents()), &sf()).unwrap();
+        assert_eq!(j.rafraichissement.as_deref(), Some("REFRESH_ORIGINE"));
+    }
+
+    #[test]
+    fn un_nouveau_jeton_de_rafraichissement_remplace_l_ancien() {
+        // Google en fait tourner : garder l'ancien casserait au tour suivant.
+        let corps = reponse(serde_json::json!({
+            "access_token": "NEUF",
+            "refresh_token": "REFRESH_TOURNE",
+            "expires_in": 3600
+        }));
+        let j = analyser_reponse_jetons(200, &corps, T, Some(&precedents()), &sf()).unwrap();
+        assert_eq!(j.rafraichissement.as_deref(), Some("REFRESH_TOURNE"));
+    }
+
+    #[test]
+    fn sans_expires_in_le_jeton_n_est_pas_repute_eternel() {
+        // Salesforce ne dit pas combien de temps son jeton vit. Supposer long
+        // laisse un jeton mourir au milieu d'une cloture, ce qui coute un trou ;
+        // supposer court coute un aller-retour que le budget absorbe.
+        let corps = reponse(serde_json::json!({"access_token": "NEUF"}));
+        let j = analyser_reponse_jetons(200, &corps, T, None, &sf()).unwrap();
+        assert_eq!(j.expire_a_ms, T + DUREE_PAR_DEFAUT_MS);
+        assert!(j.expire_a_ms < T + 3 * 3_600_000, "trop optimiste");
+    }
+
+    #[test]
+    fn expires_in_en_texte_est_accepte() {
+        // Certains fournisseurs le rendent en chaine. Le refuser ferait tomber
+        // sur la duree par defaut sans que personne ne s'en apercoive.
+        let corps = reponse(serde_json::json!({"access_token": "N", "expires_in": "7200"}));
+        let j = analyser_reponse_jetons(200, &corps, T, None, &sf()).unwrap();
+        assert_eq!(j.expire_a_ms, T + 7_200_000);
+    }
+
+    #[test]
+    fn un_expires_in_absurde_ne_deborde_pas() {
+        let corps = reponse(serde_json::json!({"access_token": "N", "expires_in": u64::MAX}));
+        let j = analyser_reponse_jetons(200, &corps, T, None, &sf()).unwrap();
+        assert_eq!(j.expire_a_ms, u64::MAX);
+    }
+
+    #[test]
+    fn une_url_d_instance_hors_liste_blanche_est_refusee() {
+        // Le piege de D35, en vrai : l'URL d'instance ARRIVE DANS LA REPONSE DE
+        // JETON. La croire sans la verifier laisserait cette reponse choisir ou
+        // le jeton s'en va a chaque appel suivant.
+        let corps = reponse(serde_json::json!({
+            "access_token": "NEUF",
+            "instance_url": "https://collecteur.example"
+        }));
+        match analyser_reponse_jetons(200, &corps, T, None, &sf()) {
+            Err(EchecJetons::Refusee(c)) => assert!(c.contains("instance"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn une_url_d_instance_absente_garde_la_precedente() {
+        let corps = reponse(serde_json::json!({"access_token": "NEUF"}));
+        let j = analyser_reponse_jetons(200, &corps, T, Some(&precedents()), &sf()).unwrap();
+        assert_eq!(j.instance, "https://monorg.my.salesforce.com");
+    }
+
+    #[test]
+    fn invalid_grant_demande_une_reauth_et_pas_un_reessai() {
+        // Le piege : reessayer un jeton mort boucle sans fin, et l'operateur ne
+        // voit jamais la seule chose qui repare — se reconnecter.
+        let corps = reponse(serde_json::json!({
+            "error": "invalid_grant",
+            "error_description": "expired access/refresh token"
+        }));
+        match analyser_reponse_jetons(400, &corps, T, None, &sf()) {
+            Err(EchecJetons::ReauthRequise(c)) => assert!(c.contains("invalid_grant"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn une_panne_serveur_est_reessayable() {
+        // Demander une reconnexion sur une panne passagere reveille l'operateur
+        // pour rien.
+        assert!(matches!(
+            analyser_reponse_jetons(503, "<html>", T, None, &sf()),
+            Err(EchecJetons::Reessayable(_))
+        ));
+        let corps = reponse(serde_json::json!({"error": "temporarily_unavailable"}));
+        assert!(matches!(
+            analyser_reponse_jetons(400, &corps, T, None, &sf()),
+            Err(EchecJetons::Reessayable(_))
+        ));
+    }
+
+    #[test]
+    fn la_classification_porte_sur_le_code_et_pas_sur_la_description() {
+        // La description est en anglais chez l'un, traduite chez l'autre, et
+        // reformulee sans prevenir chez les deux.
+        let a = reponse(serde_json::json!({"error": "invalid_grant", "error_description": "x"}));
+        let b = reponse(
+            serde_json::json!({"error": "invalid_grant", "error_description": "jeton expire"}),
+        );
+        assert_eq!(
+            analyser_reponse_jetons(400, &a, T, None, &sf()),
+            analyser_reponse_jetons(400, &b, T, None, &sf())
+        );
+    }
+
+    #[test]
+    fn une_reponse_sans_jeton_d_acces_est_refusee() {
+        let corps = reponse(serde_json::json!({"refresh_token": "R", "expires_in": 60}));
+        assert!(matches!(
+            analyser_reponse_jetons(200, &corps, T, None, &sf()),
+            Err(EchecJetons::Refusee(_))
+        ));
+    }
+
+    #[test]
+    fn un_200_illisible_est_definitif_et_pas_reessayable() {
+        // Un proxy qui rend du HTML sur un 200 ne rendra pas du JSON a la
+        // tentative suivante.
+        assert!(matches!(
+            analyser_reponse_jetons(200, "<html>Bienvenue sur le portail</html>", T, None, &sf()),
+            Err(EchecJetons::Refusee(_))
+        ));
+    }
+
+    #[test]
+    fn le_corps_d_echange_porte_le_verificateur_et_aucun_secret() {
+        // Une application de bureau qui porterait un `client_secret` le livrerait
+        // a chaque poste ou elle est installee. C'est le probleme que PKCE resout.
+        let corps = corps_echange("LECODE", "LEVERIF", "CLIENT", "http://127.0.0.1:1/cb");
+        let noms: Vec<&str> = corps.iter().map(|(n, _)| *n).collect();
+        assert!(noms.contains(&"code_verifier"), "{noms:?}");
+        assert!(!noms.iter().any(|n| n.contains("secret")), "{noms:?}");
+        assert_eq!(
+            corps
+                .iter()
+                .find(|(n, _)| *n == "grant_type")
+                .map(|(_, v)| v.as_str()),
+            Some("authorization_code")
+        );
+    }
+
+    #[test]
+    fn le_corps_de_rafraichissement_demande_bien_un_rafraichissement() {
+        let corps = corps_rafraichissement("REFRESH", "CLIENT");
+        assert_eq!(
+            corps
+                .iter()
+                .find(|(n, _)| *n == "grant_type")
+                .map(|(_, v)| v.as_str()),
+            Some("refresh_token")
+        );
+        assert!(!corps.iter().any(|(n, _)| n.contains("secret")));
+    }
+
+    #[test]
+    fn les_jetons_ne_s_impriment_pas() {
+        // Un jeton dans une trace est un jeton publie — meme regle que le
+        // verificateur PKCE et que le client HTTP.
+        let trace = format!("{:?}", precedents());
+        assert!(!trace.contains("VIEUX"), "{trace}");
+        assert!(!trace.contains("REFRESH_ORIGINE"), "{trace}");
+        assert!(trace.contains("masque"), "{trace}");
+        // L'instance et l'expiration, elles, doivent rester lisibles : ce sont
+        // les deux choses qu'on veut voir quand on cherche pourquoi ca ne marche
+        // plus.
+        assert!(trace.contains("salesforce.com"), "{trace}");
     }
 }
