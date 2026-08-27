@@ -126,6 +126,40 @@ impl Resolution {
     }
 }
 
+/// R4.1 — un changement observé du côté du système, miroir d'`ApiChange`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ChangementApi {
+    pub reference: RefApi,
+    /// Quand, en mural ISO.
+    pub quand: String,
+    /// Les champs qui ont bougé, quand le système les nomme.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub champs: Vec<String>,
+    /// L'acteur, **quand le système l'expose**.
+    ///
+    /// `None` veut dire « inconnu » et **jamais « l'opérateur »** : R4.2 range un
+    /// changement d'un autre acteur hors périmètre, et supposer l'opérateur par
+    /// défaut expliquerait des changements qu'il n'a pas faits — c'est-à-dire
+    /// gonflerait la métrique de santé avec le travail des collègues.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acteur: Option<String>,
+}
+
+impl ChangementApi {
+    /// R4.2 — ce changement est-il hors périmètre parce qu'un autre l'a fait ?
+    ///
+    /// Un acteur inconnu n'est **pas** un autre acteur : sans information, on ne
+    /// range rien hors périmètre, et le changement suit le chemin ordinaire.
+    /// Ranger sur une supposition retirerait du dénominateur des changements
+    /// qu'on n'a pas expliqués.
+    pub fn fait_par_un_autre(&self, operateur: Option<&str>) -> bool {
+        match (self.acteur.as_deref(), operateur) {
+            (Some(a), Some(o)) => a != o,
+            _ => false,
+        }
+    }
+}
+
 /// Ce qu'une lecture a donné, ou pourquoi elle n'a rien donné (R5.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Issue {

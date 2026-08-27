@@ -33,7 +33,7 @@
 //! la retirer.
 #![allow(dead_code)] // retiré quand la tâche 0 rend l'org accessible
 
-use crate::federation::{EtatPlat, Issue, RefApi, Resolution};
+use crate::federation::{ChangementApi, EtatPlat, Issue, RefApi, Resolution};
 use std::collections::BTreeMap;
 
 /// La version d'API visée.
@@ -323,6 +323,47 @@ pub fn lire_historique(corps: &serde_json::Value) -> Vec<PointHistorique> {
             })
         })
         .collect()
+}
+
+/// R4.1 — les changements que le delta rapporte.
+///
+/// **Le delta ne dit pas quels champs ont bougé.** `LastModifiedDate` dit qu'il
+/// s'est passé quelque chose, pas quoi ; les champs se retrouvent par
+/// l'historique ou par comparaison des états. On rend donc `champs` vide plutôt
+/// que d'inventer une liste, et le juge saura qu'il ne sait pas.
+///
+/// `done: false` fait **refuser** la page entière : un delta partiel se lit
+/// comme « rien d'autre n'a bougé », et un changement perdu se lit à son tour
+/// comme un système qui n'a rien fait — c'est-à-dire comme du travail expliqué
+/// qui ne l'est pas.
+pub fn lire_delta(corps: &serde_json::Value, objet: &str) -> Result<Vec<ChangementApi>, String> {
+    if corps.get("done") == Some(&serde_json::Value::Bool(false)) {
+        return Err("page de delta incomplete".into());
+    }
+    let vide = Vec::new();
+    let lignes = corps
+        .get("records")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or(&vide);
+
+    Ok(lignes
+        .iter()
+        .filter_map(|l| {
+            Some(ChangementApi {
+                reference: RefApi {
+                    connector: CONNECTEUR.into(),
+                    object: objet.to_owned(),
+                    id: l.get("Id")?.as_str()?.to_owned(),
+                },
+                quand: l.get("LastModifiedDate")?.as_str()?.to_owned(),
+                champs: Vec::new(),
+                acteur: l
+                    .get("LastModifiedById")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned),
+            })
+        })
+        .collect())
 }
 
 /// R3.3 — ce qu'on peut dire de la valeur d'un champ **avant** l'épisode.
@@ -1077,6 +1118,112 @@ mod tests_adaptateur {
             object: "Contact".into(),
             id: "003AAA".into(),
         }
+    }
+
+    // -- R4.1 : le delta ---------------------------------------------------
+
+    fn delta(records: serde_json::Value, done: bool) -> serde_json::Value {
+        serde_json::json!({"done": done, "records": records})
+    }
+
+    #[test]
+    fn un_delta_rend_les_changements_avec_leur_acteur() {
+        let corps = delta(
+            serde_json::json!([{
+                "Id": "0035g00000LmT4EAAV",
+                "LastModifiedDate": "2026-08-27T10:12:00.000Z",
+                "LastModifiedById": "005AAAAAAAAAAAAAAA"
+            }]),
+            true,
+        );
+        let c = lire_delta(&corps, "Lead").unwrap();
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].reference.object, "Lead");
+        assert_eq!(c[0].reference.connector, "salesforce");
+        assert_eq!(c[0].quand, "2026-08-27T10:12:00.000Z");
+        assert_eq!(c[0].acteur.as_deref(), Some("005AAAAAAAAAAAAAAA"));
+    }
+
+    #[test]
+    fn le_delta_ne_pretend_pas_savoir_quels_champs_ont_bouge() {
+        // LastModifiedDate dit qu'il s'est passe quelque chose, pas quoi.
+        // Inventer une liste de champs ferait croire a une precision qu'on n'a
+        // pas, et le juge comparerait des champs que rien ne designe.
+        let corps = delta(
+            serde_json::json!([{"Id": "x", "LastModifiedDate": "2026-08-27T10:00:00.000Z"}]),
+            true,
+        );
+        assert!(lire_delta(&corps, "Lead").unwrap()[0].champs.is_empty());
+    }
+
+    #[test]
+    fn un_delta_sans_acteur_ne_suppose_pas_l_operateur() {
+        // `None` veut dire « inconnu » et jamais « l'operateur ». Supposer
+        // l'operateur expliquerait des changements qu'il n'a pas faits —
+        // c'est-a-dire gonflerait la metrique de sante avec le travail des
+        // collegues.
+        let corps = delta(
+            serde_json::json!([{"Id": "x", "LastModifiedDate": "2026-08-27T10:00:00.000Z"}]),
+            true,
+        );
+        let c = lire_delta(&corps, "Lead").unwrap();
+        assert_eq!(c[0].acteur, None);
+        assert!(!c[0].fait_par_un_autre(Some("005MOI")));
+        assert!(!c[0].fait_par_un_autre(None));
+    }
+
+    #[test]
+    fn un_changement_d_un_collegue_est_hors_perimetre_et_pas_un_trou() {
+        let corps = delta(
+            serde_json::json!([{
+                "Id": "x",
+                "LastModifiedDate": "2026-08-27T10:00:00.000Z",
+                "LastModifiedById": "005COLLEGUE"
+            }]),
+            true,
+        );
+        let c = lire_delta(&corps, "Lead").unwrap();
+        assert!(c[0].fait_par_un_autre(Some("005MOI")));
+        assert!(!c[0].fait_par_un_autre(Some("005COLLEGUE")));
+    }
+
+    #[test]
+    fn une_page_de_delta_incomplete_est_refusee() {
+        // Un delta partiel se lit comme « rien d'autre n'a bouge », et un
+        // changement perdu se lit a son tour comme un systeme qui n'a rien
+        // fait — c'est-a-dire comme du travail explique qui ne l'est pas.
+        let corps = delta(
+            serde_json::json!([{"Id": "x", "LastModifiedDate": "z"}]),
+            false,
+        );
+        match lire_delta(&corps, "Lead") {
+            Err(c) => assert!(c.contains("incomplete"), "{c}"),
+            Ok(v) => panic!("{v:?}"),
+        }
+    }
+
+    #[test]
+    fn une_ligne_sans_identifiant_ou_sans_date_ne_devient_pas_un_changement() {
+        let corps = delta(
+            serde_json::json!([
+                {"LastModifiedDate": "2026-08-27T10:00:00.000Z"},
+                {"Id": "x"},
+                {"Id": "y", "LastModifiedDate": "2026-08-27T10:00:00.000Z"}
+            ]),
+            true,
+        );
+        let c = lire_delta(&corps, "Lead").unwrap();
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].reference.id, "y");
+    }
+
+    #[test]
+    fn la_requete_de_delta_demande_bien_l_acteur() {
+        // R4.2 a besoin de lui : sans `LastModifiedById`, un changement fait par
+        // un collegue serait compte comme un trou de capture.
+        let soql = soql_delta("Lead", "2026-08-27T10:00:00.000Z");
+        assert!(soql.contains("LastModifiedById"), "{soql}");
+        assert!(soql.contains("ORDER BY LastModifiedDate"), "{soql}");
     }
 
     // -- R3.3 : ce qu'on peut dire de la valeur d'avant ---------------------
