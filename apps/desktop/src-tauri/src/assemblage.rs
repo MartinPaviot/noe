@@ -660,8 +660,16 @@ pub fn persister(
     std::fs::create_dir_all(&dossier)?;
     let chemin = dossier.join("episode.json");
 
-    // Un épisode déjà écrit ne se réécrit pas : il faut lever l'attribut pour
-    // ça, et rien dans ce programme ne le fait.
+    // INVARIANT IV — un épisode déjà écrit ne se réécrit pas. L'attribut lecture
+    // seule posé plus bas fait échouer la seconde écriture, et un test le montre.
+    //
+    // **Un seul chemin lève cet attribut** : `panique::rendre_inscriptible`, et
+    // il ne réécrit rien — il efface. Effacer sur ordre de l'opérateur et
+    // réécrire en douce ne sont pas le même geste, et la distinction vaut d'être
+    // écrite ici plutôt que laissée à qui relira.
+    //
+    // L'attribut ne protège pas d'un adversaire ; il protège de l'accident, qui
+    // est le vrai risque.
     let json = serde_json::to_string_pretty(episode)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     std::fs::write(&chemin, json)?;
@@ -1282,6 +1290,28 @@ mod tests {
         assert!(
             std::fs::write(&chemin, "modifie").is_err(),
             "une reecriture doit echouer"
+        );
+    }
+
+    #[test]
+    fn persister_deux_fois_le_meme_episode_echoue() {
+        // Le test voisin ecrit a la main dans le fichier ; celui-ci refait le
+        // geste qu'on ferait par accident — rappeler `persister`, par exemple
+        // apres une reprise d'episode orphelin. Rien ne doit passer.
+        let r = racine_test("deux-fois");
+        let ep = assembler(
+            "01TESTDEUXFOIS",
+            "t",
+            T0,
+            T0 + 3_000,
+            &journal_ordinaire(),
+            &redacteur(),
+        )
+        .unwrap();
+        assert!(persister(&r, &ep).is_ok());
+        assert!(
+            persister(&r, &ep).is_err(),
+            "un second passage a reecrit l episode"
         );
     }
 

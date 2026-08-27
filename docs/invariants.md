@@ -10,6 +10,11 @@
 courriel, un nom d'enregistrement ou un identifiant client vers un serveur que
 nous contrôlons. Y compris pour déboguer. Y compris en cas d'incident.
 
+*Gardé par `scripts/etancheite.test.ts` depuis le 2026-08-27 : chaque `fetch` de
+l'extension doit viser une ressource empaquetée, aucune autre voie d'émission
+n'y est tolérée, et le capteur ne parle au réseau que par `transport.rs` —
+le seul module qui vérifie l'hôte, masque le jeton et borne la réponse.*
+
 **Ce que cela autorise.** Des compteurs anonymes et des codes d'erreur, si et
 seulement si l'utilisateur a opté-in explicitement. Un appel à un fournisseur de
 modèle reste possible pour l'inférence, mais c'est une frontière documentée dans

@@ -33,8 +33,11 @@ export function chargerMiroir(miroir) {
 
 async function miroir() {
   if (MIROIR) return MIROIR;
-  const url = chrome.runtime.getURL('motifs.json');
-  MIROIR = await (await fetch(url)).json();
+  // L'appel tient sur UNE ligne, et ce n'est pas un hasard : la seule chose qui
+  // rend ce `fetch` inoffensif est sa cible, et une cible calculee trois lignes
+  // plus haut demande au lecteur de la suivre. Le banc d'etancheite exige la
+  // meme chose que l'oeil — voir la garantie a l'endroit ou elle s'applique.
+  MIROIR = await (await fetch(chrome.runtime.getURL('motifs.json'))).json();
   return MIROIR;
 }
 
