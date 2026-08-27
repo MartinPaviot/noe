@@ -1094,3 +1094,95 @@ Deux garde-fous sur le filet, tous deux nécessaires :
 
 Le jour où le filet parle seul, c'est la bibliothèque qu'il faut corriger — pas
 lui qu'il faut taire.
+
+## 2026-08-27 — D30 : un seul chemin de clôture, une seule origine de temps
+
+Trois trouvailles de la revue adverse qui n'en font qu'une : le capteur avait
+**deux chemins de clôture**, et le second était appauvri.
+
+**Ce que la clôture automatique de R1.3 ne faisait pas.** `verifier_timeout`
+posait `clos` et poussait `Gap{timeout}` + `ClotureAuto` dans le tampon mémoire.
+Puis `clore()` commençait par `if self.clos { return; }` — donc `Journal::clore()`
+n'était jamais atteint : ni vidage du tampon, ni `sync_all`, ni retrait du
+marqueur `.ouvert`. Le journal n'a pas de `Drop`. La branche du battement se
+contentait ensuite d'arrêter la session et de notifier : aucun assemblage,
+aucune quarantaine, et ni l'abonnement UIA ni le hook clavier relâchés.
+
+Une heure de travail ne produisait donc aucun `episode.json`, la vue ne le
+listait pas — son commentaire disait même « son absence de la liste est le
+signal », ce qui est exactement le trou silencieux que la règle 4 interdit — et
+la capture continuait de tourner sur un épisode qui n'existait plus.
+
+**Décision.** `clore_episode(app, cause)` est l'unique chemin ; `arreter()` n'en
+est qu'un appel. La cause ne change que le message. Et `Moteur::clore()` devient
+réentrante : `clos` dit que plus rien n'entre, `journal_clos` dit que le fichier
+est fermé. Les confondre coûtait un épisode entier.
+
+**La reprise après crash n'était pas branchée non plus.** `journal::orphelins` et
+`clore_orphelin` n'avaient d'autre appelant que le binaire de banc, et `main.rs`
+ne lit pas `argv`. Le kill-test validait la fonction, pas son branchement. Après
+un vrai crash, le dossier restait marqué `.ouvert` indéfiniment.
+
+Et `clore_orphelin` s'arrêtait au `gap{crash}` : la seconde moitié de R3.2 — « le
+passer au pipeline de clôture normal » — n'existait nulle part, faute de savoir
+quoi assembler. `assembler` a besoin du `task_slug` et de la borne murale
+d'ouverture, qui ne vivaient que dans la `Session`, donc en mémoire, donc perdues
+au crash.
+
+**Le marqueur porte désormais l'identité de l'épisode** — `{episode_id,
+task_slug, t0_mural_ms}` — écrite avant la première ligne du journal, comme le
+marqueur qu'elle remplace. Un marqueur d'une version antérieure reste lisible
+comme marqueur : l'épisode est clos et signalé, mais pas assemblé. On ne devine
+pas une tâche.
+
+**Deux origines de temps monotone dans le même journal.** La boucle UIA datait
+ses événements depuis un `Instant::now()` pris à l'abonnement ; le moteur, la
+veille, la pause et le presse-papiers datent depuis le lancement du processus.
+Sur une application ouverte depuis dix minutes, une frappe arrivait à
+`monotone_ms = 300` alors que le moteur en était à 600 000 : le délai
+d'inactivité de 2 s partait après 1 s, sur chaque frappe isolée, chacune coûtant
+une photo de 50 Ko.
+
+La source porte maintenant l'horloge du processus. Et le moteur **rebase** tout
+ce qui entre au journal sur son propre `t0` : l'assemblage documentait attendre
+« un instant monotone depuis l'ouverture », les deux ne coïncidaient que dans les
+tests, qui ouvrent le moteur à `t0 = 0`. Sans rebasage, tous les gaps d'un
+épisode ouvert tard ressortaient horodatés à `t1`, écrasés par le `min` de
+l'assemblage.
+
+Aucun test ne pouvait le voir. Deux tests ouvrent désormais le moteur à un `t0`
+non nul — c'est le seul moyen de rendre la classe détectable.
+
+---
+
+## 2026-08-27 — D31 : le jeton passe à 65 bits, et change d'alphabet
+
+**Ce qui l'a déclenché.** Le banc de non-collision a rougi : une collision sur
+dix mille valeurs. Il tire une clé neuve à chaque exécution — il a fini par
+tomber sur le cas.
+
+Le commentaire de `LONGUEUR_CONDENSAT` annonçait un risque « sensible autour de
+2^16 ≈ 65 000 entités ». Le calcul était faux d'un ordre de grandeur utile : le
+paradoxe des anniversaires donne **1,2 % de chance de collision sur 10 000
+valeurs** en 32 bits, et 29 % sur 50 000.
+
+**Pourquoi ça compte plus qu'une jointure perdue.** Une collision n'en fait pas
+perdre une : elle en **invente** une. Deux personnes différentes reçoivent le même
+pseudonyme et fusionnent dans le graphe d'entités. C'est l'erreur que la
+normalisation refuse explicitement de commettre — « mieux vaut deux jetons pour
+une entité qu'un jeton pour deux entités » — commise à l'autre bout de la chaîne.
+
+**Décision : treize caractères base32, soit 65 bits.** La probabilité de
+collision sur dix mille tombe sous 3 × 10⁻¹⁵.
+
+**Base32 et non hexadécimal**, et ce second point n'est pas cosmétique. Un
+condensat hexadécimal de seize caractères a environ une chance sur cent soixante
+de contenir une suite de dix chiffres — donc de ressembler à un numéro pour les
+motifs de la v4 et pour le filet du juge. Avec des centaines de jetons par
+corpus, ça déclasserait un épisode honnête toutes les quelques dizaines de
+jetons, sans recours.
+
+L'alphabet RFC 4648 minuscule (`a-z2-7`) ne contient ni `0` ni `1`. Aucun jeton
+ne peut donc commencer une graphie téléphonique française, qui exige `0`, `+33`
+ou `0033`. La garantie est structurelle, pas probabiliste, et un test l'écrit
+comme telle.

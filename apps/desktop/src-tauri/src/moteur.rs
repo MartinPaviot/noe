@@ -184,6 +184,14 @@ pub struct Moteur {
     /// journal des qu'une action admise arrive, ou a la cloture.
     hors_perimetre_en_cours: u64,
 
+    /// Le journal est-il ferme ? Distinct de `clos`.
+    ///
+    /// `clos` dit que plus rien n'entre. Fermer le fichier — vider le tampon,
+    /// `sync_all`, retirer le marqueur `.ouvert` — est un autre geste, et les
+    /// confondre coutait un episode entier : la cloture automatique posait
+    /// `clos`, puis `clore()` sortait aussitot sur `if self.clos { return; }` et
+    /// n'atteignait jamais `Journal::clore()`.
+    journal_clos: bool,
     /// Le writer, quand il y en a un. Les tests s'en passent : ils verifient la
     /// logique temporelle, et un disque dans la boucle la rendrait plus lente
     /// sans rien prouver de plus.
@@ -225,6 +233,7 @@ impl Moteur {
             liste_blanche: crate::surfaces::ListeBlanche::vide(),
             hors_perimetre_en_cours: 0,
             journal: None,
+            journal_clos: false,
             echecs_ecriture: 0,
             snapshotteur: None,
             snapshots_pris: 0,
@@ -266,7 +275,84 @@ impl Moteur {
         self.seq
     }
 
+    /// Tout ce qui entre au journal est daté **depuis l'ouverture de l'épisode**.
+    ///
+    /// Le moteur raisonne sur l'horloge du processus — c'est elle qui survit à
+    /// une veille et qui date les événements de toutes les sources. Mais
+    /// l'assemblage reporte ces instants sur l'intervalle mural `[t0, t1]` de
+    /// l'épisode, et il documente attendre « un instant monotone depuis
+    /// l'ouverture ».
+    ///
+    /// Les deux ne coïncidaient que dans les tests, qui ouvrent le moteur à
+    /// `t0 = 0`. En production, une application lancée depuis dix minutes
+    /// donnait des instants supérieurs à la durée de l'épisode : tous les gaps,
+    /// la clôture automatique et le hors-périmètre ressortaient horodatés à
+    /// `t1`, écrasés par le `min` de l'assemblage.
+    fn rebaser(&self, entree: EntreeJournal) -> EntreeJournal {
+        let r = |ms: u64| ms.saturating_sub(self.t0);
+        match entree {
+            EntreeJournal::UiAction {
+                seq,
+                monotone_ms,
+                source,
+                genre,
+                unresolved,
+            } => EntreeJournal::UiAction {
+                seq,
+                monotone_ms: r(monotone_ms),
+                source,
+                genre,
+                unresolved,
+            },
+            EntreeJournal::Declencheur {
+                seq,
+                monotone_ms,
+                quoi,
+            } => EntreeJournal::Declencheur {
+                seq,
+                monotone_ms: r(monotone_ms),
+                quoi,
+            },
+            EntreeJournal::Gap {
+                seq,
+                monotone_ms,
+                cause,
+                debut_ms,
+                fin_ms,
+            } => EntreeJournal::Gap {
+                seq,
+                monotone_ms: r(monotone_ms),
+                cause,
+                debut_ms: r(debut_ms),
+                fin_ms: r(fin_ms),
+            },
+            EntreeJournal::Snapshot {
+                seq,
+                monotone_ms,
+                photo,
+            } => EntreeJournal::Snapshot {
+                seq,
+                monotone_ms: r(monotone_ms),
+                photo,
+            },
+            EntreeJournal::ClotureAuto { seq, monotone_ms } => EntreeJournal::ClotureAuto {
+                seq,
+                monotone_ms: r(monotone_ms),
+            },
+            EntreeJournal::HorsPerimetre {
+                seq,
+                monotone_ms,
+                combien,
+            } => EntreeJournal::HorsPerimetre {
+                seq,
+                monotone_ms: r(monotone_ms),
+                combien,
+            },
+        }
+    }
+
     fn pousser(&mut self, entree: EntreeJournal) {
+        let entree = self.rebaser(entree);
         if let Some(j) = self.journal.as_mut() {
             // Un echec d'ecriture se COMPTE. Le ravaler ferait exactement ce que
             // R3.4 interdit : perdre un evenement sans que personne ne le sache.
@@ -593,27 +679,37 @@ impl Moteur {
         self.derniere_action = maintenant;
     }
 
-    /// Clôture demandée par l'opérateur (hotkey de fin).
+    /// Clôture de l'épisode : plus rien n'entre, et le fichier se ferme.
+    ///
+    /// **Réentrante, à dessein.** La clôture automatique de R1.3 pose `clos`
+    /// depuis `verifier_timeout`, au milieu d'un battement ; c'est ensuite le
+    /// même chemin de clôture que le hotkey qui doit passer, et il doit pouvoir
+    /// fermer le journal d'un moteur déjà clos. Sans ça, un épisode d'une heure
+    /// laissait son tampon non vidé, `sync_all` jamais appelé et le marqueur
+    /// `.ouvert` en place : il ressortait comme un orphelin de crash, et le
+    /// travail d'une heure n'existait nulle part.
     pub fn clore(&mut self) {
-        if self.clos {
-            return;
+        if !self.clos {
+            // Un délai d'inactivité déjà expiré appartient à l'épisode : le
+            // laisser tomber à la clôture perdrait un snapshot que R2.3 exige.
+            let maintenant = self.horloge.monotone_ms();
+            self.verifier_inactivite(maintenant);
+            // Une pause encore ouverte se termine ici. Sans ca, l'episode se
+            // clorait sur un trou jamais declare, ce que R3.4 refuse.
+            if let Some(debut) = self.pause_depuis.take() {
+                self.trou(CauseGap::Pause, debut, maintenant);
+            }
+            // R5.4 : ce que l'episode n'a pas vu se declare aussi a la fin.
+            self.vider_hors_perimetre(maintenant);
+            self.clos = true;
         }
-        // Un délai d'inactivité déjà expiré appartient à l'épisode : le laisser
-        // tomber à la clôture perdrait un snapshot que R2.3 exige.
-        let maintenant = self.horloge.monotone_ms();
-        self.verifier_inactivite(maintenant);
-        // Une pause encore ouverte se termine ici. Sans ca, l'episode se
-        // clorait sur un trou jamais declare — precisement ce que R3.4 refuse.
-        if let Some(debut) = self.pause_depuis.take() {
-            self.trou(CauseGap::Pause, debut, maintenant);
-        }
-        // R5.4 : ce que l'episode n'a pas vu se declare aussi a la fin.
-        self.vider_hors_perimetre(maintenant);
-        self.clos = true;
-        if let Some(j) = self.journal.as_mut() {
-            if let Err(e) = j.clore() {
-                self.echecs_ecriture += 1;
-                eprintln!("[noe] cloture du journal refusee : {e}");
+        if !self.journal_clos {
+            self.journal_clos = true;
+            if let Some(j) = self.journal.as_mut() {
+                if let Err(e) = j.clore() {
+                    self.echecs_ecriture += 1;
+                    eprintln!("[noe] cloture du journal refusee : {e}");
+                }
             }
         }
     }
@@ -2037,6 +2133,78 @@ mod tests {
         let texte = journal_serialise(&m);
         assert!(!texte.contains("surface"), "aucun champ surface :\n{texte}");
         assert!(!texte.contains("chrome"), "ni sa valeur :\n{texte}");
+    }
+
+
+    // -- Une seule origine de temps (revue adverse) -------------------------
+
+    #[test]
+    fn un_episode_ouvert_tard_date_depuis_son_ouverture() {
+        // Tous les scenarios ouvrent le moteur a t0 = 0, ce qui fait coincider
+        // l'horloge du processus et celle de l'episode. En production elles ne
+        // coincident jamais : l'application tourne depuis des minutes, parfois
+        // des heures, quand l'operateur ouvre son premier episode.
+        //
+        // Le journal doit porter des instants DEPUIS L'OUVERTURE, parce que
+        // c'est ce que l'assemblage reporte sur l'intervalle mural [t0, t1] —
+        // et qu'il ecrase au-dela par un `min`. Sans rebasage, tous les trous
+        // d'un episode ouvert tard ressortaient horodates a t1.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        h.avancer(Duration::from_secs(600));
+        let mut m = moteur_neuf(&h);
+
+        m.traiter(depuis(
+            "chrome",
+            600_100,
+            GenreEvenement::Invocation(cible("button", "Enregistrer")),
+        ));
+        h.avancer(Duration::from_secs(1));
+        m.mettre_en_pause();
+        h.avancer(Duration::from_secs(30));
+        m.reprendre();
+
+        let instants: Vec<u64> = m.journal().iter().map(EntreeJournal::monotone_ms).collect();
+        assert!(
+            instants.iter().all(|&t| t < 60_000),
+            "des instants de processus ont fui dans le journal : {instants:?}"
+        );
+        assert_eq!(instants[0], 100, "l action est a 100 ms de l ouverture");
+
+        let bornes: Vec<(u64, u64)> = m
+            .journal()
+            .iter()
+            .filter_map(|e| match e {
+                EntreeJournal::Gap {
+                    debut_ms, fin_ms, ..
+                } => Some((*debut_ms, *fin_ms)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            bornes,
+            vec![(1_000, 31_000)],
+            "les bornes du trou de pause aussi se comptent depuis l ouverture"
+        );
+    }
+
+    #[test]
+    fn un_timeout_sur_un_episode_ouvert_tard_est_date_a_soixante_minutes() {
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        h.avancer(Duration::from_secs(3_600));
+        let mut m = moteur_neuf(&h);
+        h.avancer(Duration::from_millis(TIMEOUT_MS + 500));
+        m.battre();
+
+        assert!(m.clos());
+        let cloture = m
+            .journal()
+            .iter()
+            .find_map(|e| match e {
+                EntreeJournal::ClotureAuto { monotone_ms, .. } => Some(*monotone_ms),
+                _ => None,
+            })
+            .expect("cloture automatique");
+        assert_eq!(cloture, TIMEOUT_MS, "la borne est a 60 min de l OUVERTURE");
     }
 
 }

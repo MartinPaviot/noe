@@ -156,22 +156,27 @@ pub struct UiaSource {
     actif: Arc<AtomicBool>,
     demandes: Sender<Demande>,
     reception: Option<std::sync::mpsc::Receiver<Demande>>,
+    /// L'horloge du processus, PARTAGEE.
+    ///
+    /// La boucle datait ses événements depuis un `Instant::now()` pris à
+    /// l'abonnement, tandis que le moteur, la veille, la pause et le
+    /// presse-papiers datent depuis le lancement de l'application. Deux origines
+    /// dans le même journal : sur une application ouverte depuis dix minutes,
+    /// une frappe arrivait à `monotone_ms = 300` alors que le moteur en était à
+    /// 600 000. Le délai d'inactivité de 2 s partait après 1 s, et tous les gaps
+    /// ressortaient horodatés à `t1`.
+    horloge: Arc<dyn crate::horloge::Horloge>,
 }
 
-impl Default for UiaSource {
-    fn default() -> Self {
+impl UiaSource {
+    pub fn new(horloge: Arc<dyn crate::horloge::Horloge>) -> Self {
         let (demandes, reception) = std::sync::mpsc::channel();
         Self {
             actif: Arc::new(AtomicBool::new(false)),
             demandes,
             reception: Some(reception),
+            horloge,
         }
-    }
-}
-
-impl UiaSource {
-    pub fn new() -> Self {
-        Self::default()
     }
 
     /// Le photographe branché sur cette source. À passer au moteur.
@@ -189,13 +194,14 @@ impl CaptureSource for UiaSource {
         }
         let reception = self.reception.take().ok_or(ErreurSource::DejaAbonne)?;
         let actif = self.actif.clone();
+        let horloge = self.horloge.clone();
         let abonnement = Abonnement::nouveau(actif.clone());
 
         // Un thread dédié, et un seul : voir la note d'en-tête sur le
         // cloisonnement de thread d'UIA.
         std::thread::Builder::new()
             .name("noe-uia".into())
-            .spawn(move || boucle_uia(&puits, &actif, &reception))
+            .spawn(move || boucle_uia(&puits, &actif, &reception, &horloge))
             .map_err(|_| ErreurSource::DejaAbonne)?;
 
         Ok(abonnement)
@@ -208,6 +214,7 @@ fn boucle_uia(
     puits: &Sender<RawEvent>,
     actif: &Arc<AtomicBool>,
     demandes: &std::sync::mpsc::Receiver<Demande>,
+    horloge: &Arc<dyn crate::horloge::Horloge>,
 ) {
     use uiautomation::events::{
         CustomEventHandlerFn, CustomFocusChangedEventHandlerFn, UIEventHandler, UIEventType,
@@ -225,7 +232,10 @@ fn boucle_uia(
         return;
     };
 
-    let debut = std::time::Instant::now();
+    // L'horloge du processus, pas une origine locale : voir la note sur le
+    // champ `horloge` de `UiaSource`. Deux origines dans un meme journal
+    // faussaient le delai d'inactivite et ecrasaient tous les gaps a `t1`.
+    let horloge_focus = horloge.clone();
     let abonnes: &[(UIEventType, EvenementUia)] = &[
         (UIEventType::Invoke_Invoked, EvenementUia::Invocation),
         (UIEventType::Text_TextChanged, EvenementUia::TexteChange),
@@ -243,11 +253,12 @@ fn boucle_uia(
     for &(brut, notre) in abonnes {
         let puits = puits.clone();
         let auto = automation.clone();
+        let horloge_evenements = horloge.clone();
         let h: UIEventHandler = (Box::new(move |sender: &UIElement, _k| {
             let cible = cible_depuis(&auto, sender);
             let _ = puits.send(RawEvent {
                 source: Source::Uia,
-                monotone_ms: debut.elapsed().as_millis() as u64,
+                monotone_ms: horloge_evenements.monotone_ms(),
                 genre: notre.genre(cible),
                 surface: surface_de(sender),
             });
@@ -275,7 +286,7 @@ fn boucle_uia(
             let cible = cible_depuis(&auto, sender);
             let _ = puits.send(RawEvent {
                 source: Source::Uia,
-                monotone_ms: debut.elapsed().as_millis() as u64,
+                monotone_ms: horloge_focus.monotone_ms(),
                 genre: EvenementUia::Focus.genre(cible),
                 surface: surface_de(sender),
             });
@@ -575,6 +586,7 @@ fn boucle_uia(
     _puits: &Sender<RawEvent>,
     actif: &Arc<AtomicBool>,
     demandes: &std::sync::mpsc::Receiver<Demande>,
+    _horloge: &Arc<dyn crate::horloge::Horloge>,
 ) {
     while actif.load(Ordering::SeqCst) {
         match demandes.recv_timeout(std::time::Duration::from_millis(10)) {
@@ -707,7 +719,7 @@ mod tests {
 
     #[test]
     fn un_second_abonnement_est_refuse() {
-        let mut s = UiaSource::new();
+        let mut s = UiaSource::new(std::sync::Arc::new(crate::horloge::HorlogeSimulee::new()));
         let (tx, _rx) = std::sync::mpsc::channel();
         let _a = s.abonner(tx).expect("premier abonnement");
         let (tx2, _rx2) = std::sync::mpsc::channel();
@@ -718,7 +730,7 @@ mod tests {
     fn relacher_l_abonnement_coupe_vraiment() {
         // C'etait une promesse de commentaire avant d'etre une propriete du
         // type : le drapeau doit retomber quand l'abonnement tombe.
-        let mut s = UiaSource::new();
+        let mut s = UiaSource::new(std::sync::Arc::new(crate::horloge::HorlogeSimulee::new()));
         let drapeau = s.actif.clone();
         let (tx, _rx) = std::sync::mpsc::channel();
 
@@ -736,7 +748,7 @@ mod tests {
         // Personne ne sert le canal : l'appelant doit repartir sans photo, pas
         // attendre. Un moteur bloque sur un declencheur perdrait toute la suite
         // de l'episode.
-        let s = UiaSource::new();
+        let s = UiaSource::new(std::sync::Arc::new(crate::horloge::HorlogeSimulee::new()));
         let photographe = s.snapshotteur();
         drop(s); // le recepteur tombe avec la source
 
@@ -753,7 +765,7 @@ mod tests {
         // Sans bureau, la boucle de test repond « rien a montrer ». Ce qui est
         // verifie ici, c'est l'aller-retour : la demande part, une reponse
         // revient, et l'appelant n'a pas touche a UIA lui-meme.
-        let mut s = UiaSource::new();
+        let mut s = UiaSource::new(std::sync::Arc::new(crate::horloge::HorlogeSimulee::new()));
         let photographe = s.snapshotteur();
         let (tx, _rx) = std::sync::mpsc::channel();
         let _abonnement = s.abonner(tx).expect("abonnement");

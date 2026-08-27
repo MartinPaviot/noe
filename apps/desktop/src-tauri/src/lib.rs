@@ -170,7 +170,7 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
         Ok((id, slug)) => {
             // La source d'abord : c'est elle qui fournit le photographe, et le
             // moteur doit le recevoir avant de traiter le premier declencheur.
-            let mut native = UiaSource::new();
+            let mut native = UiaSource::new(e.horloge.clone());
             // R5.4 : l'episode ne capture que sur les surfaces activees. La
             // liste est copiee a l'ouverture et re-poussee a chaque
             // changement — un episode en cours doit pouvoir suivre une
@@ -187,7 +187,7 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
             // tourne quand meme en memoire et l'operateur est prevenu — mais on
             // ne fait pas croire a un enregistrement qui n'a pas lieu.
             let dossier = dossier_donnees(app).join("episodes");
-            match journal::Journal::ouvrir(&dossier, &id, e.horloge.clone()) {
+            match journal::Journal::ouvrir(&dossier, &id, e.horloge.clone(), &slug) {
                 Ok(j) => moteur = moteur.avec_journal(j),
                 Err(err) => notifier(
                     app,
@@ -238,12 +238,122 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
     rafraichir_tray(app);
 }
 
-/// R1.1 — le hotkey de fin.
+/// R3.2 — les épisodes que le démarrage précédent n'a pas clos.
 ///
-/// La clôture réelle (assemblage, grade, `load()`) arrive en tâche 8 ; ici on
-/// borne, et on le dit tel quel plutôt que de laisser croire à un épisode
-/// persisté.
+/// **Appelée au démarrage, avant que quoi que ce soit d'autre ne tourne.** Elle
+/// ne l'était pas : `journal::orphelins` et `clore_orphelin` n'avaient d'autre
+/// appelant que le binaire de banc, et `main.rs` ne lit pas `argv`. Le kill-test
+/// validait la fonction, pas son branchement. Après un crash, le dossier restait
+/// marqué `.ouvert` indéfiniment, aucun trou n'était déclaré, aucun
+/// `episode.json` n'était produit — et la vue, qui liste les `episode.json`,
+/// rendait l'épisode invisible. C'est le trou silencieux que la règle 4
+/// interdit, à la puissance d'un épisode entier.
+///
+/// Et `clore_orphelin` s'arrêtait au `gap{crash}` : la seconde moitié de R3.2 —
+/// « le passer au pipeline de clôture normal » — n'existait nulle part.
+fn reprendre_orphelins<R: Runtime>(app: &AppHandle<R>) {
+    let e: State<Etat> = app.state();
+    let dossier = dossier_donnees(app).join("episodes");
+    let orphelins = match journal::orphelins(&dossier) {
+        Ok(o) => o,
+        Err(err) => {
+            eprintln!("[noe] dossier d episodes illisible : {err}");
+            return;
+        }
+    };
+    if orphelins.is_empty() {
+        return;
+    }
+
+    let mut repris = 0usize;
+    let mut sans_identite = 0usize;
+    for orphelin in &orphelins {
+        // Le trou d'abord : il borne l'épisode et retire le marqueur.
+        let gap = match journal::clore_orphelin(&dossier, orphelin) {
+            Ok(g) => g,
+            Err(err) => {
+                eprintln!("[noe] reprise de {} refusee : {err}", orphelin.episode_id);
+                continue;
+            }
+        };
+        // Puis le pipeline normal. Sans identité relue — marqueur d'une version
+        // antérieure — on ne devine pas une tâche : l'épisode reste clos et
+        // signalé, mais pas assemblé.
+        let Some(m) = orphelin.marqueur.as_ref() else {
+            sans_identite += 1;
+            continue;
+        };
+        let mut entrees = orphelin.entrees.clone();
+        entrees.push(gap);
+        // Les instants du journal sont comptés depuis l'ouverture : le dernier
+        // donne donc la durée réelle de l'épisode au moment du crash. Prendre
+        // l'heure courante ferait durer l'épisode jusqu'au redémarrage.
+        let duree = entrees
+            .last()
+            .map(moteur::EntreeJournal::monotone_ms)
+            .unwrap_or(0);
+        match assemblage::assembler(
+            &m.episode_id,
+            &m.task_slug,
+            m.t0_mural_ms,
+            m.t0_mural_ms + duree,
+            &entrees,
+            &e.redacteur,
+        ) {
+            Ok(episode) => {
+                if let Err(err) = assemblage::persister(&dossier, &episode) {
+                    eprintln!("[noe] ecriture de l episode repris refusee : {err}");
+                } else {
+                    repris += 1;
+                }
+            }
+            Err(q) => {
+                let raison = q.to_string();
+                let _ = assemblage::mettre_en_quarantaine(&dossier, &m.episode_id, &raison);
+                repris += 1;
+            }
+        }
+    }
+
+    // R3.4 : ça se DIT. Un épisode repris en silence se lit comme un épisode
+    // qui n'a jamais eu lieu.
+    let detail = if sans_identite > 0 {
+        format!(
+            "{} episode(s) repris, {sans_identite} sans identite relue (clos, non assembles).",
+            repris
+        )
+    } else {
+        format!("{repris} episode(s) repris apres un arret brutal, avec leur trou declare.")
+    };
+    notifier(app, "Reprise apres crash", &detail);
+}
+
+/// Pourquoi l'épisode se termine. Change le message, rien d'autre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CauseCloture {
+    /// R1.1 — le hotkey de fin.
+    Hotkey,
+    /// R1.3 — soixante minutes atteintes.
+    Timeout,
+}
+
+/// R1.1 — le hotkey de fin.
 fn arreter<R: Runtime>(app: &AppHandle<R>) {
+    clore_episode(app, CauseCloture::Hotkey);
+}
+
+/// **L'unique chemin de clôture.**
+///
+/// Il y en avait deux, et le second était appauvri. La clôture automatique de
+/// R1.3 se contentait d'arrêter la session et de notifier : le journal n'était
+/// jamais fermé — donc tampon perdu, pas de `sync_all`, marqueur `.ouvert` en
+/// place —, l'épisode n'était ni assemblé ni mis en quarantaine, et ni
+/// l'abonnement UIA ni le hook clavier n'étaient relâchés. Une heure de travail
+/// ne produisait aucun `episode.json`, et la capture continuait de tourner sur
+/// un épisode qui n'existait plus.
+///
+/// Un seul chemin, testé une fois, appelé de deux endroits.
+fn clore_episode<R: Runtime>(app: &AppHandle<R>, cause: CauseCloture) {
     let e: State<Etat> = app.state();
     let resultat = {
         let mut s = e.session.lock().expect("session empoisonnee");
@@ -365,7 +475,12 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
             };
             notifier(
                 app,
-                "Noe a borne l'episode",
+                match cause {
+                    CauseCloture::Hotkey => "Noe a borne l'episode",
+                    // R1.3 : l'operateur n'a rien demande. Le dire, sinon il
+                    // croit observer alors que non.
+                    CauseCloture::Timeout => "Episode clos automatiquement (60 min)",
+                },
                 &format!(
                     "{} — tache « {} » · {entrees} entrees, {declencheurs} declencheurs,                      {photos} photos, {trous} trous, {unresolved} non resolues{dehors}{alerte}.
 {}",
@@ -708,7 +823,7 @@ pub fn harnais_journal(args: &[String]) -> i32 {
             };
             let n: u64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(250);
 
-            let mut j = match journal::Journal::ouvrir(&racine, id, horloge) {
+            let mut j = match journal::Journal::ouvrir(&racine, id, horloge, "banc-journal") {
                 Ok(j) => j,
                 Err(e) => {
                     eprintln!("ouverture : {e}");
@@ -748,7 +863,7 @@ pub fn harnais_journal(args: &[String]) -> i32 {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(10);
 
-            let mut source = uia::UiaSource::new();
+            let mut source = uia::UiaSource::new(horloge.clone());
             let (tx, rx) = std::sync::mpsc::channel();
             let abonnement = match source.abonner(tx) {
                 Ok(a) => a,
@@ -816,7 +931,7 @@ pub fn harnais_journal(args: &[String]) -> i32 {
         (Some("photo"), _) => {
             use crate::moteur::Snapshotteur;
 
-            let mut source = uia::UiaSource::new();
+            let mut source = uia::UiaSource::new(horloge.clone());
             let photographe = source.snapshotteur();
             let (tx, _rx) = std::sync::mpsc::channel();
             let abonnement = match source.abonner(tx) {
@@ -1061,6 +1176,12 @@ pub fn run() {
                 appariement: Mutex::new(presse_papiers::Appariement::nouveau()),
             });
 
+            // R3.2 : avant tout le reste. Un episode orphelin doit etre clos et
+            // assemble avant qu'un nouveau ne s'ouvre, sinon deux journaux
+            // marques `.ouvert` coexistent et la reprise suivante ne sait plus
+            // lequel etait le sien.
+            reprendre_orphelins(&handle);
+
             let menu = construire_menu(&handle, &cfg)?;
             TrayIconBuilder::with_id("principal")
                 .menu(&menu)
@@ -1143,32 +1264,11 @@ pub fn run() {
                                 None => false,
                             }
                         };
-                        // R1.3 : l'episode s'est clos tout seul. L'icone doit le
-                        // dire, sinon l'operateur croit observer alors que non.
+                        // R1.3 : l'episode s'est clos tout seul. Meme chemin de
+                        // cloture que le hotkey — assemblage, persistance ou
+                        // quarantaine, journal ferme, source et hook relaches.
                         if clos {
-                            let bilan = {
-                                let mut m = etat.moteur.lock().expect("moteur empoisonne");
-                                m.take().map(|mut moteur| {
-                                    moteur.clore();
-                                    moteur.journal().len()
-                                })
-                            };
-                            let ferme = {
-                                let mut s = etat.session.lock().expect("session empoisonnee");
-                                s.arreter().ok()
-                            };
-                            if let Some(ep) = ferme {
-                                notifier(
-                                    &batteur,
-                                    "Episode clos automatiquement",
-                                    &format!(
-                                        "60 minutes atteintes — {} entrees. Tache « {} ».",
-                                        bilan.unwrap_or(0),
-                                        ep.task_slug
-                                    ),
-                                );
-                                rafraichir_tray(&batteur);
-                            }
+                            clore_episode(&batteur, CauseCloture::Timeout);
                         }
                     }
                 });

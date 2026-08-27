@@ -18,14 +18,67 @@ use crate::cle::CleHmac;
 use crate::motifs::{chercher, resoudre_chevauchements};
 use crate::source::{Cible, GenreEvenement};
 
-/// Longueur du condensat dans le jeton, en caractères hexadécimaux.
+/// Longueur du condensat dans le jeton, en caractères base32.
 ///
-/// Huit caractères = 32 bits. Le risque d'anniversaire devient sensible autour
-/// de 2^16 ≈ 65 000 entités distinctes sur une même installation — très au-delà
-/// d'un corpus de poste, mais le chiffre est écrit ici plutôt que découvert plus
-/// tard. Si un corpus s'en approchait, c'est cette constante qu'il faudrait
-/// remonter, et la version de la bibliothèque avec elle.
-const LONGUEUR_CONDENSAT: usize = 8;
+/// **Treize caractères = 65 bits**, et non plus huit hexadécimaux = 32 bits.
+///
+/// L'ancien commentaire annonçait un risque « sensible autour de 2^16 ≈ 65 000
+/// entités ». Le calcul était faux d'un ordre de grandeur utile : le paradoxe
+/// des anniversaires donne déjà **1,2 % de chance de collision sur 10 000
+/// valeurs**, et 29 % sur 50 000. Le banc de non-collision l'a prouvé en
+/// rougissant — il tire une clé neuve à chaque exécution, et il a fini par
+/// tomber sur le cas.
+///
+/// Une collision ici ne fait pas perdre une jointure : elle en **invente** une.
+/// Deux personnes différentes reçoivent le même pseudonyme et fusionnent dans le
+/// graphe d'entités. C'est exactement l'erreur que la normalisation refuse de
+/// commettre — « mieux vaut deux jetons pour une entité qu'un jeton pour deux
+/// entités » — commise à l'autre bout de la chaîne.
+///
+/// **Base32 et non hexadécimal**, et c'est le second point. Un condensat plus
+/// long en hexadécimal a une chance sur cent soixante environ de contenir une
+/// suite de dix chiffres — donc de ressembler à un numéro de téléphone pour les
+/// motifs et pour le filet du juge. L'alphabet RFC 4648 minuscule (`a-z2-7`) ne
+/// contient ni `0` ni `1` : aucun jeton ne peut commencer une graphie
+/// téléphonique française, qui exige `0`, `+33` ou `0033`.
+const LONGUEUR_CONDENSAT: usize = 13;
+
+/// L'alphabet base32 de la RFC 4648, en minuscules.
+///
+/// Sans `0` ni `1` : c'est ce qui garantit qu'un jeton ne sera jamais pris pour
+/// un numéro par les motifs qu'on vient de durcir.
+const BASE32: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+
+/// Encode les huit premiers octets d'un condensat en treize caractères base32.
+///
+/// 8 octets = 64 bits ; 13 caractères en portent 65. Le dernier ne code donc
+/// qu'un bit utile, et c'est sans importance : ce qui compte est que deux
+/// condensats différents donnent deux chaînes différentes.
+fn base32(octets: &[u8]) -> String {
+    let mut sortie = String::with_capacity(LONGUEUR_CONDENSAT);
+    let mut accumulateur: u64 = 0;
+    let mut bits = 0u32;
+    let mut restants = LONGUEUR_CONDENSAT;
+    for o in octets {
+        accumulateur = (accumulateur << 8) | u64::from(*o);
+        bits += 8;
+        while bits >= 5 && restants > 0 {
+            bits -= 5;
+            let indice = ((accumulateur >> bits) & 0x1f) as usize;
+            sortie.push(BASE32[indice] as char);
+            restants -= 1;
+        }
+    }
+    // Les bits qui restent, complétés par des zéros — le cas du dernier
+    // caractère quand 64 n'est pas un multiple de 5.
+    while restants > 0 {
+        let indice = ((accumulateur << (5 - bits)) & 0x1f) as usize;
+        sortie.push(BASE32[indice] as char);
+        restants -= 1;
+        bits = 0;
+    }
+    sortie
+}
 
 pub struct Redacteur {
     cle: hmac::Key,
@@ -87,13 +140,8 @@ impl Redacteur {
     pub fn jeton(&self, type_pii: &str, valeur: &str) -> String {
         let normalise = normaliser(type_pii, valeur);
         let signature = hmac::sign(&self.cle, normalise.as_bytes());
-        let hexa: String = signature
-            .as_ref()
-            .iter()
-            .take(LONGUEUR_CONDENSAT / 2)
-            .map(|o| format!("{o:02x}"))
-            .collect();
-        format!("{type_pii}_{hexa}")
+        let condensat = base32(&signature.as_ref()[..8]);
+        format!("{type_pii}_{condensat}")
     }
 
     /// Remplace toute PII d'un texte par son jeton.
@@ -174,13 +222,51 @@ mod tests {
     // -- Forme du jeton ----------------------------------------------------
 
     #[test]
-    fn le_jeton_a_la_forme_type_hash8() {
+    fn le_jeton_a_la_forme_type_base32() {
         let r = redacteur();
         let j = r.jeton("EMAIL", "jean@exemple.fr");
         assert!(j.starts_with("EMAIL_"), "{j}");
-        let hexa = j.trim_start_matches("EMAIL_");
-        assert_eq!(hexa.len(), LONGUEUR_CONDENSAT);
-        assert!(hexa.chars().all(|c| c.is_ascii_hexdigit()));
+        let condensat = j.trim_start_matches("EMAIL_");
+        assert_eq!(condensat.len(), LONGUEUR_CONDENSAT);
+        assert!(
+            condensat.bytes().all(|c| BASE32.contains(&c)),
+            "hors alphabet : {condensat}"
+        );
+    }
+
+    #[test]
+    fn aucun_jeton_ne_peut_ressembler_a_un_numero() {
+        // La garantie structurelle du choix de l'alphabet : ni `0` ni `1`. Un
+        // condensat hexadecimal plus long aurait eu environ une chance sur cent
+        // soixante de contenir une suite de dix chiffres, donc de se faire
+        // prendre pour un telephone par le filet du juge — et de declasser un
+        // episode honnete sans recours.
+        assert!(!BASE32.contains(&b'0'));
+        assert!(!BASE32.contains(&b'1'));
+        let r = redacteur();
+        for i in 0..500u32 {
+            let j = r.jeton("TEL_FR", &format!("06123456{i:02}"));
+            assert!(
+                crate::motifs::chercher(&j).is_empty(),
+                "la bibliotheque mord sur son propre jeton : {j}"
+            );
+            assert!(
+                crate::motifs::chercher_compact(&j).is_empty(),
+                "le filet mord sur un jeton : {j}"
+            );
+        }
+    }
+
+    #[test]
+    fn base32_encode_sans_perdre_d_information() {
+        // Deux condensats differents doivent donner deux chaines differentes,
+        // sinon la collision qu'on vient de fermer reviendrait par la porte de
+        // l'encodage.
+        let mut vus = std::collections::HashSet::new();
+        for i in 0..2_000u64 {
+            let octets = i.to_be_bytes();
+            assert!(vus.insert(base32(&octets)), "collision d encodage sur {i}");
+        }
     }
 
     #[test]
@@ -277,6 +363,9 @@ mod tests {
         let r = redacteur();
         let mut vus = std::collections::HashSet::new();
         let mut collisions = Vec::new();
+        // Dix mille valeurs : c'est le corpus ou 32 bits collisionnaient une
+        // fois sur quatre-vingts. En 65 bits, la probabilite tombe sous
+        // 3 x 10^-15, et ce banc cesse d'etre un tirage au sort.
         for i in 0..10_000u32 {
             let jeton = r.jeton("EMAIL", &format!("personne{i}@exemple.fr"));
             if !vus.insert(jeton.clone()) {
