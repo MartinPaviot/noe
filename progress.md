@@ -429,3 +429,86 @@ MV3 + native messaging), et le gate.
 Inchangés. Aucun appel modèle de la session.
 
 ---
+
+## 2026-08-27 (2) — Tâche 9, et dix défauts trouvés par une revue adverse
+
+### Fait
+
+**Tâche 9 de la spec 002** — pause étanche (R5.2) et liste blanche des surfaces
+(R5.4). Arbitrée en **D28** : hors périmètre, on compte et on ne raconte pas.
+
+Puis une **revue adverse** (trente agents, cinq angles, réfutation
+contradictoire) a rendu dix défauts confirmés. Ils sont tous fermés, chacun avec
+son test. Quatre arbitrages en sont sortis : **D29** (motifs v4 et juge
+indépendant), **D30** (chemin de clôture unique, horloge unique), **D31** (jeton
+sur 65 bits en base32), **D32** (les photos aussi passent par la liste blanche).
+
+### Ce que la revue a trouvé, et que je n'avais pas vu
+
+Par ordre de gravité, pas de difficulté :
+
+1. **Trois graphies de numéro traversaient la redaction en clair** — `+33 (0)6 …`,
+   qui est la graphie d'affichage standard française, `0033 …`, et n'importe quel
+   numéro séparé par des insécables. Vérifié par exécution, pas par lecture.
+2. **Le juge R4.6 s'auto-validait** : il cherchait des PII avec la bibliothèque
+   même qui avait servi à redacter. Aveugle par construction — c'est pour ça que
+   le point 1 avait pu passer trois fois.
+3. **La lecture du presse-papiers** partait sur un `Ctrl+C` observé n'importe où
+   sur le poste, sans vérifier ni la surface ni que quelque chose ait vraiment
+   été copié. Un `Ctrl+C` dans un gestionnaire de mots de passe était lu et haché.
+4. **Elle tournait même hors épisode** : le bloc précédait la garde d'épisode
+   ouvert, et `desarmer()` ne purgeait pas les compteurs.
+5. **Les copies et collages n'atteignaient jamais le moteur.** Le vecteur était
+   construit, rempli, puis abandonné à la fin de l'itération. Rust n'a rien dit —
+   un `push` compte comme un usage. `Declencheur::CopierColler` ne pouvait pas se
+   produire en production.
+6. **Le hook clavier n'était jamais retiré.** `Drop` postait `WM_QUIT` sur le fil
+   `0`, croyant à une diffusion que `PostThreadMessage` n'a pas. Un hook de plus
+   par épisode, tous chaînés : au troisième, un `Ctrl+V` comptait trois collages.
+7. **`armer()` puis `poser()` s'effaçait lui-même** — l'affectation droppe
+   l'ancien hook après avoir évalué le nouveau, et son `Drop` désarme.
+8. **La clôture automatique à 60 min perdait l'épisode.** Journal jamais fermé,
+   aucun assemblage, source et hook laissés vivants. Une heure de travail ne
+   produisait aucun `episode.json`.
+9. **La reprise après crash n'était pas branchée.** `orphelins` n'avait d'autre
+   appelant que le binaire de banc. Le kill-test validait la fonction, pas son
+   branchement.
+10. **Deux origines de temps monotone** dans le même journal : le délai
+    d'inactivité de 2 s partait après 1 s, et tous les gaps ressortaient
+    horodatés à `t1`.
+
+Et une onzième, trouvée par le banc lui-même : le test de non-collision a rougi.
+Il avait raison — 32 bits de jeton donnent 1,2 % de collision sur dix mille
+entités, et une collision **invente** une jointure au lieu d'en perdre une.
+
+### Ce qui n'est toujours pas prouvé
+
+- **La revue est une lecture de code.** Rien n'a été exécuté sur un vrai bureau
+  Windows avec un épisode ouvert : ni le comptage réel du hook après trois
+  épisodes, ni le timing de la lecture du presse-papiers, ni la clôture à
+  soixante minutes, ni ce que `get_focused_element()` rend sur un bureau
+  sécurisé. Les corrections sont testées ; leur effet en production ne l'est pas.
+- **`completeness.out_of_scope` n'entre pas dans le grade.** Un épisode de deux
+  actions avec quarante refus est gradé comme un épisode de deux actions sans
+  refus. Le seuil appartient à la spec 001 et vit en dix vecteurs miroités ; à
+  trancher au gate.
+- **`paste{paired:false}`** passe par `payload`, faute de champ `paired` au
+  format. Décision de spec 001, à prendre au gate ; perdre l'information en
+  attendant n'en était pas une.
+
+### Vert
+
+`pnpm verify` · `cargo test --all-targets` : **247 tests Rust + 2 d'intégration
++ 5 visuels**, 169 TypeScript. **59 commits.**
+
+### Prochaine tâche
+
+Spec 002, **tâche 10** — panique (fenêtres 5/15/60, suppression d'épisodes
+entiers, irréversibilité). Puis 6b (extension MV3 + native messaging), 11
+(export/import), 12, 13, et le gate.
+
+### Coûts
+
+Inchangés. La revue adverse a consommé environ 2,9 M de jetons de sous-agents.
+
+---

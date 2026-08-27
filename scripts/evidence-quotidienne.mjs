@@ -23,7 +23,7 @@
  * fenêtre-là.
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -79,23 +79,36 @@ function dernieresDecisions(n) {
  *
  * Un chiffre recopié à la main dans une image quotidienne devient faux au
  * troisième jour, et une preuve fausse est pire qu'une preuve absente.
+ *
+ * La première version supposait quand même deux choses, et les deux étaient
+ * fausses. Elle **énumérait les fichiers à la main** — sept modules ajoutés
+ * depuis n'y figuraient pas — et elle comptait `fn nom() {`, c'est-à-dire toute
+ * fonction sans argument, helpers de banc compris. Elle annonçait 148 quand la
+ * suite en comptait 247 : une preuve fausse, exactement ce que son propre
+ * commentaire interdisait.
+ *
+ * On balaie donc l'arborescence, et on compte l'attribut `#[test]`, qui est la
+ * seule marque qu'un test soit un test.
  */
 function compterTests() {
-  const compte = (motif, ...fichiers) =>
-    fichiers.reduce((n, f) => n + [...lire(f).matchAll(motif)].length, 0);
-
-  const rust = compte(
-    /^\s*fn \w+\(\) \{/gm,
-    'apps/desktop/src-tauri/src/config.rs',
-    'apps/desktop/src-tauri/src/etat.rs',
-    'apps/desktop/src-tauri/src/horloge.rs',
-    'apps/desktop/src-tauri/src/journal.rs',
-    'apps/desktop/src-tauri/src/moteur.rs',
-    'apps/desktop/src-tauri/src/motifs.rs',
-    'apps/desktop/src-tauri/src/redaction.rs',
-    'apps/desktop/src-tauri/src/source.rs',
-    'apps/desktop/src-tauri/src/veille.rs',
-    'apps/desktop/src-tauri/src/cle.rs',
+  const sources = [];
+  const balayer = (dossier) => {
+    for (const e of readdirSync(dossier, { withFileTypes: true })) {
+      const chemin = join(dossier, e.name);
+      if (e.isDirectory()) balayer(chemin);
+      else if (e.name.endsWith('.rs')) sources.push(chemin);
+    }
+  };
+  for (const racine of ['apps/desktop/src-tauri/src', 'apps/desktop/src-tauri/tests']) {
+    try {
+      balayer(join(RACINE, racine));
+    } catch {
+      // Un dossier absent n'est pas une panne : il vaut zéro test.
+    }
+  }
+  const rust = sources.reduce(
+    (n, f) => n + [...readFileSync(f, 'utf8').matchAll(/^\s*#\[test\]/gm)].length,
+    0,
   );
   return { rust };
 }
