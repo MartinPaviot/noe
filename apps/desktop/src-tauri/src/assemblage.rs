@@ -192,6 +192,16 @@ pub struct Episode {
     pub grade_reason: String,
     pub scope_fields: Vec<String>,
     pub completeness: Completude,
+    /// INVARIANT IV — l'épisode que celui-ci **remplace**, s'il en remplace un.
+    ///
+    /// Un épisode clôturé n'est jamais modifié : une correction produit un
+    /// épisode neuf qui référence l'ancien. Ce miroir ne portait pas le champ, ce
+    /// qui veut dire qu'une lecture-écriture côté Rust l'aurait **effacé en
+    /// silence** — et avec lui le seul fil qui relie une correction à ce qu'elle
+    /// corrige. C'est exactement le trou rebouché sans le dire que la règle 4
+    /// interdit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<String>,
 }
 
 /// Pourquoi un épisode ne peut pas être assemblé.
@@ -480,6 +490,7 @@ pub fn assembler(
             out_of_scope: hors_perimetre,
             gaps: trous,
         },
+        supersedes: None,
     };
 
     let (grade, raison) = grade_de(&episode);
@@ -1169,6 +1180,7 @@ mod tests {
                 out_of_scope: 0,
                 gaps: cas.gaps as u64,
             },
+            supersedes: None,
         }
     }
 
@@ -1352,6 +1364,7 @@ mod tests {
                 out_of_scope: 0,
                 gaps: 0,
             },
+            supersedes: None,
         }
     }
 
@@ -1490,6 +1503,51 @@ mod tests_corpus_dore {
             include_str!("../../../../packages/harness/golden/005_canaris.json"),
         ),
     ];
+
+    /// L'episode « tout allume », produit par `scripts/generer-episode-complet.mjs`.
+    ///
+    /// **Le corpus dore ne suffit pas.** Un controle ne vaut que par ce que ses
+    /// vecteurs exercent, et aucun de ses cinq episodes ne porte `resolved`,
+    /// `state_meta` ni `supersedes`. Une divergence sur eux serait passee sans
+    /// qu'aucun test ne rougisse — et c'est exactement ce qui s'est produit pour
+    /// `api_change`, absent du miroir Rust pendant deux specs.
+    const COMPLET: &str = include_str!("../../../../packages/episode-spec/episode-complet.json");
+
+    #[test]
+    fn l_episode_tout_allume_traverse_le_rust_sans_rien_perdre() {
+        let avant: serde_json::Value = serde_json::from_str(COMPLET).expect("json");
+        let relu: Episode = serde_json::from_str(COMPLET).expect("episode complet");
+        let apres = serde_json::to_value(&relu).expect("re-serialisation");
+        let perdus = champs_perdus(&avant, &apres, String::new());
+        assert!(
+            perdus.is_empty(),
+            "le type Rust perd des champs du schema :
+{perdus:#?}"
+        );
+    }
+
+    #[test]
+    fn l_episode_tout_allume_exerce_bien_ce_que_le_corpus_n_exerce_pas() {
+        // Sans cette assertion, quelqu'un pourrait alleger le fichier genere et
+        // le test precedent resterait vert en ne prouvant plus rien.
+        let ep: Episode = serde_json::from_str(COMPLET).expect("episode complet");
+        assert!(ep.supersedes.is_some(), "supersedes non exerce");
+        let e = ep.entities.first().expect("une entite");
+        assert!(e.resolved.is_some(), "resolved non exerce");
+        assert!(e.state_meta.is_some(), "state_meta non exerce");
+        assert!(
+            ep.events
+                .iter()
+                .any(|ev| matches!(ev, Evenement::ApiChange { .. })),
+            "api_change non exerce"
+        );
+        assert!(
+            ep.events
+                .iter()
+                .any(|ev| matches!(ev, Evenement::Degraded { .. })),
+            "degraded non exerce"
+        );
+    }
 
     #[test]
     fn le_type_rust_lit_tous_les_episodes_dores() {

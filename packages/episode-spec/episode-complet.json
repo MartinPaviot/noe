@@ -1,0 +1,122 @@
+{
+  "schema_v": 1,
+  "id": "01JQ0000000000000000000000",
+  "task_slug": "miroir-complet",
+  "t0": "2026-01-01T09:00:00.000Z",
+  "t1": "2026-01-01T09:05:00.000Z",
+  "events": [
+    {
+      "schema_v": 1,
+      "seq": 1,
+      "ts": "2026-01-01T09:00:00.000Z",
+      "kind": "ui_action",
+      "source": "ui",
+      "action": "input",
+      "target": {
+        "role": "textbox",
+        "name": "CIBLE_aaaaaaaaaaaaa",
+        "region": "formulaire"
+      },
+      "payload": "PII_bbbbbbbbbbbbb"
+    },
+    {
+      "schema_v": 1,
+      "seq": 2,
+      "ts": "2026-01-01T09:01:00.000Z",
+      "kind": "api_change",
+      "source": "api",
+      "connector": "salesforce",
+      "object": "Lead",
+      "object_id": "0035g00000LmT4EAAV",
+      "fields_changed": [
+        "Status"
+      ]
+    },
+    {
+      "schema_v": 1,
+      "seq": 3,
+      "ts": "2026-01-01T09:02:00.000Z",
+      "kind": "gap",
+      "source": "system",
+      "gap": {
+        "cause": "seq_break",
+        "from_seq": 2,
+        "to_seq": 3
+      }
+    },
+    {
+      "schema_v": 1,
+      "seq": 4,
+      "ts": "2026-01-01T09:03:00.000Z",
+      "kind": "degraded",
+      "source": "system",
+      "degraded": {
+        "what": "snapshots",
+        "from": "nominal",
+        "to": "suspendus"
+      }
+    },
+    {
+      "schema_v": 1,
+      "seq": 5,
+      "ts": "2026-01-01T09:05:00.000Z",
+      "kind": "ui_action",
+      "source": "ui",
+      "action": "submit",
+      "target": {
+        "role": "button",
+        "name": "Enregistrer"
+      }
+    }
+  ],
+  "entities": [
+    {
+      "key": {
+        "type": "salesforce",
+        "value_pseudo": "CIBLE_aaaaaaaaaaaaa"
+      },
+      "first_seen_seq": 1,
+      "api_refs": [
+        {
+          "connector": "salesforce",
+          "object": "Lead",
+          "id": "0035g00000LmT4EAAV"
+        }
+      ],
+      "state_before": {
+        "Status": "Open - Not Contacted",
+        "Rating": null
+      },
+      "state_after": {
+        "Status": "Working - Contacted",
+        "Rating": "Hot"
+      },
+      "resolved": {
+        "by": "system_id",
+        "at": "2026-01-01T09:00:00.000Z"
+      },
+      "state_meta": {
+        "Description": {
+          "unknown_before": true,
+          "reason": "champ non historise par le systeme"
+        },
+        "Rating": {
+          "reconstituted": true,
+          "reason": "reconstitue depuis l historique"
+        }
+      }
+    }
+  ],
+  "grade": "B",
+  "grade_reason": "declasse en B : 1 trou de capture",
+  "scope_fields": [
+    "Status",
+    "Rating"
+  ],
+  "completeness": {
+    "explained": 2,
+    "out_of_scope": 0,
+    "gaps": 1
+  },
+  "supersedes": "01JQ1111111111111111111111"
+}

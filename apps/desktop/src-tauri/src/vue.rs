@@ -271,6 +271,7 @@ mod tests {
                 out_of_scope: 0,
                 gaps: 0,
             },
+            supersedes: None,
         }
     }
 
