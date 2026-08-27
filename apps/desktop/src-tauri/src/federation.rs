@@ -810,3 +810,218 @@ mod tests {
         }
     }
 }
+
+/// La clé qui dit à quel connecteur une candidate s'adresse.
+///
+/// Ce n'est **pas** une clé forte : elle ne désigne aucun enregistrement, elle
+/// désigne un système. Le routeur la retire avant de passer la main, pour qu'un
+/// adaptateur ne la voie jamais et ne puisse pas la confondre avec une clé.
+pub const CLE_CONNECTEUR: &str = "connecteur";
+
+/// Plusieurs systèmes, une seule fédération.
+///
+/// Le worker ne connaît qu'un `Federation`, et c'est bien ainsi : il n'a pas à
+/// savoir combien de systèmes sont branchés. Mais une adresse de courriel désigne
+/// une personne dans le CRM pendant qu'un identifiant de fil désigne un fil chez
+/// Gmail — ce ne sont pas les mêmes entités, et elles ne se résolvent pas au même
+/// endroit. C'est la candidate qui porte sa destination ; le routeur la lit.
+///
+/// **Il n'invente jamais.** Sans destination nommée, ou avec une destination
+/// inconnue, il rend `Empechee` plutôt que d'essayer le premier adaptateur venu :
+/// résoudre une candidate contre le mauvais système donnerait une réponse — et
+/// c'est bien le problème.
+#[derive(Default)]
+pub struct Routeur {
+    adaptateurs: BTreeMap<String, Arc<dyn Federation>>,
+}
+
+impl Routeur {
+    pub fn nouveau() -> Self {
+        Self::default()
+    }
+
+    /// Branche un adaptateur sous le nom de son connecteur.
+    pub fn brancher(&mut self, nom: &str, adaptateur: Arc<dyn Federation>) {
+        self.adaptateurs.insert(nom.to_owned(), adaptateur);
+    }
+
+    /// Les connecteurs branchés, pour le dire au tray.
+    pub fn branches(&self) -> Vec<&str> {
+        self.adaptateurs.keys().map(String::as_str).collect()
+    }
+}
+
+impl Federation for Routeur {
+    fn resoudre(&self, cles: &[(String, String)]) -> Resolution {
+        let Some((_, nom)) = cles.iter().find(|(genre, _)| genre == CLE_CONNECTEUR) else {
+            return Resolution::Empechee("candidate sans connecteur nomme".into());
+        };
+        let Some(adaptateur) = self.adaptateurs.get(nom.as_str()) else {
+            return Resolution::Empechee(format!("connecteur non branche : {nom}"));
+        };
+        let fortes: Vec<(String, String)> = cles
+            .iter()
+            .filter(|(genre, _)| genre != CLE_CONNECTEUR)
+            .cloned()
+            .collect();
+        adaptateur.resoudre(&fortes)
+    }
+
+    fn lire(&self, reference: &RefApi, champs: &[String]) -> Issue {
+        match self.adaptateurs.get(reference.connector.as_str()) {
+            Some(adaptateur) => adaptateur.lire(reference, champs),
+            None => {
+                Issue::HorsPerimetre(format!("connecteur non branche : {}", reference.connector))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests_routeur {
+    use super::*;
+
+    /// Un adaptateur qui note ce qu'on lui a demandé.
+    struct Espion {
+        nom: &'static str,
+        vues: Mutex<Vec<Vec<(String, String)>>>,
+    }
+
+    impl Espion {
+        fn nouveau(nom: &'static str) -> Arc<Self> {
+            Arc::new(Self {
+                nom,
+                vues: Mutex::new(Vec::new()),
+            })
+        }
+    }
+
+    impl Federation for Espion {
+        fn resoudre(&self, cles: &[(String, String)]) -> Resolution {
+            self.vues.lock().unwrap().push(cles.to_vec());
+            Resolution::Resolue {
+                reference: RefApi {
+                    connector: self.nom.into(),
+                    object: "o".into(),
+                    id: "1".into(),
+                },
+                par: "system_id".into(),
+                quand: "2026-01-01T00:00:00.000Z".into(),
+            }
+        }
+        fn lire(&self, _reference: &RefApi, _champs: &[String]) -> Issue {
+            Issue::Trou(format!("lu par {}", self.nom))
+        }
+    }
+
+    fn routeur(a: &Arc<Espion>, b: &Arc<Espion>) -> Routeur {
+        let mut r = Routeur::nouveau();
+        r.brancher("salesforce", a.clone());
+        r.brancher("gmail", b.clone());
+        r
+    }
+
+    #[test]
+    fn une_candidate_va_au_connecteur_qu_elle_nomme() {
+        let sf = Espion::nouveau("salesforce");
+        let gm = Espion::nouveau("gmail");
+        let r = routeur(&sf, &gm);
+        let cles = vec![
+            (CLE_CONNECTEUR.to_owned(), "gmail".to_owned()),
+            ("system_id".to_owned(), "18f0".to_owned()),
+        ];
+        match r.resoudre(&cles) {
+            Resolution::Resolue { reference, .. } => assert_eq!(reference.connector, "gmail"),
+            autre => panic!("{autre:?}"),
+        }
+        assert!(sf.vues.lock().unwrap().is_empty(), "le CRM a ete derange");
+    }
+
+    #[test]
+    fn la_cle_de_routage_ne_descend_pas_dans_l_adaptateur() {
+        // Elle ne designe aucun enregistrement. La laisser passer donnerait a
+        // l'adaptateur une cle de genre inconnu a interpreter.
+        let sf = Espion::nouveau("salesforce");
+        let gm = Espion::nouveau("gmail");
+        let r = routeur(&sf, &gm);
+        let _ = r.resoudre(&[
+            (CLE_CONNECTEUR.to_owned(), "salesforce".to_owned()),
+            ("email_token".to_owned(), "j@ex.com".to_owned()),
+        ]);
+        let vues = sf.vues.lock().unwrap();
+        assert_eq!(vues.len(), 1);
+        assert_eq!(
+            vues[0],
+            vec![("email_token".to_owned(), "j@ex.com".to_owned())]
+        );
+    }
+
+    #[test]
+    fn sans_connecteur_nomme_le_routeur_n_invente_pas() {
+        // Resoudre une candidate contre le mauvais systeme donnerait une
+        // reponse — et c'est bien le probleme.
+        let sf = Espion::nouveau("salesforce");
+        let gm = Espion::nouveau("gmail");
+        let r = routeur(&sf, &gm);
+        match r.resoudre(&[("email_token".to_owned(), "j@ex.com".to_owned())]) {
+            Resolution::Empechee(c) => assert!(c.contains("connecteur"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+        assert!(sf.vues.lock().unwrap().is_empty());
+        assert!(gm.vues.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn un_connecteur_inconnu_ne_tombe_pas_sur_le_premier_venu() {
+        let sf = Espion::nouveau("salesforce");
+        let gm = Espion::nouveau("gmail");
+        let r = routeur(&sf, &gm);
+        match r.resoudre(&[(CLE_CONNECTEUR.to_owned(), "hubspot".to_owned())]) {
+            Resolution::Empechee(c) => assert!(c.contains("hubspot"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+        assert!(sf.vues.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn une_lecture_va_a_l_adaptateur_de_sa_reference() {
+        let sf = Espion::nouveau("salesforce");
+        let gm = Espion::nouveau("gmail");
+        let r = routeur(&sf, &gm);
+        let reference = RefApi {
+            connector: "gmail".into(),
+            object: "thread".into(),
+            id: "18f0".into(),
+        };
+        assert_eq!(
+            r.lire(&reference, &["thread.id".to_owned()]),
+            Issue::Trou("lu par gmail".into())
+        );
+    }
+
+    #[test]
+    fn une_lecture_d_un_connecteur_non_branche_est_hors_perimetre() {
+        let sf = Espion::nouveau("salesforce");
+        let gm = Espion::nouveau("gmail");
+        let r = routeur(&sf, &gm);
+        let reference = RefApi {
+            connector: "hubspot".into(),
+            object: "o".into(),
+            id: "1".into(),
+        };
+        match r.lire(&reference, &[]) {
+            Issue::HorsPerimetre(c) => assert!(c.contains("hubspot"), "{c}"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn un_routeur_vide_empeche_au_lieu_de_paniquer() {
+        let r = Routeur::nouveau();
+        assert!(r.branches().is_empty());
+        assert!(matches!(
+            r.resoudre(&[(CLE_CONNECTEUR.to_owned(), "salesforce".to_owned())]),
+            Resolution::Empechee(_)
+        ));
+    }
+}

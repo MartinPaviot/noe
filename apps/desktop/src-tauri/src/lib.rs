@@ -7,6 +7,7 @@
 
 mod archive;
 mod assemblage;
+mod candidates;
 mod clavier;
 mod cle;
 mod config;
