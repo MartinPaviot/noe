@@ -243,6 +243,48 @@ impl Registre {
     }
 }
 
+/// R6.1 — les états fédérés passent le **même** pipeline que la capture.
+///
+/// « Brancher mes systèmes n'élargit pas ce qui touche mon disque en clair. »
+/// C'est la user story de R6, et elle interdit la tentation évidente : une API
+/// est une source « de confiance », donc on serait tenté d'écrire ses valeurs
+/// telles quelles. Sauf que le disque, lui, ne fait pas la différence — et un
+/// numéro de téléphone lu dans un CRM est exactement aussi sensible que le même
+/// numéro lu à l'écran.
+///
+/// La récursion traverse objets et tableaux : une valeur imbriquée n'est pas
+/// moins en clair parce qu'elle est profonde.
+fn redacter_valeur(
+    v: &serde_json::Value,
+    redacteur: &crate::redaction::Redacteur,
+) -> serde_json::Value {
+    match v {
+        serde_json::Value::String(t) => serde_json::Value::String(redacteur.redacter(t)),
+        serde_json::Value::Array(a) => {
+            serde_json::Value::Array(a.iter().map(|x| redacter_valeur(x, redacteur)).collect())
+        }
+        serde_json::Value::Object(o) => serde_json::Value::Object(
+            o.iter()
+                .map(|(k, x)| (k.clone(), redacter_valeur(x, redacteur)))
+                .collect(),
+        ),
+        // Nombres, booléens, null : rien à redacter, et les toucher inventerait
+        // une transformation là où il n'y a pas de texte.
+        autre => autre.clone(),
+    }
+}
+
+/// Redacte un état plat entier.
+///
+/// **Les clés aussi.** Un nom de champ personnalisé peut porter une identité —
+/// « Notes_Jean_Dupont__c » existe dans la vraie vie — et une clé en clair fuit
+/// aussi sûrement qu'une valeur.
+pub fn redacter_etat(etat: &EtatPlat, redacteur: &crate::redaction::Redacteur) -> EtatPlat {
+    etat.iter()
+        .map(|(k, v)| (redacteur.redacter(k), redacter_valeur(v, redacteur)))
+        .collect()
+}
+
 /// Le worker : il travaille **hors du chemin de capture**.
 ///
 /// Un `read` qui bloque trois secondes sur une API lente ne doit jamais retarder
@@ -258,11 +300,20 @@ impl Worker {
         federation: Arc<dyn Federation>,
         registre: Arc<Registre>,
         champs: Vec<String>,
+        redacteur: Arc<crate::redaction::Redacteur>,
     ) -> (Self, std::thread::JoinHandle<()>) {
         let (demandes, reception) = std::sync::mpsc::channel();
         let fil = std::thread::Builder::new()
             .name("noe-federation".into())
-            .spawn(move || boucle(&reception, federation.as_ref(), &registre, &champs))
+            .spawn(move || {
+                boucle(
+                    &reception,
+                    federation.as_ref(),
+                    &registre,
+                    &champs,
+                    redacteur.as_ref(),
+                )
+            })
             .expect("fil de federation");
         (Self { demandes }, fil)
     }
@@ -286,6 +337,7 @@ fn boucle(
     federation: &dyn Federation,
     registre: &Arc<Registre>,
     champs: &[String],
+    redacteur: &crate::redaction::Redacteur,
 ) {
     // Le budget vit avec l'épisode, pas avec le connecteur : deux connecteurs se
     // partageraient sinon le double.
@@ -316,7 +368,9 @@ fn boucle(
                 if let Some(reference) = reference {
                     if budget > 0 {
                         budget -= 1;
-                        let issue = federation.lire(&reference, champs);
+                        // R6.1 : la redaction AVANT que quoi que ce soit
+                        // n'atteigne le registre, donc avant toute persistance.
+                        let issue = redacter_issue(federation.lire(&reference, champs), redacteur);
                         registre.appliquer(Reponse::EtatAvant {
                             candidate_id,
                             issue,
@@ -335,7 +389,7 @@ fn boucle(
                         continue;
                     }
                     budget -= 1;
-                    let issue = federation.lire(&reference, champs);
+                    let issue = redacter_issue(federation.lire(&reference, champs), redacteur);
                     registre.appliquer(Reponse::EtatApres {
                         candidate_id: id,
                         issue,
@@ -344,6 +398,20 @@ fn boucle(
                 return;
             }
         }
+    }
+}
+
+/// Redacte ce qui a été lu, et laisse le reste tel quel.
+///
+/// Les causes de trou et les raisons de hors-périmètre passent aussi : un
+/// message d'erreur d'API cite volontiers l'enregistrement qu'il n'a pas trouvé,
+/// et « contact jean.dupont@exemple.fr introuvable » est une fuite qui a l'air
+/// d'un diagnostic.
+fn redacter_issue(issue: Issue, redacteur: &crate::redaction::Redacteur) -> Issue {
+    match issue {
+        Issue::Lu(etat) => Issue::Lu(redacter_etat(&etat, redacteur)),
+        Issue::Trou(c) => Issue::Trou(redacteur.redacter(&c)),
+        Issue::HorsPerimetre(r) => Issue::HorsPerimetre(redacteur.redacter(&r)),
     }
 }
 
@@ -438,13 +506,19 @@ mod tests {
         vec!["statut".to_string()]
     }
 
+    fn redacteur() -> Arc<crate::redaction::Redacteur> {
+        Arc::new(crate::redaction::Redacteur::new(
+            &crate::cle::CleHmac::generer().expect("alea"),
+        ))
+    }
+
     #[test]
     fn la_lecture_suit_immediatement_la_resolution() {
         // R3.1 : attendre la cloture pour lire l'etat d'AVANT lirait l'etat
         // d'apres. C'est toute la difficulte de la spec en une phrase.
         let registre = Arc::new(Registre::nouveau());
         let banc = Arc::new(Banc::nouveau(resolue(), etat("nouveau")));
-        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs());
+        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
         w.premiere_vue("c1", vec![("email_token".into(), "EMAIL_aaa".into())]);
         w.relire_tout();
         assert!(fil.join().is_ok());
@@ -462,7 +536,7 @@ mod tests {
         // et « non resolu » tout court laisse chercher au mauvais endroit.
         let registre = Arc::new(Registre::nouveau());
         let banc = Arc::new(Banc::nouveau(Resolution::Ambigue(3), etat("x")));
-        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs());
+        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
         w.premiere_vue("c1", vec![]);
         w.relire_tout();
         let _ = fil.join();
@@ -483,7 +557,7 @@ mod tests {
             resolue(),
             Issue::Trou("api indisponible apres 5 tentatives".into()),
         ));
-        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs());
+        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
         w.premiere_vue("c1", vec![]);
         w.relire_tout();
         let _ = fil.join();
@@ -504,7 +578,7 @@ mod tests {
             resolue(),
             Issue::HorsPerimetre("droits insuffisants sur Lead.Statut".into()),
         ));
-        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs());
+        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
         w.premiere_vue("c1", vec![]);
         w.relire_tout();
         let _ = fil.join();
@@ -519,7 +593,7 @@ mod tests {
         // tempete de requetes.
         let registre = Arc::new(Registre::nouveau());
         let banc = Arc::new(Banc::nouveau(resolue(), etat("x")));
-        let (w, fil) = Worker::demarrer(banc.clone(), registre.clone(), champs());
+        let (w, fil) = Worker::demarrer(banc.clone(), registre.clone(), champs(), redacteur());
         // Chaque premiere vue coute deux appels : resolution + lecture.
         for i in 0..(BUDGET_APPELS + 10) {
             w.premiere_vue(&format!("c{i}"), vec![]);
@@ -543,7 +617,7 @@ mod tests {
         let registre = Arc::new(Registre::nouveau());
         let mut banc = Banc::nouveau(resolue(), etat("x"));
         banc.lenteur_ms = 5_000;
-        let (w, fil) = Worker::demarrer(Arc::new(banc), registre.clone(), champs());
+        let (w, fil) = Worker::demarrer(Arc::new(banc), registre.clone(), champs(), redacteur());
         w.premiere_vue("c1", vec![]);
 
         let horloge: Arc<dyn crate::horloge::Horloge> =
@@ -596,5 +670,117 @@ mod tests {
         fn accepte_une_federation<F: Federation>(_f: &F) {}
         let banc = Banc::nouveau(resolue(), etat("x"));
         accepte_une_federation(&banc);
+    }
+
+    // -- R6 : la confidentialite de la federation --------------------------
+
+    /// Les quatre formes interdites du corpus de canaris, telles quelles.
+    const CANARIS: [&str; 4] = [
+        "canary.pii@example.invalid",
+        "+33600000000",
+        "FR7630006000011234567890189",
+        "4539148803436467",
+    ];
+
+    #[test]
+    fn un_etat_lu_passe_le_meme_pipeline_que_la_capture() {
+        // R6.1 : « brancher mes systemes n'elargit pas ce qui touche mon disque
+        // en clair ». La tentation evidente est de traiter une API comme une
+        // source de confiance et d'ecrire ses valeurs telles quelles — sauf que
+        // le disque ne fait pas la difference.
+        let r = redacteur();
+        let etat: EtatPlat = BTreeMap::from([
+            ("email".to_string(), serde_json::json!(CANARIS[0])),
+            ("telephone".to_string(), serde_json::json!(CANARIS[1])),
+            ("iban".to_string(), serde_json::json!(CANARIS[2])),
+            ("carte".to_string(), serde_json::json!(CANARIS[3])),
+        ]);
+        let redacte = redacter_etat(&etat, &r);
+        let texte = serde_json::to_string(&redacte).unwrap();
+        for c in CANARIS {
+            assert!(!texte.contains(c), "« {c} » a fuite :\n{texte}");
+        }
+        assert!(texte.contains("EMAIL_"), "{texte}");
+        assert!(texte.contains("TEL_FR_"), "{texte}");
+    }
+
+    #[test]
+    fn les_cles_aussi_sont_redactees() {
+        // Un nom de champ personnalise peut porter une identite —
+        // « Notes_jean.dupont@exemple.fr__c » existe dans la vraie vie — et une
+        // cle en clair fuit aussi surement qu'une valeur.
+        let r = redacteur();
+        let etat: EtatPlat =
+            BTreeMap::from([(format!("notes_{}", CANARIS[0]), serde_json::json!("rien"))]);
+        let texte = serde_json::to_string(&redacter_etat(&etat, &r)).unwrap();
+        assert!(!texte.contains(CANARIS[0]), "{texte}");
+    }
+
+    #[test]
+    fn une_valeur_imbriquee_n_est_pas_moins_en_clair_parce_qu_elle_est_profonde() {
+        let r = redacteur();
+        let etat: EtatPlat = BTreeMap::from([(
+            "contacts".to_string(),
+            serde_json::json!([{ "principal": { "mail": CANARIS[0] } }]),
+        )]);
+        let texte = serde_json::to_string(&redacter_etat(&etat, &r)).unwrap();
+        assert!(!texte.contains(CANARIS[0]), "{texte}");
+    }
+
+    #[test]
+    fn les_nombres_et_booleens_traversent_intacts() {
+        // Les toucher inventerait une transformation la ou il n'y a pas de
+        // texte — et un montant tokenise ne se compare plus a rien.
+        let r = redacteur();
+        let etat: EtatPlat = BTreeMap::from([
+            ("montant".to_string(), serde_json::json!(4200)),
+            ("actif".to_string(), serde_json::json!(true)),
+            ("cloture".to_string(), serde_json::json!(null)),
+        ]);
+        assert_eq!(redacter_etat(&etat, &r), etat);
+    }
+
+    #[test]
+    fn une_cause_de_trou_est_redactee_elle_aussi() {
+        // Un message d'erreur d'API cite volontiers l'enregistrement qu'il n'a
+        // pas trouve. « contact canary.pii@example.invalid introuvable » est une
+        // fuite qui a l'air d'un diagnostic.
+        let r = redacteur();
+        let issue = redacter_issue(
+            Issue::Trou(format!("contact {} introuvable", CANARIS[0])),
+            &r,
+        );
+        match issue {
+            Issue::Trou(c) => {
+                assert!(!c.contains(CANARIS[0]), "{c}");
+                assert!(c.contains("EMAIL_"), "{c}");
+            }
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn aucun_canari_ne_traverse_le_worker() {
+        // Le meme controle, mais de bout en bout : ce qui compte n'est pas que
+        // la fonction de redaction marche, c'est que RIEN n'atteigne le registre
+        // sans etre passe par elle.
+        let registre = Arc::new(Registre::nouveau());
+        let sale: EtatPlat = BTreeMap::from([
+            ("email".to_string(), serde_json::json!(CANARIS[0])),
+            ("tel".to_string(), serde_json::json!(CANARIS[1])),
+        ]);
+        let banc = Arc::new(Banc::nouveau(resolue(), Issue::Lu(sale)));
+        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
+        w.premiere_vue("c1", vec![]);
+        w.relire_tout();
+        let _ = fil.join();
+
+        let texte = serde_json::to_string(&registre.instantane()).unwrap();
+        for c in CANARIS {
+            assert!(
+                !texte.contains(c),
+                "« {c} » a atteint le registre :\n{texte}"
+            );
+        }
     }
 }
