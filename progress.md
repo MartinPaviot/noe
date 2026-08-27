@@ -512,3 +512,66 @@ entiers, irréversibilité). Puis 6b (extension MV3 + native messaging), 11
 Inchangés. La revue adverse a consommé environ 2,9 M de jetons de sous-agents.
 
 ---
+
+## 2026-08-27 (3) — Le pont DOM, de la page jusqu'au tuyau
+
+### Fait
+
+**Tâches 10, 11, 6b, 6c et 6d.** Spec 002 : **17/20**.
+
+- **10 — panique.** Trois fenêtres, épisodes entiers, jamais de découpe. Trois
+  formes d'épisode coexistent sur le disque et chacune se date autrement ; celui
+  en quarantaine n'a que son identifiant, d'où le décodage du ULID.
+- **11 — export/import.** AES-256-GCM, PBKDF2 à 600 000 itérations, clé HMAC
+  enveloppée. La migration de machine est prouvée de bout en bout : même entité,
+  même jeton, autre poste.
+- **6b, 6c, 6d — le pont DOM.** Extension MV3, hôte de native messaging, tuyau
+  nommé restreint au compte courant. Verdict complet dans
+  [`docs/verdict-pont-dom.md`](docs/verdict-pont-dom.md).
+
+### Ce que la mesure a montré et que la relecture n'aurait pas vu
+
+Six défauts, tous sur le pont DOM, tous trouvés en regardant ce qui sort du
+tuyau — pas en relisant le code.
+
+Deux méritent d'être retenus. **Chaque clic arrivait en double** : le `click` est
+`composed: true`, il réveillait l'écouteur du document ET celui de la racine
+shadow, et l'épisode aurait compté deux actions pour un geste. Et **le serveur de
+tuyau ne servait qu'une connexion à la fois** : Chrome redémarre l'hôte à chaque
+relance du service worker, le nouveau ne trouvait personne, et la capture
+navigateur s'arrêtait en silence pour le reste de l'épisode.
+
+Le sixième était dans le banc : `Number(argv[i + 1] || 5)` rendait `NaN`, la
+boucle ne tournait pas une fois, et « PILOTAGE TERMINE » s'affichait sans que
+rien n'ait été piloté. L'absence d'observations s'est lue une heure durant comme
+un défaut de capture qui n'existait pas. C'est le coût d'un no-op silencieux.
+
+### Ce qui n'est toujours pas prouvé
+
+- **Une page de démonstration n'est pas Salesforce.** Quatre racines shadow
+  contre 270, aucun re-rendu d'Aura pendant la mesure.
+- **Le pont n'a pas tourné pendant un épisode réel.** `DomSource` est branchée et
+  testée, mais l'aller-retour capture → journal → épisode assemblé reste à faire.
+- **L'empreinte du transport n'est pas mesurée** — c'est la tâche 13.
+- Rien sur Edge ni Firefox : l'hôte n'est déclaré que sous la clé Chrome.
+
+### Vert
+
+`pnpm verify` · `cargo test --all-targets` : **295 tests Rust + 2 d'intégration
++ 5 visuels**, 176 TypeScript. **12 commits poussés**, les deux workflows verts
+sur `dc15103`.
+
+### Prochaine tâche
+
+**12** (canaris sur capture réelle), **13** (empreinte mesurée, les deux sources
+sur leur propre classe de surface), puis le **gate**.
+
+### Coûts
+
+Inchangés côté modèle. Deux écritures hors dépôt, dans le profil de l'opérateur :
+le manifeste d'hôte sous le dossier de données de l'application, et une clé sous
+`HKCU`, branche `Software/Google/Chrome/NativeMessagingHosts`.
+`node scripts/installer-pont-dom.mjs --desinstaller` défait exactement ces
+deux-là.
+
+---
