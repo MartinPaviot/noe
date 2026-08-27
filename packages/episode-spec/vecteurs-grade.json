@@ -15,8 +15,8 @@
           "pseudo": null
         }
       ],
-      "grade": "A",
-      "reason": "sequence sans trou, toutes entites resolues, redaction validee"
+      "grade": "B",
+      "reason": "declasse en B : bornes non confirmees par API"
     },
     {
       "gaps": 0,

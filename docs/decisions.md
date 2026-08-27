@@ -1258,3 +1258,37 @@ Deux points de méthode, parce qu'ils se reproduiront :
 Après correction, le même protocole donne exactement 540 événements pour 45
 répétitions de 12 observations, et des `scope_fields` réduits aux vrais champs :
 « Description », « Statut de la piste », « Enregistrer ».
+
+## 2026-08-27 — D34 : l'INVARIANT 7 s'allume, et il fallait un test pour s'en apercevoir
+
+D5 avait ajouté la confirmation API au grade A, puis l'avait **neutralisée** par
+une constante, `CONFIRMATION_API_VERIFIABLE = false`, avec une raison solide :
+aucun connecteur n'existait, et exiger des `api_refs` que rien ne pouvait
+produire aurait interdit le grade A à tout le corpus. Un invariant qu'on ne peut
+pas satisfaire ne protège de rien — il se contourne.
+
+La spec 003 fournit le connecteur. L'exigence redevient atteignable, et R7.1 la
+réclame : un épisode n'est A que si toutes ses entités pointent vers de vrais
+enregistrements. Un A sans `api_refs`, c'est un épisode qui affirme avoir tout
+expliqué sans avoir rien vérifié.
+
+**Décision.** La constante passe à `true`, des deux côtés du miroir — capteur
+Rust et harness TypeScript. Elles doivent basculer ensemble : un capteur qui
+graderait A ce que le harness grade B produirait des épisodes que le juge refuse,
+sans que personne comprenne pourquoi.
+
+**Ce que le basculement a appris.** Il n'a rien fait rougir. Trois cent
+vingt-deux tests Rust, deux cent quarante-cinq TypeScript, et pas un ne
+distinguait un épisode avec `api_refs` d'un épisode sans. L'invariant était
+décoratif depuis sa création : on pouvait le mettre à `true` ou à `false` sans
+qu'aucun banc ne s'en aperçoive.
+
+Il est maintenant gardé par un test de **comportement** des deux côtés — le même
+épisode, `api_refs` vidées, tombe en B avec sa raison. Pas par une assertion sur
+la constante : clippy refuse une assertion dont il connaît déjà l'issue, et il a
+raison de la refuser. Un test qui ne peut pas échouer ne garde rien.
+
+C'est la troisième fois de la journée qu'un garde-fou s'avère décoratif —
+après le compteur de preuve qui annonçait 148 tests sur 247, et le script
+d'empreinte qui rendait « DANS LE BUDGET » en n'ayant rien mesuré. La leçon se
+répète : **un contrôle doit être vu échouer au moins une fois.**

@@ -181,17 +181,19 @@ type EntreeGrade = {
 };
 
 /**
- * INVARIANT 7 du prompt maître : le grade A exige « bornes confirmées API ».
+ * La confirmation API est-elle vérifiable ?
  *
- * **Garde en vigueur jusqu'à la spec 003.** La condition n'est pas vérifiable
- * tant qu'aucun connecteur ne lit d'état : l'appliquer aujourd'hui produirait des
- * C partout, l'omettre laisserait un invariant non tenu. Elle est donc déclarée
- * dans le code, et neutralisée par ce drapeau — qui dit exactement où on en est.
+ * **Allumée par la spec 003** (D5, D34). Elle valait `false` tant qu'aucun
+ * connecteur n'existait : exiger des `api_refs` que rien ne pouvait produire
+ * aurait interdit le grade A à tout le corpus, et un invariant qu'on ne peut pas
+ * satisfaire ne protège de rien — il se contourne.
  *
- * Passer à `true` avec la fédération (spec 003) déclenche le regrade du corpus.
- * Voir `docs/decisions.md`, D5.
+ * Maintenant qu'un connecteur résout les entités, l'exigence redevient
+ * atteignable, et R7.1 la réclame : un épisode n'est A que si toutes ses entités
+ * pointent vers de vrais enregistrements. Un A sans `api_refs`, c'est un épisode
+ * qui affirme avoir tout expliqué sans avoir rien vérifié.
  */
-export const CONFIRMATION_API_VERIFIABLE = false;
+export const CONFIRMATION_API_VERIFIABLE = true;
 
 /**
  * Attribue le grade selon R2.1, et surtout **dit pourquoi**.

@@ -556,9 +556,18 @@ pub fn grade_de(episode: &Episode) -> (String, String) {
     )
 }
 
-/// INVARIANT 7, neutralisé jusqu'à la spec 003 (D5) — miroir de la constante
-/// homonyme d'`episode-spec`. Les deux doivent basculer ensemble.
-const CONFIRMATION_API_VERIFIABLE: bool = false;
+/// INVARIANT 7 — **allumé par la spec 003** (D5, D34).
+///
+/// Miroir de la constante homonyme d'`episode-spec`, et les deux doivent
+/// basculer ensemble : un capteur qui graderait A ce que le harness grade B
+/// produirait des épisodes que le juge refuse, sans que personne comprenne
+/// pourquoi. Un test croisé compare les deux sur dix vecteurs.
+///
+/// Elle valait `false` tant qu'aucun connecteur n'existait : exiger des
+/// `api_refs` que rien ne pouvait produire aurait interdit le grade A à tout le
+/// corpus, et un invariant qu'on ne peut pas satisfaire ne protège de rien — il
+/// se contourne.
+const CONFIRMATION_API_VERIFIABLE: bool = true;
 
 /// Écrit l'épisode et le rend **immuable** (R1.4).
 ///
@@ -1228,5 +1237,72 @@ mod tests {
         .unwrap();
         let raison = std::fs::read_to_string(&chemin).unwrap();
         assert!(raison.contains("aucune action"), "{raison}");
+    }
+
+    // -- INVARIANT 7 : la confirmation API (spec 003, R7.1) ----------------
+
+    /// Un episode parfait : sans trou, entites resolues, api_refs presentes.
+    fn episode_parfait() -> Episode {
+        Episode {
+            schema_v: SCHEMA_V,
+            id: "01JQA1B2C3D4E5F6G7H8J9K0M1".into(),
+            task_slug: "maj-crm-post-echange".into(),
+            t0: "2026-01-14T09:12:00.000Z".into(),
+            t1: "2026-01-14T09:16:42.000Z".into(),
+            events: vec![Evenement::UiAction {
+                schema_v: SCHEMA_V,
+                seq: 1,
+                ts: "2026-01-14T09:12:01.000Z".into(),
+                source: "ui".into(),
+                action: "invoke".into(),
+                target: Cible {
+                    role: "button".into(),
+                    name: "Enregistrer".into(),
+                    region: None,
+                },
+                payload: None,
+            }],
+            entities: vec![Entite {
+                key: CleEntite {
+                    type_entite: "contact".into(),
+                    value_pseudo: "EMAIL_aaa".into(),
+                },
+                first_seen_seq: 1,
+                api_refs: vec![serde_json::json!({
+                    "connector": "crm", "object": "lead", "id": "L-1"
+                })],
+                state_before: Some(serde_json::json!({ "statut": "nouveau" })),
+                state_after: Some(serde_json::json!({ "statut": "qualifie" })),
+            }],
+            grade: String::new(),
+            grade_reason: String::new(),
+            scope_fields: vec!["statut".into()],
+            completeness: Completude {
+                explained: 1,
+                out_of_scope: 0,
+                gaps: 0,
+            },
+        }
+    }
+
+    /// Ce test EST la garde de `CONFIRMATION_API_VERIFIABLE`.
+    ///
+    /// Une assertion sur la constante elle-meme serait refusee par clippy — a
+    /// juste titre : il connait deja son issue. Celle-ci, non : elle verifie un
+    /// COMPORTEMENT, et elle rougit si quelqu'un remet la constante a `false`,
+    /// parce que l'episode sans `api_refs` redeviendrait un A.
+    #[test]
+    fn l_invariant_sept_mord_vraiment() {
+        // Basculer la constante sans test, c'est changer un chiffre et croire
+        // que quelque chose s'est passe : rien n'aurait rougi, et rien ne
+        // rougirait le jour ou quelqu'un la remettrait a `false`.
+        let parfait = episode_parfait();
+        assert_eq!(grade_de(&parfait).0, "A");
+
+        let mut sans_refs = episode_parfait();
+        sans_refs.entities[0].api_refs.clear();
+        let (grade, raison) = grade_de(&sans_refs);
+        assert_eq!(grade, "B", "un A sans api_refs affirme sans avoir verifie");
+        assert!(raison.contains("bornes non confirmees"), "{raison}");
     }
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { episodeAvecTrou, episodeValide } from './fixtures.js';
 import { EPISODE_FORMAT_VERSION } from './index.js';
-import { Episode, gradeOf, SCHEMA_V, ToolCall } from './schema.js';
+import { CONFIRMATION_API_VERIFIABLE, Episode, gradeOf, SCHEMA_V, ToolCall } from './schema.js';
 
 describe('format d episode — version', () => {
   it('expose la version du format', () => {
@@ -189,5 +189,47 @@ describe('ToolCall', () => {
       fields: {},
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe('INVARIANT 7 — la confirmation API (spec 003, R7.1)', () => {
+  /**
+   * L'invariant est allume par la spec 003. Ces tests le rendent MORDANT.
+   *
+   * Le basculer sans test, c'est changer une constante et croire que quelque
+   * chose s'est passe : rien n'aurait rougi, et rien ne rougirait le jour ou
+   * quelqu'un la remettrait a `false`.
+   */
+  const parfait = () => ({
+    events: [{ kind: 'ui_action' as const }],
+    entities: [
+      {
+        key: { type: 'contact', value_pseudo: 'EMAIL_aaa' },
+        api_refs: [{ connector: 'crm', object: 'lead', id: 'L-1' }],
+        state_before: { statut: 'nouveau' },
+        state_after: { statut: 'qualifie' },
+      },
+    ],
+  });
+
+  it('est allume — la spec 003 fournit le connecteur qui le rend atteignable', () => {
+    expect(CONFIRMATION_API_VERIFIABLE).toBe(true);
+  });
+
+  it('un episode complet AVEC api_refs est A', () => {
+    expect(gradeOf(parfait()).grade).toBe('A');
+  });
+
+  it('le meme episode avec des api_refs vides tombe en B, et le DIT', () => {
+    // Un A sans `api_refs`, c'est un episode qui affirme avoir tout explique sans
+    // avoir rien verifie. La raison doit nommer la cause, sinon « pourquoi ce
+    // n'est pas un A » reste sans reponse — et R2.3 exige qu'il y en ait une.
+    const sansRefs = {
+      ...parfait(),
+      entities: parfait().entities.map((e) => ({ ...e, api_refs: [] })),
+    };
+    const v = gradeOf(sansRefs);
+    expect(v.grade).toBe('B');
+    expect(v.reason).toContain('bornes non confirmees');
   });
 });
