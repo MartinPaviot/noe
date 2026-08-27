@@ -57,6 +57,29 @@ pub enum Evenement {
         #[serde(skip_serializing_if = "Option::is_none")]
         payload: Option<String>,
     },
+    /// R4.1 — un changement observé du côté du système.
+    ///
+    /// **Le schéma TypeScript le porte depuis la spec 001 ; ce miroir ne l'avait
+    /// jamais eu.** Résultat : le type Rust refusait purement et simplement les
+    /// épisodes du corpus doré, et personne ne s'en apercevait parce qu'aucun
+    /// test ne le lui demandait. C'est ici que les changements collectés par le
+    /// delta entrent dans l'épisode, et c'est sur eux que la réconciliation
+    /// travaille.
+    ApiChange {
+        schema_v: u32,
+        seq: u64,
+        ts: String,
+        source: String,
+        connector: String,
+        object: String,
+        object_id: String,
+        /// Les champs qui ont bougé, quand le système les nomme.
+        ///
+        /// Vide n'est pas faux : un delta dit qu'il s'est passé quelque chose,
+        /// pas quoi. Une liste inventée ferait croire à une précision qu'on n'a
+        /// pas.
+        fields_changed: Vec<String>,
+    },
     Gap {
         schema_v: u32,
         seq: u64,
@@ -80,7 +103,10 @@ impl Evenement {
     #[cfg(test)]
     pub fn seq(&self) -> u64 {
         match self {
-            Self::UiAction { seq, .. } | Self::Gap { seq, .. } | Self::Degraded { seq, .. } => *seq,
+            Self::UiAction { seq, .. }
+            | Self::ApiChange { seq, .. }
+            | Self::Gap { seq, .. }
+            | Self::Degraded { seq, .. } => *seq,
         }
     }
 }
@@ -90,6 +116,27 @@ pub struct CleEntite {
     #[serde(rename = "type")]
     pub type_entite: String,
     pub value_pseudo: String,
+}
+
+#[allow(dead_code)] // retiré quand la tâche 0 permet de collecter un vrai delta
+impl crate::federation::ChangementApi {
+    /// Le changement, tel qu'il entre dans l'épisode (R4.1).
+    ///
+    /// La source est `api` et jamais `ui` : c'est ce qui permet à la
+    /// réconciliation de distinguer ce que le monde a fait de ce que l'opérateur
+    /// a fait. Les confondre expliquerait le premier par le second.
+    pub fn en_evenement(&self, seq: u64, ts: &str) -> Evenement {
+        Evenement::ApiChange {
+            schema_v: SCHEMA_V,
+            seq,
+            ts: ts.to_owned(),
+            source: "api".into(),
+            connector: self.reference.connector.clone(),
+            object: self.reference.object.clone(),
+            object_id: self.reference.id.clone(),
+            fields_changed: self.champs.clone(),
+        }
+    }
 }
 
 /// R2.3 (spec 003) : la clé qui a tranché la résolution, et quand.
@@ -810,6 +857,7 @@ mod tests {
         for e in &ep.events {
             let ts = match e {
                 Evenement::UiAction { ts, .. }
+                | Evenement::ApiChange { ts, .. }
                 | Evenement::Gap { ts, .. }
                 | Evenement::Degraded { ts, .. } => ts,
             };
@@ -1407,6 +1455,178 @@ pub fn fusionner_federation(
     let (grade, raison) = grade_de(episode);
     episode.grade = grade;
     episode.grade_reason = raison;
+}
+
+#[cfg(test)]
+mod tests_corpus_dore {
+    use super::*;
+
+    /// Les épisodes dorés, tels que le harness les valide avec Zod.
+    ///
+    /// **Rien ne les lisait côté Rust.** Le type `Episode` a été écrit à la main
+    /// d'après le schéma TypeScript, et deux champs lui ont été ajoutés le
+    /// 2026-08-27 — sans qu'aucun contrôle ne dise si les deux descriptions
+    /// parlent toujours du même objet. Un capteur qui écrirait un épisode que le
+    /// harness refuse ne le découvrirait qu'au rejeu, c'est-à-dire après.
+    const DORES: &[(&str, &str)] = &[
+        (
+            "001_nominal",
+            include_str!("../../../../packages/harness/golden/001_nominal.json"),
+        ),
+        (
+            "002_branche_alt",
+            include_str!("../../../../packages/harness/golden/002_branche_alt.json"),
+        ),
+        (
+            "003_trou",
+            include_str!("../../../../packages/harness/golden/003_trou.json"),
+        ),
+        (
+            "004_hors_perimetre",
+            include_str!("../../../../packages/harness/golden/004_hors_perimetre.json"),
+        ),
+        (
+            "005_canaris",
+            include_str!("../../../../packages/harness/golden/005_canaris.json"),
+        ),
+    ];
+
+    #[test]
+    fn le_type_rust_lit_tous_les_episodes_dores() {
+        for (nom, brut) in DORES {
+            serde_json::from_str::<Episode>(brut)
+                .unwrap_or_else(|e| panic!("{nom} refuse par le type Rust : {e}"));
+        }
+    }
+
+    #[test]
+    fn un_episode_dore_traverse_le_rust_sans_rien_perdre() {
+        // Serde ignore en silence les champs qu'il ne connait pas. Un aller-retour
+        // les fait donc DISPARAITRE, et c'est la seule facon de voir qu'ils
+        // existaient : comparer les deux JSON champ par champ.
+        for (nom, brut) in DORES {
+            let avant: serde_json::Value = serde_json::from_str(brut).expect("json");
+            let relu: Episode = serde_json::from_str(brut).expect("episode");
+            let apres = serde_json::to_value(&relu).expect("re-serialisation");
+            let perdus = champs_perdus(&avant, &apres, String::new());
+            assert!(
+                perdus.is_empty(),
+                "{nom} : le type Rust perd des champs du schema :\n{perdus:#?}"
+            );
+        }
+    }
+
+    #[test]
+    fn un_changement_collecte_devient_un_evenement_du_schema() {
+        // R4.1 : c'est ici que le delta entre dans l'episode. L'evenement doit
+        // porter exactement les cles que le schema TypeScript exige — un champ
+        // en moins et le harness refuse l'episode entier, au rejeu, c'est-a-dire
+        // apres.
+        let c = crate::federation::ChangementApi {
+            reference: crate::federation::RefApi {
+                connector: "salesforce".into(),
+                object: "Lead".into(),
+                id: "0035g00000LmT4EAAV".into(),
+            },
+            quand: "2026-08-27T10:12:00.000Z".into(),
+            champs: vec!["Status".into()],
+            acteur: Some("005AAA".into()),
+        };
+        let v = serde_json::to_value(c.en_evenement(7, "2026-08-27T10:12:00.000Z")).unwrap();
+        let cles: std::collections::BTreeSet<&str> =
+            v.as_object().unwrap().keys().map(String::as_str).collect();
+        let attendues: std::collections::BTreeSet<&str> = [
+            "kind",
+            "schema_v",
+            "seq",
+            "ts",
+            "source",
+            "connector",
+            "object",
+            "object_id",
+            "fields_changed",
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(cles, attendues, "l evenement ne correspond pas au schema");
+        assert_eq!(v["kind"], serde_json::json!("api_change"));
+        // La source est `api` et jamais `ui` : c'est ce qui permet a la
+        // reconciliation de distinguer ce que le monde a fait de ce que
+        // l'operateur a fait.
+        assert_eq!(v["source"], serde_json::json!("api"));
+        // L'acteur ne descend PAS dans l'evenement : le schema ne le porte pas,
+        // et un identifiant d'utilisateur du CRM n'a rien a faire dans un
+        // episode. Il sert au tri hors perimetre, en memoire.
+        assert!(!v.as_object().unwrap().contains_key("actor"));
+        let entier = serde_json::to_string(&v).unwrap();
+        assert!(!entier.contains("005AAA"), "l acteur a fuite : {entier}");
+    }
+
+    #[test]
+    fn la_version_de_schema_est_celle_du_corpus() {
+        // `SCHEMA_V` est recopie a la main des deux cotes. Ici il est confronte a
+        // ce que le corpus porte VRAIMENT, et pas a une seconde copie.
+        for (nom, brut) in DORES {
+            let v: serde_json::Value = serde_json::from_str(brut).expect("json");
+            assert_eq!(
+                v.get("schema_v").and_then(serde_json::Value::as_u64),
+                Some(u64::from(SCHEMA_V)),
+                "{nom} porte une autre version de schema"
+            );
+        }
+    }
+
+    #[test]
+    fn les_grades_du_corpus_sont_ceux_que_ce_juge_recalcule() {
+        // Le corpus dore porte un grade ECRIT. Si ce juge-ci en recalcule un
+        // autre, les deux implementations ne notent pas pareil — et le rejeu d'un
+        // episode reel donnerait un verdict que le harness ne confirmerait pas.
+        for (nom, brut) in DORES {
+            let ep: Episode = serde_json::from_str(brut).expect("episode");
+            let (grade, raison) = grade_de(&ep);
+            assert_eq!(
+                grade, ep.grade,
+                "{nom} : {raison} (ecrit : {})",
+                ep.grade_reason
+            );
+        }
+    }
+
+    /// Les chemins presents dans `avant` et absents ou differents dans `apres`.
+    fn champs_perdus(
+        avant: &serde_json::Value,
+        apres: &serde_json::Value,
+        chemin: String,
+    ) -> Vec<String> {
+        let mut perdus = Vec::new();
+        match (avant, apres) {
+            (serde_json::Value::Object(a), serde_json::Value::Object(b)) => {
+                for (cle, va) in a {
+                    let sous = if chemin.is_empty() {
+                        cle.clone()
+                    } else {
+                        format!("{chemin}.{cle}")
+                    };
+                    match b.get(cle) {
+                        None => perdus.push(sous),
+                        Some(vb) => perdus.extend(champs_perdus(va, vb, sous)),
+                    }
+                }
+            }
+            (serde_json::Value::Array(a), serde_json::Value::Array(b)) => {
+                if a.len() != b.len() {
+                    perdus.push(format!("{chemin} (longueur {} -> {})", a.len(), b.len()));
+                } else {
+                    for (i, (va, vb)) in a.iter().zip(b).enumerate() {
+                        perdus.extend(champs_perdus(va, vb, format!("{chemin}[{i}]")));
+                    }
+                }
+            }
+            (a, b) if a != b => perdus.push(format!("{chemin} ({a} -> {b})")),
+            _ => {}
+        }
+        perdus
+    }
 }
 
 #[cfg(test)]

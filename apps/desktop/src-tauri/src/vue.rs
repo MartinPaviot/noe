@@ -122,6 +122,31 @@ pub fn friser(episode: &Episode) -> Vec<PointFrise> {
                 cible: target.name.clone(),
                 region: target.region.clone(),
             },
+            // R4.1 : un changement du systeme se voit AUSSI sur la frise, et
+            // dans une couleur qui n'est pas celle d'une action. Les confondre
+            // ferait lire le travail du monde comme celui de l'operateur — ce
+            // que la reconciliation passe justement son temps a distinguer.
+            Evenement::ApiChange {
+                seq,
+                ts,
+                object,
+                object_id,
+                fields_changed,
+                ..
+            } => PointFrise {
+                seq: *seq,
+                ts: ts.clone(),
+                genre: "api".into(),
+                quoi: if fields_changed.is_empty() {
+                    "changement".into()
+                } else {
+                    fields_changed.join(", ")
+                },
+                // `object_id` est un identifiant systeme, pas une identite : il
+                // ne designe personne sans l'org qui va avec.
+                cible: format!("{object} {object_id}"),
+                region: None,
+            },
             Evenement::Gap { seq, ts, gap, .. } => PointFrise {
                 seq: *seq,
                 ts: ts.clone(),
