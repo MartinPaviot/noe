@@ -1,0 +1,98 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Banc du pont DOM — Noe</title>
+<style>
+  body {
+    font: 15px/1.5 system-ui, sans-serif;
+    margin: 2rem;
+    max-width: 40rem;
+  }
+  h1 {
+    font-size: 1.2rem;
+  }
+  p.note {
+    color: #555;
+  }
+</style>
+
+<h1>Banc du pont DOM</h1>
+<p class="note">
+  Une fiche imitée de Lightning : les contrôles vivent dans des <b>racines shadow
+  ouvertes imbriquées</b>, comme les 270 de l'org mesurée par le spike. Un capteur
+  branché sur le seul <code>document</code> ne verra jamais un
+  <code>change</code> venu d'ici — il est <code>composed: false</code>.
+</p>
+
+<div id="racine"></div>
+
+<script type="module">
+  /**
+   * Construit la fiche. Deux niveaux de shadow, comme Lightning : un conteneur
+   * de vue, puis un champ par composant.
+   *
+   * `data-aura-rendered-by` est là exprès : le spike l'a désigné comme le poison
+   * d'ancrage (81,8 % de stabilité à lui seul, contre 100 % sans lui). Il ne doit
+   * PAS entrer dans l'ancrage, et la liste blanche sémantique le laisse dehors.
+   */
+  function poser(hote, html) {
+    const racine = hote.attachShadow({ mode: 'open' });
+    racine.innerHTML = html;
+    return racine;
+  }
+
+  const vue = document.createElement('noe-vue');
+  document.getElementById('racine').append(vue);
+
+  const dedans = poser(
+    vue,
+    `
+    <section role="region" aria-label="Details de la piste">
+      <noe-champ id="description"></noe-champ>
+      <noe-champ id="statut"></noe-champ>
+      <button type="button" data-label="Modifier" data-aura-rendered-by="931:0;a">
+        Modifier
+      </button>
+      <form id="fiche">
+        <button type="submit" data-label="Enregistrer" data-aura-rendered-by="944:1;b">
+          Enregistrer
+        </button>
+      </form>
+    </section>`,
+  );
+
+  poser(
+    dedans.getElementById('description'),
+    `
+    <label for="d">Description</label>
+    <textarea id="d" aria-label="Description" data-field="Description"></textarea>`,
+  );
+
+  poser(
+    dedans.getElementById('statut'),
+    `
+    <label for="s">Statut de la piste</label>
+    <select id="s" aria-label="Statut de la piste" data-field="Statut">
+      <option value="">—</option>
+      <option value="qualifie">Qualifie</option>
+      <option value="perdu">Perdu</option>
+    </select>`,
+  );
+
+  // Un contrôle hors shadow, pour vérifier que le document reste branché lui aussi.
+  const dehors = document.createElement('button');
+  dehors.type = 'button';
+  dehors.setAttribute('aria-label', 'Ajouter une note');
+  dehors.textContent = 'Ajouter une note';
+  document.body.append(dehors);
+
+  // Une mutation tardive : la racine créée après le chargement doit être
+  // branchée par rebalayage, sinon ses contrôles n'existent pas pour le capteur.
+  setTimeout(() => {
+    const tardif = document.createElement('noe-tardif');
+    document.body.append(tardif);
+    poser(
+      tardif,
+      `<button type="button" aria-label="Contrôle tardif">Controle tardif</button>`,
+    );
+  }, 400);
+</script>

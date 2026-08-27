@@ -24,3 +24,6 @@ test-results/
 playwright-report/
 blob-report/
 .playwright/
+
+# Profils Chrome jetables du banc du pont DOM.
+apps/extension-banc/profil-*/

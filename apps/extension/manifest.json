@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Noe — capteur de surfaces navigateur",
+  "version": "0.1.0",
+  "description": "Observe les gestes de travail sur les surfaces navigateur et les transmet a l'application Noe, en local. Rien ne part sur le reseau.",
+  "permissions": ["nativeMessaging"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["amorce.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["contenu.js", "ancrage.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

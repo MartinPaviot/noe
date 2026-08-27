@@ -1,0 +1,15 @@
+{
+  "name": "@noe/extension-banc",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Banc du pont DOM. Separe de l'extension : Chrome refuse de charger un paquet non empaquete qui contient node_modules.",
+  "type": "module",
+  "scripts": {
+    "banc": "node piloter.mjs --charger",
+    "page": "node serveur.mjs",
+    "build": "node -e \"JSON.parse(require('fs').readFileSync('../extension/manifest.json','utf8'));console.log('manifeste valide')\""
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0"
+  }
+}

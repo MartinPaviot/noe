@@ -36,6 +36,12 @@ importers:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.20.1)
 
+  apps/extension-banc:
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.50.0
+        version: 1.62.1
+
   packages/connectors: {}
 
   packages/core: {}

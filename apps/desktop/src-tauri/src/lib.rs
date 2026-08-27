@@ -16,6 +16,7 @@ mod journal;
 mod moteur;
 mod motifs;
 mod panique;
+pub mod pont;
 mod presse_papiers;
 mod redaction;
 mod snapshot;
@@ -85,7 +86,13 @@ struct Etat {
     /// Relacher le tuple coupe la capture : c'est `Abonnement` qui porte cette
     /// garantie, et R1.2 en depend — hors episode, aucune source ne doit
     /// continuer a pousser.
-    capture: Mutex<Option<(Abonnement, std::sync::mpsc::Receiver<RawEvent>)>>,
+    ///
+    /// **Deux abonnements, un seul canal** depuis la tâche 6b : la source native
+    /// et la source navigateur poussent dans le même puits. Le moteur ne sait
+    /// pas laquelle a parlé — c'est le champ `source` de l'événement qui le dit,
+    /// pour le diagnostic, et R2.1 interdit toute bascule dynamique entre les
+    /// deux sur une même surface.
+    capture: Mutex<Option<(Vec<Abonnement>, std::sync::mpsc::Receiver<RawEvent>)>>,
     /// D27 : le hook clavier ne vit que pendant l'épisode. Le relâcher le
     /// retire — R1.2 porté par la durée de vie, pas par la vigilance.
     clavier: Mutex<Option<HookClavier>>,
@@ -225,16 +232,31 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
             HookClavier::armer();
             *e.clavier.lock().expect("clavier empoisonne") = Some(HookClavier::poser());
 
-            // R2.1 : l'abonnement natif ne vit QUE pendant l'episode.
+            // R2.1 : les abonnements ne vivent QUE pendant l'episode, et les
+            // deux sources partagent le meme canal.
             let (tx, rx) = std::sync::mpsc::channel();
-            match native.abonner(tx) {
-                Ok(a) => *e.capture.lock().expect("capture empoisonnee") = Some((a, rx)),
+            let mut abonnements = Vec::new();
+            match native.abonner(tx.clone()) {
+                Ok(a) => abonnements.push(a),
                 Err(err) => notifier(
                     app,
                     "Capture native indisponible",
                     &format!("Les surfaces natives ne seront pas observees : {err}"),
                 ),
             }
+            // Tache 6b : la source navigateur sert le tuyau du pont. Son absence
+            // n'empeche pas la capture native — le repli est total par classe de
+            // surface, jamais partiel par echec.
+            let mut navigateur = pont::DomSource::new(e.horloge.clone());
+            match navigateur.abonner(tx) {
+                Ok(a) => abonnements.push(a),
+                Err(err) => notifier(
+                    app,
+                    "Capture navigateur indisponible",
+                    &format!("Les surfaces navigateur ne seront pas observees : {err}"),
+                ),
+            }
+            *e.capture.lock().expect("capture empoisonnee") = Some((abonnements, rx));
 
             notifier(
                 app,
@@ -397,8 +419,11 @@ fn clore_episode<R: Runtime>(app: &AppHandle<R>, cause: CauseCloture) {
     let restants = {
         let mut c = e.capture.lock().expect("capture empoisonnee");
         match c.take() {
-            Some((abonnement, rx)) => {
-                drop(abonnement);
+            Some((abonnements, rx)) => {
+                // Les DEUX sources se coupent, et avant le drain : un evenement
+                // qui arriverait entre les deux serait ecrit dans un episode
+                // deja termine.
+                drop(abonnements);
                 rx.try_iter().collect::<Vec<_>>()
             }
             None => Vec::new(),
