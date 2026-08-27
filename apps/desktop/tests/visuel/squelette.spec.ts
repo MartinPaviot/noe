@@ -12,9 +12,25 @@
  */
 import { expect, test } from '@playwright/test';
 
-/** Attend que la vue ait fini de garnir ses frises. */
+/**
+ * Attend que la vue ait fini de garnir ses frises.
+ *
+ * Le délai est **explicite** et non celui par défaut. Les cinq secondes de
+ * Playwright sont calibrées pour une interaction d'interface ; ici on attend un
+ * chargement de page suivi d'une frise par épisode, et sur une machine
+ * d'intégration qui démarre à froid — navigateur, serveur de prévisualisation,
+ * premier accès au disque — ça dépasse. Le 2026-08-27, ce test a échoué en CI
+ * sur ce seul délai, en étant vert cinq fois de suite en local.
+ *
+ * Ce n'est pas une tolérance accordée à un défaut : si la vue ne se déclare
+ * jamais prête, l'assertion échoue toujours, et c'est bien ce qu'elle garde. On
+ * cesse seulement de mesurer la vitesse d'un runner avec un contrôle qui parle
+ * de rendu.
+ */
 async function pret(page: import('@playwright/test').Page): Promise<void> {
-  await expect(page.locator('#app')).toHaveAttribute('data-pret', 'oui');
+  await expect(page.locator('#app')).toHaveAttribute('data-pret', 'oui', {
+    timeout: 30_000,
+  });
 }
 
 test('etat nominal — avec des episodes', async ({ page }) => {
