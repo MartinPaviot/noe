@@ -51,12 +51,20 @@ keywords = ["1//0"]
 # c est le temoin qui n en est pas un. Le premier essai du 2026-08-27 s y est
 # laisse prendre, et a failli faire ecrire une fausse explication ici meme.
 
+# ---------------------------------------------------------------------------
+# L'exemption porte sur des VALEURS, pas sur des fichiers.
+#
+# Elle exemptait `.env.example` et `docs/setup-checklist.md` en bloc, par chemin.
+# Un vrai jeton colle dans l'un de ces deux fichiers y serait donc passe sans un
+# mot — et ce sont precisement les deux fichiers ou l'on ecrit des choses qui
+# ressemblent a des secrets, c'est-a-dire les deux ou l'on risque le plus d'en
+# coller un par accident.
+#
+# Seules les formes factices sont admises, et elles le sont PARTOUT : c'est la
+# meme regle pour tout le depot, ce qui la rend verifiable d'un coup d'oeil.
+# ---------------------------------------------------------------------------
 [allowlist]
-description = "Valeurs factices documentaires"
-paths = [
-  '''\.env\.example$''',
-  '''docs/setup-checklist\.md$''',
-]
+description = "Valeurs factices documentaires, admises partout et nulle part en bloc"
 regexTarget = "match"
 regexes = [
   '''REMPLACER_[A-Z_]+''',

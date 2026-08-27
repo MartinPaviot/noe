@@ -456,9 +456,16 @@ pub fn importer(
 
     // 2. Le corpus.
     for (relatif, contenu) in &corpus.fichiers {
-        // Un chemin qui remonte sortirait du dossier de destination. Une archive
-        // vient peut-être d'ailleurs ; on ne lui laisse pas écrire où elle veut.
-        if relatif.contains("..") || relatif.starts_with('/') {
+        // Une archive vient peut-être d'ailleurs ; on ne lui laisse pas écrire
+        // où elle veut. Le contrôle **nomme ce qu'il accepte** — des composants
+        // ordinaires, et rien d'autre.
+        //
+        // La première écriture listait ce qu'elle refusait : `..` et un chemin
+        // commençant par `/`. Sur Windows, qui est la seule plateforme visée,
+        // ça laissait passer **quatre** évasions : `C:illeurs`, `\serveur        // partage`, `illeurs` et `C:relatif`. Aucune ne contient `..` ni ne
+        // commence par `/`, et `Path::join` avec un chemin absolu **remplace**
+        // la base au lieu de s'y ajouter.
+        if !chemin_confine(relatif) {
             return Err(ErreurArchive::Corrompue(format!(
                 "chemin refuse dans l archive : {relatif}"
             )));
@@ -470,6 +477,32 @@ pub fn importer(
         std::fs::write(&cible, contenu).map_err(|e| ErreurArchive::Disque(e.to_string()))?;
     }
     Ok(verdict)
+}
+
+/// Un chemin d'archive reste-t-il sous la racine ?
+///
+/// **Une liste blanche de composants**, et pas une liste noire de formes. Un
+/// composant `Normal` est un simple nom de fichier ou de dossier ; tout le reste
+/// — remontée, racine, préfixe de lecteur, point courant — sort du dossier ou
+/// laisse `join` faire quelque chose d'inattendu.
+///
+/// C'est la même doctrine qu'ailleurs dans ce dépôt : on ne peut pas énumérer
+/// toutes les façons de sortir d'un dossier, on peut énumérer les façons d'y
+/// rester.
+fn chemin_confine(relatif: &str) -> bool {
+    use std::path::Component;
+    if relatif.is_empty() {
+        return false;
+    }
+    // `Path` interprète `/` et `\` sur Windows ; sur un autre système, `\` est
+    // un caractère de nom ordinaire. On refuse donc l'antislash explicitement,
+    // pour que le verdict ne dépende pas de la plateforme qui l'évalue.
+    if relatif.contains('\\') {
+        return false;
+    }
+    std::path::Path::new(relatif)
+        .components()
+        .all(|c| matches!(c, Component::Normal(_)))
 }
 
 #[cfg(test)]
@@ -824,5 +857,62 @@ mod tests {
         exporter_banc(&r, &cle, MOT_DE_PASSE, &a);
         exporter_banc(&r, &cle, MOT_DE_PASSE, &b);
         assert_ne!(std::fs::read(&a).unwrap(), std::fs::read(&b).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod tests_confinement {
+    use super::chemin_confine;
+
+    #[test]
+    fn un_chemin_d_episode_ordinaire_est_accepte() {
+        assert!(chemin_confine("01JQA1B2C3D4E5F6G7H8J9K0M1/episode.json"));
+        assert!(chemin_confine("episode.json"));
+        assert!(chemin_confine("a/b/c/d.json"));
+    }
+
+    #[test]
+    fn une_remontee_est_refusee() {
+        assert!(!chemin_confine("../ailleurs.json"));
+        assert!(!chemin_confine("a/../../ailleurs.json"));
+        // Celui-ci ne « remonte » qu'apres normalisation : `a/../b` reste sous la
+        // racine, mais l'accepter demanderait de normaliser, et normaliser un
+        // chemin qu'on n'a pas ecrit soi-meme est le debut des ennuis.
+        assert!(!chemin_confine("a/../b.json"));
+    }
+
+    #[test]
+    fn les_quatre_evasions_windows_sont_refusees() {
+        // Aucune ne contient `..`, aucune ne commence par `/`. Le garde d'origine
+        // les laissait toutes passer, et `Path::join` avec un chemin absolu
+        // REMPLACE la base au lieu de s'y ajouter : l'archive ecrivait ou elle
+        // voulait, sur la seule plateforme que ce programme vise.
+        assert!(!chemin_confine("C:/ailleurs/x.json"), "lecteur absolu");
+        assert!(!chemin_confine("C:ailleurs/x.json"), "relatif au lecteur");
+        assert!(!chemin_confine("/ailleurs/x.json"), "racine");
+        assert!(!chemin_confine("//serveur/partage/x.json"), "UNC");
+    }
+
+    #[test]
+    fn l_antislash_est_refuse_quelle_que_soit_la_plateforme() {
+        // Windows le lit comme un separateur, un autre systeme comme un
+        // caractere de nom. Un verdict qui changerait selon la machine qui
+        // l'evalue ne serait pas un verdict.
+        let contre_oblique = char::from(92);
+        assert!(!chemin_confine(&format!(
+            "C:{contre_oblique}ailleurs{contre_oblique}x.json"
+        )));
+        assert!(!chemin_confine(&format!(
+            "{contre_oblique}{contre_oblique}serveur{contre_oblique}partage"
+        )));
+        assert!(!chemin_confine(&format!("a{contre_oblique}b.json")));
+    }
+
+    #[test]
+    fn un_chemin_vide_ou_degenere_est_refuse() {
+        assert!(!chemin_confine(""));
+        assert!(!chemin_confine("."));
+        assert!(!chemin_confine("./x.json"));
+        assert!(!chemin_confine("/"));
     }
 }

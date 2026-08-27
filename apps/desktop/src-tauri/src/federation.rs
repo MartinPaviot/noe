@@ -975,13 +975,54 @@ mod tests {
 
     #[test]
     fn le_worker_ne_sait_pas_ecrire() {
-        // Le trait n'expose ni `write`, ni `update`, ni `create` : la promotion
-        // appartient a une spec ulterieure, et le compilateur l'interdit ici.
-        // Ce test est une note executable — il echouerait a la compilation si
-        // quelqu'un ajoutait un verbe d'ecriture et l'appelait.
-        fn accepte_une_federation<F: Federation>(_f: &F) {}
-        let banc = Banc::nouveau(resolue(), etat("x"));
-        accepte_une_federation(&banc);
+        // La promotion appartient a une spec ulterieure : le trait n'expose que
+        // `resoudre` et `lire`, et une methode ajoutee « pour plus tard » finit
+        // implementee puis appelee.
+        //
+        // La premiere version de ce test n'assertait RIEN. Elle passait une
+        // implementation a une fonction generique, et son commentaire affirmait
+        // qu'elle echouerait a la compilation si un verbe d'ecriture
+        // apparaissait. C'etait faux deux fois : ce qui casserait, c'est l'`impl`
+        // du banc, pas cet appel — et surtout, un trait peut gagner une methode
+        // a valeur par defaut sans casser quoi que ce soit.
+        //
+        // On lit donc la declaration elle-meme.
+        let source = include_str!("federation.rs");
+        let debut = source
+            .find("pub trait Federation: Send + Sync {")
+            .expect("la declaration du trait a change de forme");
+        let corps = &source[debut..];
+        let fin = corps
+            .find(
+                "
+}",
+            )
+            .expect("fin du trait");
+        let methodes: Vec<&str> = corps[..fin]
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("fn "))
+            .filter_map(|l| l.split('(').next())
+            .collect();
+
+        assert_eq!(
+            methodes,
+            vec!["resoudre", "lire"],
+            "le trait a change de surface"
+        );
+        for verbe in [
+            "write",
+            "ecrire",
+            "update",
+            "creer",
+            "create",
+            "supprimer",
+            "delete",
+        ] {
+            assert!(
+                !corps[..fin].contains(verbe),
+                "le trait expose un verbe d ecriture : {verbe}"
+            );
+        }
     }
 
     // -- R6 : la confidentialite de la federation --------------------------
