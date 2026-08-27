@@ -297,10 +297,10 @@ describe('les champs retires du verdict (spec 003, §7)', () => {
     const ep = episodeAvecInconnu();
     const v = juger(ep, [
       {
-        schema_v: 1,
         connector: 'crm',
         object: 'lead',
         object_id: 'L-1',
+        action: 'update_fields',
         fields: { statut: 'qualifie' },
       },
     ]);
@@ -318,10 +318,10 @@ describe('les champs retires du verdict (spec 003, §7)', () => {
     };
     const v = juger(sansMeta, [
       {
-        schema_v: 1,
         connector: 'crm',
         object: 'lead',
         object_id: 'L-1',
+        action: 'update_fields',
         fields: { statut: 'qualifie' },
       },
     ]);
