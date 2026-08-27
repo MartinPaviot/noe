@@ -93,6 +93,13 @@ export function rapportTexte(rapport: RapportRejeu): string {
     l.push(`${marque} ${ep.episode_id}  ${ep.task_slug}  grade ${ep.grade}${exclu}`);
     if (!ep.jugeable) l.push('    ~ aucun etat API a juger (entites non resolues)');
 
+    // Spec 003, §7 : un champ retire du perimetre se DIT. Sans cette ligne, le
+    // rapport annoncerait « accord » sans dire sur quoi il a renonce a se
+    // prononcer — un verdict d'autant plus flatteur qu'il regarde moins.
+    for (const x of ep.exclusions) {
+      l.push(`    - ${x.champ.padEnd(20)} hors verdict : ${x.raison}`);
+    }
+
     for (const c of ep.champs) {
       if (c.classe === 'accord') continue;
       const s = SYMBOLE[c.classe] ?? '?';

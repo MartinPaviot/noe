@@ -79,6 +79,14 @@ export type VerdictEpisode = {
   readonly jugeable: boolean;
   readonly verdict: 'accord' | 'desaccord' | 'non_jugeable';
   readonly champs: readonly ChampJuge[];
+  /**
+   * Les champs retirés du périmètre de CE verdict, avec leur raison (spec 003,
+   * §7).
+   *
+   * Un retrait sans trace serait un verdict truqué : le rapport dirait « accord »
+   * sans dire sur quoi il a renoncé à se prononcer. Ici, on les nomme.
+   */
+  readonly exclusions: readonly { readonly champ: string; readonly raison: string }[];
   readonly totaux: Readonly<Record<Classe, number>>;
 };
 
@@ -105,6 +113,15 @@ export function diffObserve(ep: Episode): Map<string, Map<string, Valeur>> {
     const champs = [...new Set([...Object.keys(avant), ...Object.keys(apres)])].sort();
     const modifies = new Map<string, Valeur>();
     for (const champ of champs) {
+      // Spec 003, §7 : un champ dont on ignore la valeur d'AVANT sort du
+      // périmètre de CE verdict.
+      //
+      // Le garder produirait un faux désaccord : `undefined → "qualifie"` se lit
+      // comme un changement, alors qu'on ne sait simplement pas ce qu'il y avait.
+      // Le juge accuserait la politique de ne pas avoir proposé une écriture
+      // qu'elle n'avait aucune raison de proposer. Salesforce ne suit que vingt
+      // champs par objet : ce cas sera fréquent, et ce n'est pas un bug.
+      if (entite.state_meta?.[champ]?.unknown_before === true) continue;
       if (!equivalent(avant[champ], apres[champ])) {
         modifies.set(champ, normalize(apres[champ]));
       }
@@ -139,6 +156,27 @@ function proposeParCible(calls: readonly ToolCall[]): Map<string, Map<string, Va
  * Un champ hors `scope_fields` est compté à part et **ne pèse jamais** sur le
  * verdict : la tâche n'a pas à répondre de ce qu'elle n'est pas censée toucher.
  */
+/**
+ * Les champs que le juge a écartés, et pourquoi.
+ *
+ * Rassemblés une fois, pour le rapport. Un champ `unknown_before` sans raison ne
+ * devrait pas exister — le schéma rend `reason` optionnel pour rester
+ * rétro-compatible, mais l'absence se dit plutôt que de se taire.
+ */
+export function exclusionsDe(ep: Episode): { champ: string; raison: string }[] {
+  const vues: { champ: string; raison: string }[] = [];
+  for (const entite of ep.entities) {
+    for (const [champ, meta] of Object.entries(entite.state_meta ?? {})) {
+      if (meta.unknown_before !== true) continue;
+      vues.push({
+        champ,
+        raison: meta.reason ?? 'unknown_before sans raison declaree',
+      });
+    }
+  }
+  return vues.sort((a, b) => a.champ.localeCompare(b.champ));
+}
+
 export function juger(ep: Episode, calls: readonly ToolCall[]): VerdictEpisode {
   const observes = diffObserve(ep);
   const proposes = proposeParCible(calls);
@@ -192,5 +230,6 @@ export function juger(ep: Episode, calls: readonly ToolCall[]): VerdictEpisode {
     verdict: !jugeable ? 'non_jugeable' : echecs === 0 ? 'accord' : 'desaccord',
     champs,
     totaux,
+    exclusions: exclusionsDe(ep),
   };
 }

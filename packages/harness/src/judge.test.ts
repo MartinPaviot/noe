@@ -258,3 +258,119 @@ describe('entite non resolue', () => {
     expect(juger(ep, []).champs).toHaveLength(0);
   });
 });
+
+describe('les champs retires du verdict (spec 003, §7)', () => {
+  /**
+   * Un champ dont on ignore la valeur d'AVANT ne peut pas etre juge.
+   *
+   * Le garder produirait un faux desaccord : `undefined → "qualifie"` se lit
+   * comme un changement, alors qu'on ne sait simplement pas ce qu'il y avait.
+   * Le juge accuserait la politique de ne pas avoir propose une ecriture qu'elle
+   * n'avait aucune raison de proposer.
+   */
+  const episodeAvecInconnu = (): Episode =>
+    episode({
+      grade: 'A',
+      // `description` DOIT etre dans le perimetre, sinon le champ serait deja
+      // exclu pour une autre raison et le test ne prouverait rien. C'est le
+      // piege : une regle qu'on croit verifier alors qu'une autre s'applique
+      // avant.
+      scope_fields: ['statut', 'description'],
+      entities: [
+        {
+          key: { type: 'contact', value_pseudo: 'EMAIL_aaa' },
+          first_seen_seq: 1,
+          api_refs: [{ connector: 'crm', object: 'lead', id: 'L-1' }],
+          state_before: { statut: 'nouveau' },
+          state_after: { statut: 'qualifie', description: 'ecrite ailleurs' },
+          state_meta: {
+            description: {
+              unknown_before: true,
+              reason: 'champ non historise par le systeme',
+            },
+          },
+        },
+      ],
+    });
+
+  it('un champ unknown_before ne compte NI en accord NI en desaccord', () => {
+    const ep = episodeAvecInconnu();
+    const v = juger(ep, [
+      {
+        schema_v: 1,
+        connector: 'crm',
+        object: 'lead',
+        object_id: 'L-1',
+        fields: { statut: 'qualifie' },
+      },
+    ]);
+    expect(v.champs.map((c) => c.champ)).not.toContain('description');
+    expect(v.verdict).toBe('accord');
+  });
+
+  it('sans le retrait, le meme episode serait en desaccord', () => {
+    // Le test qui prouve que la regle SERT a quelque chose. Sans elle, le champ
+    // apparait comme « manque » et le verdict bascule.
+    const ep = episodeAvecInconnu();
+    const sansMeta: Episode = {
+      ...ep,
+      entities: ep.entities.map((e) => ({ ...e, state_meta: undefined })),
+    };
+    const v = juger(sansMeta, [
+      {
+        schema_v: 1,
+        connector: 'crm',
+        object: 'lead',
+        object_id: 'L-1',
+        fields: { statut: 'qualifie' },
+      },
+    ]);
+    expect(v.verdict).toBe('desaccord');
+    expect(v.champs.find((c) => c.champ === 'description')?.classe).toBe('manque');
+  });
+
+  it('le retrait laisse une TRACE, avec sa raison', () => {
+    // Un retrait sans trace serait un verdict truque : le rapport dirait
+    // « accord » sans dire sur quoi il a renonce a se prononcer — un verdict
+    // d'autant plus flatteur qu'il regarde moins.
+    const v = juger(episodeAvecInconnu(), []);
+    expect(v.exclusions).toEqual([
+      { champ: 'description', raison: 'champ non historise par le systeme' },
+    ]);
+  });
+
+  it('un unknown_before sans raison le DIT plutot que de se taire', () => {
+    const ep = episodeAvecInconnu();
+    const sansRaison: Episode = {
+      ...ep,
+      entities: ep.entities.map((e) => ({
+        ...e,
+        state_meta: { description: { unknown_before: true } },
+      })),
+    };
+    expect(juger(sansRaison, []).exclusions[0]?.raison).toContain('sans raison');
+  });
+
+  it('un champ RECONSTITUE reste juge — l historique a parle', () => {
+    // `reconstituted` n'est pas `unknown_before`. Le premier dit « je sais, par
+    // l'histoire » ; le second dit « je ne sais pas ». Les confondre retirerait
+    // du verdict des champs parfaitement connus.
+    const ep = episode({
+      grade: 'A',
+      scope_fields: ['statut'],
+      entities: [
+        {
+          key: { type: 'contact', value_pseudo: 'EMAIL_aaa' },
+          first_seen_seq: 1,
+          api_refs: [{ connector: 'crm', object: 'lead', id: 'L-1' }],
+          state_before: { statut: 'nouveau' },
+          state_after: { statut: 'qualifie' },
+          state_meta: { statut: { reconstituted: true } },
+        },
+      ],
+    });
+    const v = juger(ep, []);
+    expect(v.champs.map((c) => c.champ)).toContain('statut');
+    expect(v.exclusions).toEqual([]);
+  });
+});

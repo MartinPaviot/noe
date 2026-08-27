@@ -111,6 +111,32 @@ export const FlatState = z.record(
   z.union([z.string(), z.number(), z.boolean(), z.null()]),
 );
 
+/**
+ * Ce que le juge doit RETIRER de son verdict, champ par champ (spec 003, §7).
+ *
+ * Parallèle à `FlatState` plutôt qu'imbriqué dedans, et c'est délibéré : le juge
+ * lit l'état, les exclusions lisent la méta. Annoter les valeurs elles-mêmes
+ * aurait rendu `FlatState` non plat, et le diff cesserait d'être trivial — or
+ * c'est sa trivialité qui rend le juge vérifiable.
+ */
+export const StateMeta = z.record(
+  z.string(),
+  z.object({
+    /** R3.3 : la valeur vient de l'historique, pas d'une lecture directe. */
+    reconstituted: z.boolean().optional(),
+    /** R3.3 : on n'a pas su dire ce que ce champ valait avant. */
+    unknown_before: z.boolean().optional(),
+    /**
+     * Pourquoi.
+     *
+     * Obligatoire dès qu'un champ sort du verdict : « jamais silencieusement
+     * compté » est le mot de l'exigence, et un champ exclu sans raison est
+     * indistinguable d'un champ oublié.
+     */
+    reason: z.string().min(1).optional(),
+  }),
+);
+
 export const Entity = z.object({
   key: z.object({ type: z.string().min(1), value_pseudo: z.string().min(1) }),
   first_seen_seq: z.number().int().nonnegative(),
@@ -119,6 +145,15 @@ export const Entity = z.object({
   ),
   state_before: FlatState.optional(),
   state_after: FlatState.optional(),
+  /**
+   * R2.3 (spec 003) : la clé qui a tranché la résolution, et quand.
+   *
+   * Sans elle, une résolution fausse est indiagnosticable — on ne sait même pas
+   * ce qui l'a décidée.
+   */
+  resolved: z.object({ by: z.string().min(1), at: z.iso.datetime() }).optional(),
+  /** Les champs que le juge doit exclure, et pourquoi. */
+  state_meta: StateMeta.optional(),
 });
 
 export const Completeness = z.object({
