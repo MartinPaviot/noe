@@ -325,6 +325,67 @@ pub fn lire_historique(corps: &serde_json::Value) -> Vec<PointHistorique> {
         .collect()
 }
 
+/// R3.3 — ce qu'on peut dire de la valeur d'un champ **avant** l'épisode.
+///
+/// Trois issues, et il faut les trois. Une seule manquante et on retombe dans
+/// l'erreur que l'exigence nomme : un champ « silencieusement compté ».
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VerdictAvant {
+    /// L'histoire a parlé : on connaît la valeur d'avant.
+    Reconstitue(Option<serde_json::Value>),
+    /// Pas d'écriture antérieure : la lecture directe fait foi.
+    LectureDirecte,
+    /// L'histoire ne sait pas. Le champ sort du verdict, **avec sa raison**.
+    Inconnu(String),
+}
+
+/// Le verdict sur un champ, miroir de `verdictAvant` côté TypeScript.
+///
+/// Trois refus de conclure, et chacun a sa cause propre :
+///
+/// 1. **Le champ n'est pas historisé.** Salesforce suit vingt champs par objet
+///    au maximum, et aucun par défaut. Un historique vide et un champ non suivi
+///    se ressemblent exactement, et mènent à des conclusions opposées — d'où la
+///    liste, qui vient du terrain parce qu'aucune API ne la donne.
+/// 2. **L'historique ne stocke pas les valeurs.** C'est le cas des textes longs :
+///    la ligne existe, `OldValue` et `NewValue` sont nuls. On sait *qu'il* a
+///    changé, jamais *ce qu'il* valait.
+/// 3. Il n'y a pas d'écriture antérieure du tout — et là ce n'est pas un refus :
+///    la lecture directe fait foi.
+///
+/// **La plus ANCIENNE écriture antérieure porte la valeur d'origine.** Prendre la
+/// plus récente rendrait une valeur intermédiaire, et le diff avec `state_after`
+/// raconterait une moitié de l'histoire en ayant l'air complet.
+pub fn verdict_avant(
+    champ: &str,
+    suivis: &std::collections::BTreeSet<&str>,
+    histoire: &[PointHistorique],
+    premiere_lecture: &str,
+) -> VerdictAvant {
+    if !suivis.contains(champ) {
+        return VerdictAvant::Inconnu(format!(
+            "champ non historise par le systeme : impossible de dire ce qu il valait avant {premiere_lecture}"
+        ));
+    }
+
+    let mut anterieures: Vec<&PointHistorique> = histoire
+        .iter()
+        .filter(|h| h.champ == champ && h.quand.as_str() < premiere_lecture)
+        .collect();
+    if anterieures.is_empty() {
+        return VerdictAvant::LectureDirecte;
+    }
+    anterieures.sort_by(|a, b| a.quand.cmp(&b.quand));
+    let plus_ancienne = anterieures[0];
+
+    if plus_ancienne.valeurs_absentes {
+        return VerdictAvant::Inconnu(format!(
+            "l historique de {champ} ne stocke pas ses valeurs (texte long) : il a change avant {premiere_lecture}, on ne sait pas depuis quoi"
+        ));
+    }
+    VerdictAvant::Reconstitue(plus_ancienne.avant.clone())
+}
+
 /// Analyse une réponse de résolution : combien de candidats, et lesquels.
 pub fn lire_resolution(
     corps: &serde_json::Value,
@@ -1016,6 +1077,133 @@ mod tests_adaptateur {
             object: "Contact".into(),
             id: "003AAA".into(),
         }
+    }
+
+    // -- R3.3 : ce qu'on peut dire de la valeur d'avant ---------------------
+
+    fn suivis(champs: &[&'static str]) -> std::collections::BTreeSet<&'static str> {
+        champs.iter().copied().collect()
+    }
+
+    fn point(champ: &str, quand: &str, avant: &str, apres: &str) -> PointHistorique {
+        PointHistorique {
+            champ: champ.into(),
+            quand: quand.into(),
+            avant: Some(avant.into()),
+            apres: Some(apres.into()),
+            valeurs_absentes: false,
+        }
+    }
+
+    const LECTURE: &str = "2026-08-27T10:00:00.000Z";
+
+    #[test]
+    fn sans_ecriture_anterieure_la_lecture_directe_fait_foi() {
+        let apres_coup = point("Status", "2026-08-27T10:05:00.000Z", "a", "b");
+        assert_eq!(
+            verdict_avant("Status", &suivis(&["Status"]), &[apres_coup], LECTURE),
+            VerdictAvant::LectureDirecte
+        );
+        assert_eq!(
+            verdict_avant("Status", &suivis(&["Status"]), &[], LECTURE),
+            VerdictAvant::LectureDirecte
+        );
+    }
+
+    #[test]
+    fn la_plus_ancienne_ecriture_anterieure_porte_la_valeur_d_origine() {
+        // Prendre la plus recente rendrait une valeur INTERMEDIAIRE, et le diff
+        // avec state_after raconterait une moitie de l'histoire en ayant l'air
+        // complet.
+        let histoire = vec![
+            point(
+                "Status",
+                "2026-08-27T09:50:00.000Z",
+                "intermediaire",
+                "presque",
+            ),
+            point(
+                "Status",
+                "2026-08-27T09:10:00.000Z",
+                "origine",
+                "intermediaire",
+            ),
+        ];
+        assert_eq!(
+            verdict_avant("Status", &suivis(&["Status"]), &histoire, LECTURE),
+            VerdictAvant::Reconstitue(Some("origine".into()))
+        );
+    }
+
+    #[test]
+    fn un_champ_non_historise_est_inconnu_et_pas_inchange() {
+        // Un historique vide et un champ non suivi se ressemblent EXACTEMENT, et
+        // menent a des conclusions opposees.
+        match verdict_avant("Description", &suivis(&["Status"]), &[], LECTURE) {
+            VerdictAvant::Inconnu(r) => assert!(r.contains("non historise"), "{r}"),
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn un_texte_long_a_change_sans_dire_depuis_quoi() {
+        // Deuxieme piege du design §5 : la ligne existe, OldValue et NewValue
+        // sont nuls. On sait QU'IL a change, jamais CE QU'IL valait.
+        let muet = PointHistorique {
+            champ: "Description".into(),
+            quand: "2026-08-27T09:10:00.000Z".into(),
+            avant: None,
+            apres: None,
+            valeurs_absentes: true,
+        };
+        match verdict_avant("Description", &suivis(&["Description"]), &[muet], LECTURE) {
+            VerdictAvant::Inconnu(r) => {
+                assert!(r.contains("ne stocke pas"), "{r}");
+                assert!(r.contains("Description"), "{r}");
+            }
+            autre => panic!("{autre:?}"),
+        }
+    }
+
+    #[test]
+    fn l_histoire_d_un_autre_champ_ne_deteint_pas() {
+        let autre = point("Rating", "2026-08-27T09:10:00.000Z", "Cold", "Hot");
+        assert_eq!(
+            verdict_avant("Status", &suivis(&["Status", "Rating"]), &[autre], LECTURE),
+            VerdictAvant::LectureDirecte
+        );
+    }
+
+    #[test]
+    fn une_valeur_d_origine_vide_se_reconstitue_quand_meme() {
+        // `null` est une valeur : le champ etait vide, et le dire n'est pas la
+        // meme chose que ne pas savoir.
+        let vide = PointHistorique {
+            champ: "Status".into(),
+            quand: "2026-08-27T09:10:00.000Z".into(),
+            avant: None,
+            apres: Some("Nouveau".into()),
+            valeurs_absentes: false,
+        };
+        assert_eq!(
+            verdict_avant("Status", &suivis(&["Status"]), &[vide], LECTURE),
+            VerdictAvant::Reconstitue(None)
+        );
+    }
+
+    #[test]
+    fn le_verdict_suit_les_memes_regles_que_le_miroir_typescript() {
+        // Les trois issues, dans le meme ordre de decision : non suivi d'abord,
+        // absence d'anteriorite ensuite, reconstitution en dernier.
+        let h = vec![point("Status", "2026-08-27T09:00:00.000Z", "x", "y")];
+        assert!(matches!(
+            verdict_avant("Status", &suivis(&[]), &h, LECTURE),
+            VerdictAvant::Inconnu(_)
+        ));
+        assert!(matches!(
+            verdict_avant("Status", &suivis(&["Status"]), &h, LECTURE),
+            VerdictAvant::Reconstitue(_)
+        ));
     }
 
     #[test]

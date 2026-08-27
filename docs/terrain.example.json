@@ -11,6 +11,9 @@
       "objects": ["Lead"]
     }
   },
+  "field_history": {
+    "Lead": ["Status", "Rating", "Description"]
+  },
   "budgets": {
     "reads_per_episode": 30
   }

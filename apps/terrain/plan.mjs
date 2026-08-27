@@ -143,6 +143,10 @@ export function plan() {
       crm: 'salesforce',
       mail: 'gmail',
       tasks: TACHES,
+      // R3.3 : sans cette liste, « l'historique est vide » est indistinguable de
+      // « le champ n'a pas changé ». Aucune API ne la donne — c'est `peupler.mjs`
+      // qui l'établit par l'expérience, et le terrain qui la garde.
+      field_history: HISTORIQUE_REQUIS,
       budgets: { reads_per_episode: 30 },
     },
   };

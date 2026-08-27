@@ -122,6 +122,18 @@ pub struct Terrain {
     pub mail: Option<String>,
     #[serde(default)]
     pub tasks: BTreeMap<String, Perimetre>,
+    /// R3.3 — les champs dont le système suit l'historique, par objet.
+    ///
+    /// **Sans cette liste, « l'historique est vide » est indistinguable de « le
+    /// champ n'a pas changé »**, et les deux mènent à des conclusions opposées :
+    /// le second autorise un `state_before` reconstitué, le premier impose
+    /// `unknown_before`.
+    ///
+    /// Elle vient d'ici et non de l'API, parce qu'**aucune API ne la donne** :
+    /// rien dans une description d'objet ne dit si un champ est suivi. C'est
+    /// `peupler.mjs` qui l'établit, par l'expérience, et qui l'écrit ici.
+    #[serde(default)]
+    pub field_history: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub budgets: Budgets,
 }
@@ -184,6 +196,18 @@ impl Terrain {
         self.tasks.get(task_slug)
     }
 
+    /// Les champs historisés d'un objet.
+    ///
+    /// Un objet absent rend un ensemble **vide**, et c'est la bonne valeur : rien
+    /// n'est suivi tant que quelqu'un ne l'a pas constaté. Supposer l'inverse
+    /// ferait reconstituer des états sur un historique qui n'existe pas.
+    pub fn champs_historises(&self, objet: &str) -> std::collections::BTreeSet<&str> {
+        self.field_history
+            .get(objet)
+            .map(|v| v.iter().map(String::as_str).collect())
+            .unwrap_or_default()
+    }
+
     /// Les connecteurs que ce terrain déclare, dans l'ordre.
     pub fn connecteurs(&self) -> Vec<&str> {
         let mut sortie = vec![self.crm.as_str()];
@@ -228,6 +252,7 @@ mod tests {
                     "objects": ["Contact", "Lead"]
                 }
             },
+            "field_history": { "Lead": ["Status", "Rating", "Description"] },
             "budgets": { "reads_per_episode": 30 }
         })
         .to_string()
@@ -301,6 +326,15 @@ mod tests {
     fn un_budget_absent_retombe_sur_celui_de_r5_3() {
         let t = Terrain::analyser(&serde_json::json!({"crm": "salesforce"}).to_string()).unwrap();
         assert_eq!(t.budgets.reads_per_episode, BUDGET_PAR_DEFAUT);
+    }
+
+    #[test]
+    fn un_objet_sans_historique_declare_ne_suit_rien() {
+        // Rien n'est suivi tant que quelqu'un ne l'a pas constate. Supposer
+        // l'inverse ferait reconstituer des etats sur un historique inexistant.
+        let t = Terrain::analyser(&json_minimal()).unwrap();
+        assert!(t.champs_historises("Account").is_empty());
+        assert!(t.champs_historises("Lead").contains("Status"));
     }
 
     #[test]
@@ -393,6 +427,13 @@ mod tests {
         // l'historique d'un texte long ne stocke pas ses valeurs.
         let avec_note = t.perimetre("maj-crm-avec-note").expect("tache avec note");
         assert!(avec_note.scope_fields.contains(&"Description".to_owned()));
+
+        // R3.3 : tout champ sous perimetre doit etre historise, sinon on ne peut
+        // rien dire de sa valeur d'avant.
+        let suivis = t.champs_historises("Lead");
+        for champ in propre.scope_fields.iter().chain(&avec_note.scope_fields) {
+            assert!(suivis.contains(champ.as_str()), "{champ} n est pas suivi");
+        }
     }
 
     #[test]
