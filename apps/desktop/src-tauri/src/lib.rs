@@ -22,6 +22,7 @@ mod panique;
 pub mod pont;
 mod presse_papiers;
 mod redaction;
+mod salesforce;
 mod snapshot;
 mod source;
 mod surfaces;
