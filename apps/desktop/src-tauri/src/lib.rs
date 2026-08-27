@@ -5,6 +5,7 @@
 //! testent sans écran. Tout ce qui décide vraiment quelque chose est ailleurs,
 //! là où la CI peut l'atteindre.
 
+mod archive;
 mod assemblage;
 mod clavier;
 mod cle;
@@ -91,6 +92,14 @@ struct Etat {
     /// L'appariement copier-coller de l'épisode en cours (R2.3).
     appariement: Mutex<presse_papiers::Appariement>,
 }
+
+/// L'identifiant de l'application, tel que `tauri.conf.json` le déclare.
+///
+/// Écrit ici parce que la ligne de commande tourne AVANT qu'une application
+/// existe et doit pourtant viser le même dossier : exporter ailleurs
+/// produirait une archive vide en annonçant que tout va bien. Un test compare
+/// les deux chaînes, sinon la divergence ne se verrait qu'à l'usage.
+pub const IDENTIFIANT_APPLICATION: &str = "app.noe.desktop";
 
 /// Le dossier de données du poste. Tout ce que Noe écrit vit dessous.
 fn dossier_donnees<R: Runtime>(app: &AppHandle<R>) -> std::path::PathBuf {
@@ -1217,6 +1226,185 @@ fn detail_episode(app: AppHandle, id: String) -> Option<vue::DetailEpisode> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// R6.1 — `noe export` et `noe import`, quand l'exécutable est appelé avec des
+/// arguments.
+///
+/// **Le mot de passe ne passe JAMAIS par la ligne de commande.** Il resterait
+/// dans l'historique du shell et dans la liste des processus, où n'importe quel
+/// programme du poste peut le lire — pour un secret qui déverrouille le corpus
+/// entier, ce serait le pire endroit possible. Il se tape, et l'écho est coupé
+/// pendant la frappe.
+pub fn cli(args: &[String]) -> i32 {
+    // En release, l'exécutable est lié en sous-système « windows » : sans
+    // console attachée, tout ce qu'on écrit part dans le vide et l'opérateur
+    // croit que la commande n'a rien fait.
+    attacher_console();
+
+    let sous_commande = args.get(1).map(String::as_str).unwrap_or("");
+    let verify = args.iter().any(|a| a == "--verify");
+    let chemin = args.get(2).map(std::path::PathBuf::from);
+
+    match (sous_commande, chemin) {
+        ("export", Some(destination)) => {
+            let Some(mdp) = demander_mot_de_passe("Mot de passe d export") else {
+                eprintln!("mot de passe non lu");
+                return 2;
+            };
+            let racine = dossier_donnees_cli();
+            let cle = match cle::CleHmac::charger_ou_creer(&racine.join("cle.bin")) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("cle indisponible : {e}");
+                    return 1;
+                }
+            };
+            match archive::exporter(&racine.join("episodes"), &cle, &mdp, &destination) {
+                Ok(m) => {
+                    println!(
+                        "archive ecrite : {} episode(s), {} en quarantaine, {} fichiers",
+                        m.episodes, m.quarantaine, m.fichiers
+                    );
+                    0
+                }
+                Err(e) => {
+                    eprintln!("export refuse : {e}");
+                    1
+                }
+            }
+        }
+
+        ("import", Some(source)) => {
+            let Some(mdp) = demander_mot_de_passe("Mot de passe de l archive") else {
+                eprintln!("mot de passe non lu");
+                return 2;
+            };
+            let racine = dossier_donnees_cli();
+            let resultat = if verify {
+                archive::verifier(&source, &mdp)
+            } else {
+                archive::importer(
+                    &source,
+                    &mdp,
+                    &racine.join("episodes"),
+                    &racine.join("cle.bin"),
+                )
+            };
+            match resultat {
+                Ok(v) => {
+                    println!(
+                        "{} episode(s) relus, {} illisible(s), compteurs {}",
+                        v.episodes_relus,
+                        v.illisibles.len(),
+                        if v.compteurs_coherents {
+                            "coherents"
+                        } else {
+                            "INCOHERENTS"
+                        }
+                    );
+                    for i in &v.illisibles {
+                        println!("  illisible : {i}");
+                    }
+                    if verify {
+                        println!("--verify : rien n a ete installe");
+                    } else {
+                        println!("corpus et cle HMAC installes");
+                    }
+                    i32::from(!v.valide())
+                }
+                Err(e) => {
+                    eprintln!("import refuse : {e}");
+                    1
+                }
+            }
+        }
+
+        _ => {
+            eprintln!("usage : noe export <archive.noe> | noe import <archive.noe> [--verify]");
+            2
+        }
+    }
+}
+
+/// Le dossier de données, sans passer par Tauri.
+///
+/// La ligne de commande tourne avant qu'une application existe. Le chemin doit
+/// être le MÊME que celui de l'application, sinon on exporterait un dossier vide
+/// en annonçant que tout va bien.
+fn dossier_donnees_cli() -> std::path::PathBuf {
+    std::env::var("APPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join(IDENTIFIANT_APPLICATION)
+}
+
+#[cfg(not(test))]
+fn attacher_console() {
+    use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+    // SAFETY : rattache la sortie standard a la console du shell appelant.
+    // Echoue sans consequence si le processus en a deja une.
+    unsafe {
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+
+#[cfg(test)]
+fn attacher_console() {}
+
+/// Lit un secret au clavier, sans écho.
+///
+/// L'écho coupé n'est pas une coquetterie : un export se fait souvent devant
+/// quelqu'un, et un mot de passe affiché en clair sur la console reste ensuite
+/// dans le tampon de défilement du terminal.
+#[cfg(not(test))]
+fn demander_mot_de_passe(invite: &str) -> Option<String> {
+    use std::io::Write;
+    use windows::Win32::System::Console::{
+        GetConsoleMode, GetStdHandle, SetConsoleMode, CONSOLE_MODE, ENABLE_ECHO_INPUT,
+        STD_INPUT_HANDLE,
+    };
+
+    print!("{invite} : ");
+    let _ = std::io::stdout().flush();
+
+    // SAFETY : lecture et restauration du mode de la console d'entree. Le mode
+    // d'origine est remis sur TOUS les chemins, y compris en cas d'erreur de
+    // lecture — laisser une console sans echo derriere soi serait un cadeau
+    // empoisonne.
+    let (poignee, mode) = unsafe {
+        let h = GetStdHandle(STD_INPUT_HANDLE).ok()?;
+        let mut m = CONSOLE_MODE::default();
+        if GetConsoleMode(h, &mut m).is_err() {
+            (h, None)
+        } else {
+            let _ = SetConsoleMode(h, CONSOLE_MODE(m.0 & !ENABLE_ECHO_INPUT.0));
+            (h, Some(m))
+        }
+    };
+
+    let mut ligne = String::new();
+    let lu = std::io::stdin().read_line(&mut ligne);
+
+    if let Some(m) = mode {
+        // SAFETY : meme poignee, mode d'origine.
+        unsafe {
+            let _ = SetConsoleMode(poignee, m);
+        }
+    }
+    println!();
+    lu.ok()?;
+    let mdp = ligne.trim_end_matches(['\r', '\n']).to_string();
+    if mdp.is_empty() {
+        None
+    } else {
+        Some(mdp)
+    }
+}
+
+#[cfg(test)]
+fn demander_mot_de_passe(_invite: &str) -> Option<String> {
+    None
+}
+
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![lister_episodes, detail_episode])
@@ -1396,4 +1584,36 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("erreur au lancement de la coquille Noe");
+}
+
+#[cfg(test)]
+mod tests_cli {
+    /// L'identifiant recopie doit etre celui de `tauri.conf.json`.
+    ///
+    /// La ligne de commande tourne avant qu'une application existe : elle ne
+    /// peut pas demander son dossier a Tauri. Si les deux chaines divergeaient,
+    /// `noe export` exporterait un dossier vide en annoncant que tout va bien —
+    /// et on ne s'en apercevrait qu'en essayant de restaurer.
+    #[test]
+    fn l_identifiant_est_celui_de_la_configuration() {
+        const CONFIG: &str = include_str!("../tauri.conf.json");
+        let v: serde_json::Value = serde_json::from_str(CONFIG).expect("tauri.conf.json");
+        assert_eq!(
+            v.get("identifier").and_then(|x| x.as_str()),
+            Some(super::IDENTIFIANT_APPLICATION)
+        );
+    }
+
+    /// Une commande inconnue ne doit pas ouvrir de fenetre en silence.
+    #[test]
+    fn une_commande_inconnue_rend_un_code_d_usage() {
+        let args = vec!["noe.exe".to_string(), "farfelu".to_string()];
+        assert_eq!(super::cli(&args), 2);
+    }
+
+    #[test]
+    fn export_sans_destination_rend_un_code_d_usage() {
+        let args = vec!["noe.exe".to_string(), "export".to_string()];
+        assert_eq!(super::cli(&args), 2);
+    }
 }

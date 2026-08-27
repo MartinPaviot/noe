@@ -144,6 +144,31 @@ impl CleHmac {
         Ok(Self(octets))
     }
 
+    /// R6.2 — installe une clé venue d'ailleurs, sous DPAPI.
+    ///
+    /// C'est le geste qui rend un import utile. Sans lui, un corpus restauré se
+    /// lirait et se rejouerait, puis la première capture suivante produirait
+    /// d'autres jetons pour les mêmes entités : les jointures casseraient en
+    /// silence, à retardement, sans que rien ne dise pourquoi.
+    ///
+    /// **Écrase sans demander.** L'opérateur qui importe un corpus a déjà pris
+    /// la décision ; refuser ici le laisserait avec un corpus et une clé qui ne
+    /// vont pas ensemble, ce qui est le pire des trois états possibles.
+    pub fn installer(chemin: &Path, octets: &[u8]) -> Result<Self, ErreurCle> {
+        if octets.len() != TAILLE_CLE {
+            return Err(ErreurCle::Taille(octets.len()));
+        }
+        let mut brut = [0u8; TAILLE_CLE];
+        brut.copy_from_slice(octets);
+        let cle = Self(brut);
+        let chiffre = cle.proteger()?;
+        if let Some(parent) = chemin.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| ErreurCle::Disque(e.to_string()))?;
+        }
+        std::fs::write(chemin, &chiffre).map_err(|e| ErreurCle::Disque(e.to_string()))?;
+        Ok(cle)
+    }
+
     /// Charge la clé du poste, ou en crée une au premier lancement.
     ///
     /// **Ne régénère JAMAIS en silence.** Un blob illisible — profil Windows
