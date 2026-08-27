@@ -59,7 +59,7 @@ On ne coche une case que sur une vérification de bout en bout, et on n'édite
 | Spec | État |
 | --- | --- |
 | `001-socle-de-preuve` | ✅ 15/15 — format d'épisode, rejeu, juge mécanique |
-| `002-capture-bornee` | en cours — 7/20, tâches 0 à 5 vertes |
+| `002-capture-bornee` | ✅ 20/20 — gate franchi le 2026-08-27 |
 | `003-federation-boucle` | scellée, ouvre au gate de la 002 |
 | `004-politique-shadow` | déposée (opérateur), ouvre au gate de la 003 |
 | `005-modes-promotion` | déposée (opérateur), ouvre au gate de la 004 |
