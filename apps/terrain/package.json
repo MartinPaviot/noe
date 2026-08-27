@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "sonder": "node sonder.mjs",
-    "build": "node -e \"console.log('outils de terrain : rien a construire')\""
+    "build": "node -e \"console.log('outils de terrain : rien a construire')\"",
+    "peupler": "node peupler.mjs",
+    "peupler:verifier": "node peupler.mjs --verifier-seulement"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0"
