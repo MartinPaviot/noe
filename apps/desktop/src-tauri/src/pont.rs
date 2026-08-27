@@ -29,7 +29,9 @@
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
-use crate::source::{Abonnement, CaptureSource, Cible, ErreurSource, GenreEvenement, RawEvent};
+use crate::source::{
+    Abonnement, CaptureSource, Cible, ErreurSource, GenreEvenement, RawEvent, Source,
+};
 
 /// Le nom du tuyau. Un seul, fixe : l'hôte doit pouvoir le trouver sans
 /// configuration, et deux instances de Noe sur un même compte n'ont pas de sens.
@@ -198,6 +200,21 @@ impl DomSource {
     }
 }
 
+/// L'événement qui déclare une perte d'observations.
+///
+/// La surface est celle du pont : c'est bien du navigateur que le flux vient, et
+/// une liste blanche qui ne l'autoriserait pas doit pouvoir refuser ce trou
+/// comme elle refuse le reste — un trou attribué à une surface qu'on n'observe
+/// pas serait un trou inventé.
+fn rupture(monotone_ms: u64, manquantes: u64) -> RawEvent {
+    RawEvent {
+        source: Source::Dom,
+        monotone_ms,
+        genre: GenreEvenement::RuptureFlux { manquantes },
+        surface: Some(SURFACE.to_string()),
+    }
+}
+
 /// Consomme une ligne JSON venue du pont et pousse ce qu'il faut.
 ///
 /// Extrait de la boucle réseau pour être testable sans tuyau : c'est ici que
@@ -212,15 +229,26 @@ pub fn traiter_ligne(
         // Une ligne illisible n'est pas silencieuse : elle compte comme une
         // rupture, parce qu'on ne sait pas ce qu'elle contenait.
         bilan.ruptures += 1;
-        return Vec::new();
+        return vec![rupture(monotone_ms, 0)];
     };
     bilan.recues += 1;
 
     let mut evenements = Vec::new();
+    // **Le bilan ne suffit pas.** Il comptait les ruptures et personne ne le
+    // lisait : `bilan()` n'avait aucun appelant hors des bancs. Un trou compté et
+    // jamais déclaré est un trou rebouché en silence, ce que la règle 4 interdit
+    // — et le compteur rendait la chose pire, en donnant l'impression que
+    // quelqu'un s'en occupait.
     match suiveur.constater(&o) {
         Rupture::Aucune => {}
-        Rupture::Manquantes(n) => bilan.ruptures += n,
-        Rupture::WorkerRedemarre => bilan.ruptures += 1,
+        Rupture::Manquantes(n) => {
+            bilan.ruptures += n;
+            evenements.push(rupture(monotone_ms, n));
+        }
+        Rupture::WorkerRedemarre => {
+            bilan.ruptures += 1;
+            evenements.push(rupture(monotone_ms, 0));
+        }
     }
 
     match en_evenement(&o, monotone_ms) {
@@ -537,7 +565,15 @@ mod tests {
         // ferait disparaitre une observation sans laisser de trace.
         let mut s = Suiveur::default();
         let mut b = Bilan::default();
-        assert!(traiter_ligne("{ pas du json", &mut s, &mut b, 0).is_empty());
+        // Elle produit desormais un evenement : une ligne illisible est une
+        // observation perdue, et une observation perdue est un TROU. Le compteur
+        // seul ne suffisait pas — personne ne le lisait.
+        let sortie = traiter_ligne("{ pas du json", &mut s, &mut b, 0);
+        assert_eq!(sortie.len(), 1);
+        assert!(matches!(
+            sortie[0].genre,
+            GenreEvenement::RuptureFlux { .. }
+        ));
         assert_eq!(b.ruptures, 1);
         assert_eq!(b.recues, 0);
     }

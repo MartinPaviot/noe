@@ -94,6 +94,18 @@ pub enum GenreEvenement {
     /// La machine s'endort, puis se réveille (R3.3).
     Veille,
     Reveil,
+    /// **La source a perdu des observations** : numérotation rompue, service
+    /// worker redémarré, ligne illisible (règle 4).
+    ///
+    /// Le pont les comptait dans un bilan que personne ne lisait. Un trou compté
+    /// et jamais déclaré est un trou rebouché en silence — exactement ce que la
+    /// règle interdit, et d'autant plus trompeur que le compteur existait et
+    /// donnait l'impression que quelqu'un s'en occupait.
+    RuptureFlux {
+        /// Combien d'observations manquent. Zéro quand on ne sait pas les
+        /// compter — un redémarrage de worker, une ligne illisible.
+        manquantes: u64,
+    },
 }
 
 impl GenreEvenement {
@@ -106,6 +118,7 @@ impl GenreEvenement {
             | Self::Saisie(c)
             | Self::Soumission(c) => Some(c),
             Self::BasculeApplication { .. }
+            | Self::RuptureFlux { .. }
             | Self::Copie
             | Self::Collage { .. }
             | Self::Veille

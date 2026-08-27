@@ -717,6 +717,14 @@ impl Moteur {
         self.vider_hors_perimetre(maintenant);
 
         match &ev.genre {
+            GenreEvenement::RuptureFlux { manquantes } => {
+                // Règle 4 : un trou est un événement de première classe. La
+                // borne est ponctuelle parce que c'est tout ce qu'on sait — on
+                // constate l'absence à la réception suivante, pas pendant.
+                let _ = manquantes;
+                self.trou(CauseGap::SeqBreak, maintenant, maintenant);
+                return;
+            }
             GenreEvenement::Veille => {
                 self.veille_depuis = Some(maintenant);
                 return;
@@ -1278,6 +1286,45 @@ mod tests {
                 paire[0].seq()
             );
         }
+    }
+
+    #[test]
+    fn une_rupture_du_flux_navigateur_produit_un_trou() {
+        // Regle 4 : un trou de capture est un evenement de premiere classe.
+        // Le pont comptait les ruptures dans un bilan que PERSONNE ne lisait —
+        // `bilan()` n'avait aucun appelant hors des bancs — donc l'episode ne
+        // portait aucune trace d'observations perdues. Un trou compte et jamais
+        // declare est un trou rebouche en silence, et le compteur rendait la
+        // chose pire : il donnait l'impression que quelqu'un s'en occupait.
+        let (journal, _, _) = rejouer(
+            "chrome",
+            vec![
+                ev(GenreEvenement::Focus(cible("tab", "X"))),
+                ev(GenreEvenement::RuptureFlux { manquantes: 3 }),
+                ev(GenreEvenement::Invocation(cible("button", "Enregistrer"))),
+            ],
+        );
+        assert!(
+            gaps(&journal).contains(&CauseGap::SeqBreak),
+            "la rupture n a pas ete declaree : {:?}",
+            gaps(&journal)
+        );
+    }
+
+    #[test]
+    fn une_rupture_n_est_pas_comptee_comme_une_action() {
+        // Elle est le contraire d'une action : l'aveu qu'on n'a PAS vu ce que
+        // l'operateur a fait. La compter gonflerait le denominateur de la
+        // metrique de sante avec des non-evenements.
+        let (journal, _, _) = rejouer(
+            "chrome",
+            vec![ev(GenreEvenement::RuptureFlux { manquantes: 1 })],
+        );
+        let actions = journal
+            .iter()
+            .filter(|e| matches!(e, EntreeJournal::UiAction { .. }))
+            .count();
+        assert_eq!(actions, 0, "la rupture est passee pour une action");
     }
 
     #[test]

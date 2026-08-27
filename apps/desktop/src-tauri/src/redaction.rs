@@ -204,6 +204,12 @@ impl Redacteur {
             // traverse jamais le pipeline (R2.3).
             GenreEvenement::Copie => GenreEvenement::Copie,
             GenreEvenement::Collage { apparie } => GenreEvenement::Collage { apparie: *apparie },
+            // Une rupture ne porte aucun texte : rien a redacter, et rien
+            // qui puisse fuir. Le nombre d'observations manquantes n'est
+            // pas une identite.
+            GenreEvenement::RuptureFlux { manquantes } => GenreEvenement::RuptureFlux {
+                manquantes: *manquantes,
+            },
             GenreEvenement::Veille => GenreEvenement::Veille,
             GenreEvenement::Reveil => GenreEvenement::Reveil,
         }

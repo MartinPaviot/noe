@@ -533,12 +533,15 @@ mod tests {
         .into_bytes()
     }
 
+    /// Le delai global des bancs. Court, pour que la suite reste rapide.
+    const DELAI_BANC: Duration = Duration::from_millis(800);
+
     fn client(port: u16) -> ClientHttp {
         ClientHttp::avec_delai(
             &format!("http://127.0.0.1:{port}"),
             "LEJETON",
             locale(),
-            Duration::from_millis(800),
+            DELAI_BANC,
         )
         .unwrap()
     }
@@ -616,10 +619,25 @@ mod tests {
             drop(garde);
         });
         let debut = std::time::Instant::now();
-        assert!(client(port).get("/x").is_err());
         assert!(
-            debut.elapsed() < Duration::from_secs(5),
-            "{:?}",
+            client(port).get("/x").is_err(),
+            "l appel n a pas rendu la main"
+        );
+
+        // **La borne est large, et c'est voulu.** La propriete eprouvee est « ca
+        // rend la main », pas « ca rend la main en cinq secondes » : sans delai
+        // global, le serveur muet tient la connexion et l'appel ne revient
+        // jamais. Une borne serree mesurerait la charge de la machine — ce banc
+        // a echoue trois fois sur quatre pendant une compilation concurrente,
+        // avec un client regle sur huit cents millisecondes.
+        //
+        // Vingt fois le delai configure distingue encore un delai absent d'un
+        // delai present, sans transformer un test de comportement en test de
+        // vitesse.
+        let borne = DELAI_BANC * 20;
+        assert!(
+            debut.elapsed() < borne,
+            "rendu en {:?}, au-dela de {borne:?}",
             debut.elapsed()
         );
     }

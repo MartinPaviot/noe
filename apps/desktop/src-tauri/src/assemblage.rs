@@ -250,6 +250,12 @@ fn action_de(genre: &GenreEvenement) -> Option<&'static str> {
         GenreEvenement::Soumission(_) => Some("submit"),
         GenreEvenement::Focus(_) => Some("navigate"),
         GenreEvenement::BasculeApplication { .. } => Some("navigate"),
+        // Une rupture de flux n'est pas une action : c'est le contraire —
+        // l'aveu qu'on n'a PAS vu ce que l'operateur a fait. Le moteur en
+        // fait un trou avant que l'assemblage n'en entende parler ; si elle
+        // arrivait quand meme ici, la compter comme un `navigate`
+        // attribuerait a l'humain une action inventee.
+        GenreEvenement::RuptureFlux { .. } => None,
         GenreEvenement::Copie => Some("copy"),
         GenreEvenement::Collage { .. } => Some("paste"),
         // L'application a bougé, pas l'opérateur.

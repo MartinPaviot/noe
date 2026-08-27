@@ -1128,6 +1128,7 @@ pub fn harnais_journal(args: &[String]) -> i32 {
                     source::GenreEvenement::Collage { .. } => "collage",
                     source::GenreEvenement::Veille => "veille",
                     source::GenreEvenement::Reveil => "reveil",
+                    source::GenreEvenement::RuptureFlux { .. } => "rupture",
                 };
                 *par_genre.entry(g).or_default() += 1;
                 if let Some(c) = ev.genre.cible() {
