@@ -28,6 +28,7 @@ mod salesforce;
 mod snapshot;
 mod source;
 mod surfaces;
+mod terrain;
 mod transport;
 mod uia;
 mod veille;

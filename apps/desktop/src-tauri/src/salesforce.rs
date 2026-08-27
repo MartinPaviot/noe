@@ -1003,3 +1003,219 @@ mod tests_adaptateur {
         assert!(q.starts_with("20"), "{q}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// R1.1 — ce que cet adaptateur reconnaît de lui-même dans un texte.
+//
+// La forme d'une URL d'enregistrement et l'algorithme du suffixe de contrôle
+// sont des faits sur Salesforce, pas sur Noe. Les laisser dans un module
+// générique reviendrait à encoder le CRM hors de son adaptateur, ce que R1.1
+// interdit — et le jour où le terrain change, il faudrait les retrouver.
+// ---------------------------------------------------------------------------
+
+/// L'alphabet du suffixe de contrôle d'un identifiant.
+const ALPHABET_CONTROLE: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
+
+/// Complète un identifiant de 15 caractères en 18.
+///
+/// **Le même enregistrement a deux écritures.** Les URL en portent une de
+/// dix-huit caractères, les APIs acceptent les deux, et certaines pages en
+/// affichent quinze. Sans cette conversion, le même dossier produirait deux
+/// candidates, donc deux entités, donc un graphe qui compte double.
+///
+/// Le suffixe encode la casse : trois blocs de cinq caractères, un bit par
+/// caractère majuscule, et chaque bloc de cinq bits donne une lettre.
+pub fn completer_identifiant(id15: &str) -> Option<String> {
+    if id15.len() != 15 || !id15.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let octets = id15.as_bytes();
+    let mut sortie = id15.to_owned();
+    for bloc in 0..3 {
+        let mut index = 0_usize;
+        for position in 0..5 {
+            if octets[bloc * 5 + position].is_ascii_uppercase() {
+                index |= 1 << position;
+            }
+        }
+        sortie.push(ALPHABET_CONTROLE[index] as char);
+    }
+    Some(sortie)
+}
+
+/// Un identifiant de dix-huit caractères est-il cohérent ?
+///
+/// Son suffixe se recalcule à partir des quinze premiers. C'est ce qui distingue
+/// un vrai identifiant d'une chaîne de dix-huit caractères qui lui ressemble —
+/// et il y en a partout dans une interface.
+pub fn identifiant_coherent(id18: &str) -> bool {
+    id18.len() == 18
+        && completer_identifiant(&id18[..15])
+            .is_some_and(|attendu| attendu.eq_ignore_ascii_case(id18))
+}
+
+/// Normalise un identifiant vers sa forme de dix-huit caractères.
+///
+/// Rend `None` pour tout ce qui n'est pas un identifiant : c'est le bon sens de
+/// l'erreur. Une candidate en moins est un trou qui se voit ; une candidate de
+/// trop est un faux dossier qui ne se voit pas.
+pub fn normaliser_identifiant(brut: &str) -> Option<String> {
+    match brut.len() {
+        15 => completer_identifiant(brut),
+        18 if identifiant_coherent(brut) => Some(brut.to_owned()),
+        _ => None,
+    }
+}
+
+/// Les jeux de clés que ce connecteur reconnaît dans un texte vu à l'écran.
+///
+/// Chaque jeu est une candidate. Deux sources :
+///
+/// - une **URL d'enregistrement Lightning** (`/lightning/r/<Objet>/<Id>/view`),
+///   qui donne un identifiant système. On ne cherche pas un identifiant isolé
+///   dans un libellé : dix-huit caractères alphanumériques, ça se trouve dans
+///   n'importe quelle interface, et le suffixe de contrôle ne suffirait pas à
+///   écarter toutes les coïncidences ;
+/// - une **adresse de courriel**, qui désigne une personne — donc un dossier
+///   ici, et pas un fil de messagerie.
+///
+/// L'ordre suit la force des clés : les identifiants d'abord.
+pub fn cles_du_texte(texte: &str) -> Vec<Vec<(String, String)>> {
+    let mut sorties = Vec::new();
+    let mut vus: Vec<String> = Vec::new();
+
+    for depart in crate::candidates::indices_de(texte, "/lightning/r/") {
+        let reste = &texte[depart + "/lightning/r/".len()..];
+        let mut morceaux = reste.split('/');
+        let (Some(_objet), Some(brut)) = (morceaux.next(), morceaux.next()) else {
+            continue;
+        };
+        if let Some(id) = normaliser_identifiant(crate::candidates::segment(brut)) {
+            if !vus.contains(&id) {
+                vus.push(id.clone());
+                sorties.push(vec![("system_id".to_owned(), id)]);
+            }
+        }
+    }
+    for adresse in crate::candidates::courriels(texte) {
+        sorties.push(vec![("email_token".to_owned(), adresse)]);
+    }
+    sorties
+}
+
+#[cfg(test)]
+mod tests_extraction {
+    use super::*;
+
+    #[test]
+    fn un_identifiant_de_quinze_se_complete_en_dix_huit() {
+        // Le meme enregistrement a deux ecritures. Sans cette conversion, le
+        // meme dossier produirait deux candidates, donc deux entites, donc un
+        // graphe qui compte double.
+        assert_eq!(
+            completer_identifiant("0035g00000LmT4E").as_deref(),
+            Some("0035g00000LmT4EAAV")
+        );
+        assert_eq!(
+            completer_identifiant("00Q5g00000AbCdE").as_deref(),
+            Some("00Q5g00000AbCdEEAV")
+        );
+    }
+
+    #[test]
+    fn les_deux_ecritures_du_meme_enregistrement_convergent() {
+        assert_eq!(
+            normaliser_identifiant("0035g00000LmT4E"),
+            normaliser_identifiant("0035g00000LmT4EAAV")
+        );
+    }
+
+    #[test]
+    fn une_chaine_de_dix_huit_caracteres_n_est_pas_un_identifiant() {
+        // Dix-huit caracteres alphanumeriques, ca se trouve partout dans une
+        // interface. Le suffixe de controle est ce qui les distingue.
+        assert!(!identifiant_coherent("ABCDEFGHIJKLMNOPQR"));
+        assert_eq!(normaliser_identifiant("ABCDEFGHIJKLMNOPQR"), None);
+        assert_eq!(normaliser_identifiant("trop-court"), None);
+        assert_eq!(normaliser_identifiant(""), None);
+    }
+
+    #[test]
+    fn la_casse_d_un_identifiant_est_significative() {
+        // `normaliserIdentifiant('system_id')` ne touche pas a la casse cote
+        // TypeScript : elle porte le suffixe de controle, donc de l'information.
+        let a = normaliser_identifiant("0035g00000LmT4E").unwrap();
+        let b = normaliser_identifiant("0035G00000LMT4E").unwrap();
+        assert_ne!(a, b, "deux enregistrements differents");
+    }
+
+    #[test]
+    fn une_url_lightning_donne_un_identifiant_systeme() {
+        let c = cles_du_texte(
+            "https://monorg.lightning.force.com/lightning/r/Contact/0035g00000LmT4EAAV/view",
+        );
+        assert_eq!(
+            c,
+            vec![vec![(
+                "system_id".to_owned(),
+                "0035g00000LmT4EAAV".to_owned()
+            )]]
+        );
+    }
+
+    #[test]
+    fn une_url_en_quinze_caracteres_donne_la_meme_candidate() {
+        assert_eq!(
+            cles_du_texte("/lightning/r/Contact/0035g00000LmT4EAAV/view"),
+            cles_du_texte("/lightning/r/Contact/0035g00000LmT4E/view")
+        );
+    }
+
+    #[test]
+    fn une_url_suivie_d_un_mot_donne_quand_meme_sa_candidate() {
+        // Une URL lue a l'ecran n'est presque jamais seule. Sans la coupe,
+        // l'identifiant avait la mauvaise longueur et l'entite disparaissait en
+        // silence — le pire des echecs, parce qu'il ressemble a « rien a voir ».
+        let c = cles_du_texte("Ouvrir /lightning/r/Contact/0035g00000LmT4EAAV maintenant");
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0][0].1, "0035g00000LmT4EAAV");
+    }
+
+    #[test]
+    fn une_url_sans_identifiant_valable_ne_donne_rien() {
+        assert!(cles_du_texte("/lightning/r/Contact/new").is_empty());
+        assert!(cles_du_texte("/lightning/r/Contact/").is_empty());
+        assert!(cles_du_texte("/lightning/o/Contact/list").is_empty());
+    }
+
+    #[test]
+    fn une_adresse_designe_une_personne_donc_un_dossier_ici() {
+        let c = cles_du_texte("De : Jean Dupont <Jean.Dupont@Exemple.FR>");
+        assert_eq!(
+            c,
+            vec![vec![(
+                "email_token".to_owned(),
+                "jean.dupont@exemple.fr".to_owned()
+            )]]
+        );
+    }
+
+    #[test]
+    fn les_identifiants_passent_avant_les_adresses() {
+        // L'ordre suit la force des cles, et deux lectures du meme texte doivent
+        // rendre la meme liste.
+        let texte = "jean@ex.com — /lightning/r/Contact/0035g00000LmT4EAAV/view";
+        let c = cles_du_texte(texte);
+        assert_eq!(c.len(), 2, "{c:?}");
+        assert_eq!(c[0][0].0, "system_id");
+        assert_eq!(c[1][0].0, "email_token");
+        assert_eq!(c, cles_du_texte(texte), "deux lectures divergent");
+    }
+
+    #[test]
+    fn un_texte_ordinaire_ne_produit_rien() {
+        assert!(cles_du_texte("Enregistrer").is_empty());
+        assert!(cles_du_texte("Devis 2026-014 pour Dupont SARL").is_empty());
+        assert!(cles_du_texte("").is_empty());
+    }
+}

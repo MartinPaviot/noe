@@ -1,5 +1,5 @@
 //! Les candidates : d'où viennent les clés fortes, et à qui elles s'adressent
-//! (spec 003, R2.1 et le hook de première vue de la tâche 6).
+//! (spec 003, R1.1, R2.1, et le hook de première vue de la tâche 6).
 //!
 //! ## Ce que la capture voit vraiment
 //!
@@ -8,6 +8,17 @@
 //! conteneur photographié. C'est peu, et c'est assez : une barre d'adresse est un
 //! nœud accessible dont le nom est l'URL, et un en-tête de fiche porte le nom du
 //! dossier ouvert.
+//!
+//! ## Ce module ne nomme aucun système
+//!
+//! R1.1 : **le code ne doit jamais encoder le CRM hors de son adaptateur.** Les
+//! formes d'URL, les algorithmes de contrôle d'identifiant, le fait qu'une
+//! adresse désigne une personne « ici » et pas « là » — ce sont des faits sur un
+//! système donné, et ils vivent dans l'adaptateur de ce système. Ce module ne
+//! fait que deux choses : les outils de lecture partagés, et l'aiguillage vers
+//! les connecteurs **que `terrain.json` déclare**.
+//!
+//! Changer de CRM, c'est changer une ligne de `terrain.json`.
 //!
 //! ## Les valeurs sortent EN CLAIR, et c'est voulu
 //!
@@ -21,27 +32,22 @@
 //!
 //! Un faux positif de résolution est pire qu'une absence de résolution : il
 //! attribue le travail d'un opérateur au dossier de quelqu'un d'autre, et rien en
-//! aval ne le rattrape — le graphe est faux et il a l'air juste. On n'extrait
-//! donc que des formes **non ambiguës** : une URL d'enregistrement Lightning, une
-//! URL de fil Gmail, une adresse de courriel. Pas de « nom qui ressemble à », pas
-//! de numéro à sept chiffres qui pourrait être un identifiant.
+//! aval ne le rattrape — le graphe est faux et il a l'air juste. Les adaptateurs
+//! n'extraient donc que des formes **non ambiguës**. Pas de « nom qui ressemble
+//! à », pas de numéro à sept chiffres qui pourrait être un identifiant.
 
 #![allow(dead_code)] // retiré quand la tâche 0 permet de brancher le worker
 
 use crate::motifs;
-
-/// Le connecteur du système de vérité métier.
-pub const CONNECTEUR_CRM: &str = "salesforce";
-/// Le connecteur de la messagerie.
-pub const CONNECTEUR_COURRIEL: &str = "gmail";
+use crate::terrain::Terrain;
 
 /// Une entité candidate, telle que la capture la voit.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Candidate {
     /// À quel système elle s'adresse. Une adresse de courriel désigne une
-    /// personne dans le CRM ; un identifiant de fil désigne un fil chez Gmail.
-    /// Ce ne sont pas les mêmes entités, et elles ne se résolvent pas au même
-    /// endroit.
+    /// personne dans le CRM ; un identifiant de fil désigne un fil dans la
+    /// messagerie. Ce ne sont pas les mêmes entités, et elles ne se résolvent pas
+    /// au même endroit.
     pub connecteur: String,
     /// Ses clés fortes, **en clair**.
     pub cles: Vec<(String, String)>,
@@ -73,115 +79,42 @@ impl Candidate {
     }
 }
 
-/// L'alphabet du suffixe de contrôle d'un identifiant Salesforce.
-const ALPHABET_CONTROLE: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
+/// Ce qu'un connecteur sait reconnaître de lui-même dans un texte.
+pub type Extracteur = fn(&str) -> Vec<Vec<(String, String)>>;
 
-/// Complète un identifiant Salesforce de 15 caractères en 18.
+/// L'aiguillage : un nom de connecteur, l'extracteur de son adaptateur.
 ///
-/// **Le même enregistrement a deux écritures.** Les URL en portent une de dix-huit
-/// caractères, les APIs acceptent les deux, et certaines pages en affichent quinze.
-/// Sans cette conversion, le même dossier produirait deux candidates, donc deux
-/// entités, donc un graphe qui compte double.
-///
-/// Le suffixe encode la casse : trois blocs de cinq caractères, un bit par
-/// caractère majuscule, et chaque bloc de cinq bits donne une lettre.
-pub fn completer_identifiant(id15: &str) -> Option<String> {
-    if id15.len() != 15 || !id15.bytes().all(|b| b.is_ascii_alphanumeric()) {
-        return None;
-    }
-    let octets = id15.as_bytes();
-    let mut sortie = id15.to_owned();
-    for bloc in 0..3 {
-        let mut index = 0_usize;
-        for position in 0..5 {
-            if octets[bloc * 5 + position].is_ascii_uppercase() {
-                index |= 1 << position;
-            }
-        }
-        sortie.push(ALPHABET_CONTROLE[index] as char);
-    }
-    Some(sortie)
-}
-
-/// Un identifiant de dix-huit caractères est-il cohérent ?
-///
-/// Son suffixe se recalcule à partir des quinze premiers. C'est ce qui distingue
-/// un vrai identifiant d'une chaîne de dix-huit caractères qui lui ressemble —
-/// et il y en a partout dans une interface.
-pub fn identifiant_coherent(id18: &str) -> bool {
-    id18.len() == 18
-        && completer_identifiant(&id18[..15])
-            .is_some_and(|attendu| attendu.eq_ignore_ascii_case(id18))
-}
-
-/// Normalise un identifiant Salesforce vers sa forme de dix-huit caractères.
-///
-/// Rend `None` pour tout ce qui n'est pas un identifiant : c'est le bon sens de
-/// l'erreur. Une candidate en moins est un trou qui se voit ; une candidate de
-/// trop est un faux dossier qui ne se voit pas.
-pub fn normaliser_identifiant_crm(brut: &str) -> Option<String> {
-    match brut.len() {
-        15 => completer_identifiant(brut),
-        18 if identifiant_coherent(brut) => Some(brut.to_owned()),
+/// C'est le **seul** endroit qui associe un nom à du code, et il ne décide de
+/// rien : le nom vient de `terrain.json`. Un connecteur que ce binaire ne connaît
+/// pas rend `None`, et l'appelant le dit — plutôt que de tomber en silence sur
+/// celui d'à côté.
+pub fn extracteur(connecteur: &str) -> Option<Extracteur> {
+    match connecteur {
+        crate::salesforce::CONNECTEUR => Some(crate::salesforce::cles_du_texte),
+        crate::gmail::CONNECTEUR => Some(crate::gmail::cles_du_texte),
         _ => None,
     }
 }
 
-/// Cherche un identifiant d'enregistrement dans une URL Lightning.
+/// Les candidates qu'un texte vu à l'écran fait apparaître, pour ce terrain.
 ///
-/// La forme visée est `/lightning/r/<Objet>/<Id>/view`. On ne cherche **pas** un
-/// identifiant isolé dans un libellé : dix-huit caractères alphanumériques, ça se
-/// trouve dans n'importe quelle interface, et le suffixe de contrôle ne suffirait
-/// pas à écarter toutes les coïncidences.
-fn identifiants_lightning(texte: &str) -> Vec<String> {
-    let mut trouves = Vec::new();
-    for depart in indices_de(texte, "/lightning/r/") {
-        let reste = &texte[depart + "/lightning/r/".len()..];
-        let mut morceaux = reste.split('/');
-        let (Some(_objet), Some(brut)) = (morceaux.next(), morceaux.next()) else {
+/// L'ordre est celui des connecteurs déclarés : le CRM d'abord, la messagerie
+/// ensuite. Deux lectures du même texte rendent la même liste — une candidate
+/// dont l'ordre varie deviendrait deux candidates au fil des épisodes.
+pub fn candidates_du_texte(texte: &str, terrain: &Terrain) -> Vec<Candidate> {
+    let mut sorties = Vec::new();
+    for connecteur in terrain.connecteurs() {
+        let Some(extraire) = extracteur(connecteur) else {
             continue;
         };
-        if let Some(id) = normaliser_identifiant_crm(segment(brut)) {
-            if !trouves.contains(&id) {
-                trouves.push(id);
-            }
+        for cles in extraire(texte) {
+            sorties.push(Candidate {
+                connecteur: connecteur.to_owned(),
+                cles,
+            });
         }
     }
-    trouves
-}
-
-/// Cherche un identifiant de fil dans une URL Gmail.
-///
-/// La forme visée est `mail.google.com/mail/u/<n>/#<boite>/<fil>`, où le fil est
-/// une suite hexadécimale d'au moins seize caractères.
-fn identifiants_fils(texte: &str) -> Vec<String> {
-    let mut trouves = Vec::new();
-    for depart in indices_de(texte, "mail.google.com/") {
-        // Borné à l'URL : sans ça, un `#` situé bien plus loin dans le texte
-        // serait pris pour la partie fragment de CETTE adresse.
-        let reste = &texte[depart..];
-        let reste = &reste[..reste.find(char::is_whitespace).unwrap_or(reste.len())];
-        let Some(diese) = reste.find('#') else {
-            continue;
-        };
-        // Après le dièse : `<boite>/<fil>`, puis éventuellement autre chose.
-        let apres = &reste[diese + 1..];
-        let fin = apres
-            .find(|c: char| c.is_whitespace() || c == '"' || c == '?')
-            .unwrap_or(apres.len());
-        let mut morceaux = apres[..fin].split('/');
-        let (Some(_boite), Some(fil)) = (morceaux.next(), morceaux.next()) else {
-            continue;
-        };
-        let fil = segment(fil);
-        if fil.len() >= 16 && fil.bytes().all(|b| b.is_ascii_hexdigit()) {
-            let fil = fil.to_owned();
-            if !trouves.contains(&fil) {
-                trouves.push(fil);
-            }
-        }
-    }
-    trouves
+    sorties
 }
 
 /// Coupe un segment d'URL à ce qui ne peut plus en faire partie.
@@ -190,7 +123,7 @@ fn identifiants_fils(texte: &str) -> Vec<String> {
 /// espace, d'un guillemet, d'un point d'interrogation. Sans cette coupe, un
 /// identifiant suivi d'un mot avait la mauvaise longueur et l'entité disparaissait
 /// en silence — le pire des échecs, parce qu'il ressemble à « rien à voir ici ».
-fn segment(brut: &str) -> &str {
+pub fn segment(brut: &str) -> &str {
     let fin = brut
         .find(|c: char| !c.is_ascii_alphanumeric())
         .unwrap_or(brut.len());
@@ -198,7 +131,7 @@ fn segment(brut: &str) -> &str {
 }
 
 /// Toutes les positions d'une aiguille dans une botte de foin.
-fn indices_de(texte: &str, aiguille: &str) -> Vec<usize> {
+pub fn indices_de(texte: &str, aiguille: &str) -> Vec<usize> {
     let mut positions = Vec::new();
     let mut depuis = 0;
     while let Some(i) = texte[depuis..].find(aiguille) {
@@ -217,7 +150,7 @@ fn indices_de(texte: &str, aiguille: &str) -> Vec<usize> {
 ///
 /// La normalisation est celle de `normaliserIdentifiant('email_token')` :
 /// `trim` puis minuscules.
-fn courriels(texte: &str) -> Vec<String> {
+pub fn courriels(texte: &str) -> Vec<String> {
     let normalise = motifs::normaliser_blancs(texte);
     let mut trouves = Vec::new();
     for occurrence in motifs::chercher(texte) {
@@ -235,215 +168,125 @@ fn courriels(texte: &str) -> Vec<String> {
     trouves
 }
 
-/// Les candidates qu'un texte vu à l'écran fait apparaître.
-///
-/// L'ordre est celui de la force des clés : d'abord les identifiants système,
-/// ensuite les courriels. Deux lectures du même texte rendent la même liste —
-/// une candidate dont l'ordre varie deviendrait deux candidates au fil des
-/// épisodes.
-pub fn candidates_du_texte(texte: &str) -> Vec<Candidate> {
-    let mut sorties = Vec::new();
-
-    for id in identifiants_lightning(texte) {
-        sorties.push(Candidate {
-            connecteur: CONNECTEUR_CRM.to_owned(),
-            cles: vec![("system_id".to_owned(), id)],
-        });
-    }
-    for fil in identifiants_fils(texte) {
-        sorties.push(Candidate {
-            connecteur: CONNECTEUR_COURRIEL.to_owned(),
-            cles: vec![("system_id".to_owned(), fil)],
-        });
-    }
-    for adresse in courriels(texte) {
-        // Une adresse désigne une **personne**, donc un dossier dans le CRM.
-        // Elle ne désigne pas un fil : « le fil de jean@ex.com » veut dire tous
-        // ses fils, ce qui est une ambiguïté par construction.
-        sorties.push(Candidate {
-            connecteur: CONNECTEUR_CRM.to_owned(),
-            cles: vec![("email_token".to_owned(), adresse)],
-        });
-    }
-    sorties
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // -- Les identifiants Salesforce ---------------------------------------
-
-    #[test]
-    fn un_identifiant_de_quinze_se_complete_en_dix_huit() {
-        // Le même enregistrement a deux ecritures. Sans cette conversion, le
-        // meme dossier produirait deux candidates, donc deux entites, donc un
-        // graphe qui compte double.
-        assert_eq!(
-            completer_identifiant("0035g00000LmT4E").as_deref(),
-            Some("0035g00000LmT4EAAV")
-        );
-        assert_eq!(
-            completer_identifiant("00Q5g00000AbCdE").as_deref(),
-            Some("00Q5g00000AbCdEEAV")
-        );
+    fn terrain(json: serde_json::Value) -> Terrain {
+        Terrain::analyser(&json.to_string()).expect("terrain")
     }
 
-    #[test]
-    fn les_deux_ecritures_du_meme_enregistrement_convergent() {
-        assert_eq!(
-            normaliser_identifiant_crm("0035g00000LmT4E"),
-            normaliser_identifiant_crm("0035g00000LmT4EAAV")
-        );
+    fn terrain_complet() -> Terrain {
+        terrain(serde_json::json!({"crm": "salesforce", "mail": "gmail"}))
     }
 
-    #[test]
-    fn une_chaine_de_dix_huit_caracteres_n_est_pas_un_identifiant() {
-        // Dix-huit caracteres alphanumeriques, ca se trouve partout dans une
-        // interface. Le suffixe de controle est ce qui les distingue.
-        assert!(!identifiant_coherent("ABCDEFGHIJKLMNOPQR"));
-        assert_eq!(normaliser_identifiant_crm("ABCDEFGHIJKLMNOPQR"), None);
-        assert_eq!(normaliser_identifiant_crm("trop-court"), None);
-        assert_eq!(normaliser_identifiant_crm(""), None);
-    }
+    const URL_FICHE: &str = "/lightning/r/Contact/0035g00000LmT4EAAV/view";
+    const URL_FIL: &str = "https://mail.google.com/mail/u/0/#inbox/18f0c1a2b3c4d5e6";
 
     #[test]
-    fn la_casse_d_un_identifiant_est_significative() {
-        // `normaliserIdentifiant('system_id')` ne touche pas a la casse cote
-        // TypeScript : elle porte le suffixe de controle, donc de l'information.
-        let a = normaliser_identifiant_crm("0035g00000LmT4E").unwrap();
-        let b = normaliser_identifiant_crm("0035G00000LMT4E").unwrap();
-        assert_ne!(a, b, "deux enregistrements differents");
-    }
-
-    // -- L'extraction -------------------------------------------------------
-
-    #[test]
-    fn une_url_lightning_donne_une_candidate_crm() {
-        let texte =
-            "https://monorg.lightning.force.com/lightning/r/Contact/0035g00000LmT4EAAV/view";
-        let c = candidates_du_texte(texte);
+    fn une_fiche_va_au_crm_que_le_terrain_declare() {
+        let c = candidates_du_texte(URL_FICHE, &terrain_complet());
         assert_eq!(c.len(), 1, "{c:?}");
         assert_eq!(c[0].connecteur, "salesforce");
-        assert_eq!(
-            c[0].cles,
-            vec![("system_id".to_owned(), "0035g00000LmT4EAAV".to_owned())]
-        );
+        assert_eq!(c[0].cles[0].0, "system_id");
     }
 
     #[test]
-    fn une_url_lightning_en_quinze_caracteres_donne_la_meme_candidate() {
-        let long = candidates_du_texte("/lightning/r/Contact/0035g00000LmT4EAAV/view");
-        let court = candidates_du_texte("/lightning/r/Contact/0035g00000LmT4E/view");
-        assert_eq!(long, court);
-    }
-
-    #[test]
-    fn une_url_lightning_sans_identifiant_valable_ne_donne_rien() {
-        // Le bon sens de l'erreur : une candidate en moins est un trou qui se
-        // voit, une candidate de trop est un faux dossier qui ne se voit pas.
-        assert!(candidates_du_texte("/lightning/r/Contact/new").is_empty());
-        assert!(candidates_du_texte("/lightning/r/Contact/").is_empty());
-        assert!(candidates_du_texte("/lightning/o/Contact/list").is_empty());
-    }
-
-    #[test]
-    fn une_url_de_fil_gmail_donne_une_candidate_de_messagerie() {
-        let texte = "https://mail.google.com/mail/u/0/#inbox/18f0c1a2b3c4d5e6";
-        let c = candidates_du_texte(texte);
+    fn un_fil_va_a_la_messagerie_que_le_terrain_declare() {
+        let c = candidates_du_texte(URL_FIL, &terrain_complet());
         assert_eq!(c.len(), 1, "{c:?}");
         assert_eq!(c[0].connecteur, "gmail");
-        assert_eq!(
-            c[0].cles,
-            vec![("system_id".to_owned(), "18f0c1a2b3c4d5e6".to_owned())]
-        );
     }
 
     #[test]
-    fn une_url_suivie_d_un_mot_donne_quand_meme_sa_candidate() {
-        // Une URL lue a l'ecran n'est presque jamais seule. Sans la coupe,
-        // l'identifiant avait la mauvaise longueur et l'entite disparaissait en
-        // silence — le pire des echecs, parce qu'il ressemble a « rien a voir ».
-        let c = candidates_du_texte("Ouvrir /lightning/r/Contact/0035g00000LmT4EAAV maintenant");
-        assert_eq!(c.len(), 1, "{c:?}");
-        assert_eq!(c[0].cles[0].1, "0035g00000LmT4EAAV");
-
-        let f = candidates_du_texte("https://mail.google.com/mail/u/0/#inbox/18f0c1a2b3c4d5e6 lu");
-        assert_eq!(f.len(), 1, "{f:?}");
-        assert_eq!(f[0].cles[0].1, "18f0c1a2b3c4d5e6");
+    fn un_terrain_sans_messagerie_ne_produit_pas_de_candidate_de_fil() {
+        // R1.1 : le choix vient du fichier. Retirer la messagerie du terrain
+        // suffit a ce que plus rien n'aille la chercher.
+        let sans_mail = terrain(serde_json::json!({"crm": "salesforce"}));
+        assert!(candidates_du_texte(URL_FIL, &sans_mail).is_empty());
+        assert_eq!(candidates_du_texte(URL_FICHE, &sans_mail).len(), 1);
     }
 
     #[test]
-    fn un_diese_plus_loin_dans_le_texte_n_est_pas_le_fragment_de_l_url() {
-        // Borner a l'URL : sinon le `#` d'une phrase suivante devient la partie
-        // fragment de CETTE adresse, et l'entite est fausse.
-        assert!(candidates_du_texte(
-            "https://mail.google.com/mail/u/0/ puis #inbox/18f0c1a2b3c4d5e6"
-        )
-        .is_empty());
+    fn un_connecteur_inconnu_de_ce_binaire_ne_tombe_pas_sur_le_voisin() {
+        // Un terrain peut nommer un CRM que cette version ne sait pas parler.
+        // Tomber en silence sur celui d'a cote donnerait des candidates fausses.
+        let hubspot = terrain(serde_json::json!({"crm": "hubspot", "mail": "gmail"}));
+        let c = candidates_du_texte(URL_FICHE, &hubspot);
+        assert!(c.is_empty(), "{c:?}");
+        assert!(extracteur("hubspot").is_none());
     }
 
     #[test]
-    fn une_boite_gmail_sans_fil_ouvert_ne_donne_rien() {
-        assert!(candidates_du_texte("https://mail.google.com/mail/u/0/#inbox").is_empty());
-        // Un identifiant trop court n'est pas un fil.
-        assert!(candidates_du_texte("https://mail.google.com/mail/u/0/#inbox/1234").is_empty());
-        // Ni une suite non hexadecimale.
-        assert!(
-            candidates_du_texte("https://mail.google.com/mail/u/0/#inbox/zzzzzzzzzzzzzzzz")
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn une_adresse_lue_a_l_ecran_designe_une_personne_dans_le_crm() {
-        // Elle ne designe PAS un fil : « le fil de jean@ex.com » veut dire tous
-        // ses fils, ce qui est une ambiguite par construction.
-        let c = candidates_du_texte("De : Jean Dupont <Jean.Dupont@Exemple.FR>");
-        assert_eq!(c.len(), 1, "{c:?}");
-        assert_eq!(c[0].connecteur, "salesforce");
-        assert_eq!(
-            c[0].cles,
-            vec![(
-                "email_token".to_owned(),
-                "jean.dupont@exemple.fr".to_owned()
-            )]
-        );
-    }
-
-    #[test]
-    fn deux_graphies_d_une_adresse_ne_font_qu_une_candidate() {
-        let c = candidates_du_texte("Jean.Dupont@Exemple.FR et jean.dupont@exemple.fr");
-        assert_eq!(c.len(), 1, "{c:?}");
-    }
-
-    #[test]
-    fn les_candidates_sortent_dans_l_ordre_de_force_des_cles() {
+    fn le_crm_passe_avant_la_messagerie() {
         // Deux lectures du meme texte doivent rendre la meme liste : une
         // candidate dont l'ordre varie deviendrait deux candidates au fil des
         // episodes.
-        let texte = "jean@ex.com — /lightning/r/Contact/0035g00000LmT4EAAV/view";
-        let c = candidates_du_texte(texte);
+        let texte = format!("{URL_FIL} et {URL_FICHE}");
+        let c = candidates_du_texte(&texte, &terrain_complet());
         assert_eq!(c.len(), 2, "{c:?}");
-        assert_eq!(c[0].cles[0].0, "system_id");
-        assert_eq!(c[1].cles[0].0, "email_token");
-        assert_eq!(c, candidates_du_texte(texte), "deux lectures divergent");
+        assert_eq!(c[0].connecteur, "salesforce");
+        assert_eq!(c[1].connecteur, "gmail");
+        assert_eq!(c, candidates_du_texte(&texte, &terrain_complet()));
     }
 
     #[test]
-    fn un_texte_ordinaire_ne_produit_aucune_candidate() {
-        // Pas de « nom qui ressemble a », pas de numero a sept chiffres.
-        assert!(candidates_du_texte("Enregistrer").is_empty());
-        assert!(candidates_du_texte("Devis 2026-014 pour Dupont SARL").is_empty());
-        assert!(candidates_du_texte("").is_empty());
+    fn une_adresse_lue_a_l_ecran_ne_va_qu_au_crm() {
+        // Elle designe une personne. « Le fil de jean@ex.com » designerait tous
+        // ses fils, ce qui est une ambiguite par construction.
+        let c = candidates_du_texte(
+            "De : Jean Dupont <Jean.Dupont@Exemple.FR>",
+            &terrain_complet(),
+        );
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].connecteur, "salesforce");
+        assert_eq!(c[0].cles[0].1, "jean.dupont@exemple.fr");
     }
 
     #[test]
     fn la_cle_de_reference_est_la_premiere() {
-        let c = candidates_du_texte("/lightning/r/Lead/00Q5g00000AbCdEEAV/view");
+        let c = candidates_du_texte(URL_FICHE, &terrain_complet());
         assert_eq!(
             c[0].cle_de_reference().map(|(g, _)| g.as_str()),
             Some("system_id")
+        );
+    }
+
+    #[test]
+    fn les_cles_routees_portent_la_destination_en_tete() {
+        let c = candidates_du_texte(URL_FICHE, &terrain_complet());
+        let routees = c[0].cles_routees();
+        assert_eq!(routees[0].0, crate::federation::CLE_CONNECTEUR);
+        assert_eq!(routees[0].1, "salesforce");
+        assert_eq!(routees.len(), 2);
+    }
+
+    #[test]
+    fn un_texte_ordinaire_ne_produit_aucune_candidate() {
+        let t = terrain_complet();
+        assert!(candidates_du_texte("Enregistrer", &t).is_empty());
+        assert!(candidates_du_texte("Devis 2026-014 pour Dupont SARL", &t).is_empty());
+        assert!(candidates_du_texte("", &t).is_empty());
+    }
+
+    // -- Les outils partages ------------------------------------------------
+
+    #[test]
+    fn un_segment_s_arrete_a_ce_qui_ne_peut_pas_en_faire_partie() {
+        assert_eq!(
+            segment("0035g00000LmT4EAAV maintenant"),
+            "0035g00000LmT4EAAV"
+        );
+        assert_eq!(segment("18f0c1?x=1"), "18f0c1");
+        assert_eq!(segment("abc"), "abc");
+        assert_eq!(segment(" abc"), "");
+    }
+
+    #[test]
+    fn deux_graphies_d_une_adresse_ne_font_qu_une() {
+        assert_eq!(
+            courriels("Jean.Dupont@Exemple.FR et jean.dupont@exemple.fr"),
+            vec!["jean.dupont@exemple.fr"]
         );
     }
 
@@ -457,6 +300,6 @@ mod tests {
             .into_iter()
             .filter(|o| o.type_pii == "EMAIL")
             .count();
-        assert_eq!(vues, candidates_du_texte(texte).len());
+        assert_eq!(vues, courriels(texte).len());
     }
 }

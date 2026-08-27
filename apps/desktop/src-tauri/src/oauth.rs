@@ -477,7 +477,22 @@ impl EcouteurRetour {
                 self.ecouteur.set_nonblocking(true)?;
                 loop {
                     match self.ecouteur.accept() {
-                        Ok((flux, _)) => return Ok(flux),
+                        Ok((flux, _)) => {
+                            // **La socket acceptée hérite du non-bloquant de
+                            // l'écouteur.** Sans ce retour au bloquant, la
+                            // lecture rend `WouldBlock` dès que les octets du
+                            // navigateur ne sont pas déjà arrivés — et le délai
+                            // de lecture posé plus bas ne s'applique pas à une
+                            // socket non bloquante, donc il ne rattrape rien.
+                            //
+                            // En production, l'écart entre la connexion et la
+                            // requête est plus grand qu'ici : le défaut mordait
+                            // donc PLUS souvent sur un vrai navigateur, et il se
+                            // serait lu « la connexion ne marche pas », sans
+                            // rien pour dire pourquoi.
+                            flux.set_nonblocking(false)?;
+                            return Ok(flux);
+                        }
                         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                             if debut.elapsed() >= delai_max {
                                 return Err(std::io::Error::new(
@@ -914,6 +929,36 @@ mod tests {
         assert_eq!(fil.join().unwrap(), Retour::Code("LECODE".into()));
         assert!(reponse.starts_with("HTTP/1.1 200"), "{reponse}");
         assert!(reponse.contains("fermer cet onglet"), "{reponse}");
+    }
+
+    #[test]
+    fn un_navigateur_qui_prend_son_temps_a_envoyer_sa_requete_est_servi() {
+        use std::io::{Read, Write};
+
+        // Le navigateur ouvre la connexion, puis envoie sa requete un instant
+        // plus tard — ce qui est le cas normal. La socket acceptee heritait du
+        // non-bloquant de l'ecouteur, donc la lecture rendait WouldBlock tout de
+        // suite et le retour etait refuse pour rien.
+        let e = EcouteurRetour::ouvrir().unwrap();
+        let port = e.port();
+        let fil = std::thread::spawn(move || e.attendre(std::time::Duration::from_secs(5), "ETAT"));
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let mut flux = std::net::TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
+        // L'ecart que le defaut ne supportait pas.
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        flux.write_all(
+            b"GET /cb?code=LECODE&state=ETAT HTTP/1.1
+Host: x
+
+",
+        )
+        .unwrap();
+        let mut reponse = String::new();
+        let _ = flux.read_to_string(&mut reponse);
+
+        assert_eq!(fil.join().unwrap(), Retour::Code("LECODE".into()));
+        assert!(reponse.starts_with("HTTP/1.1 200"), "{reponse}");
     }
 
     #[test]

@@ -1141,3 +1141,95 @@ mod tests_adaptateur {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// R1.1 — ce que cet adaptateur reconnaît de lui-même dans un texte.
+// ---------------------------------------------------------------------------
+
+/// Les jeux de clés que ce connecteur reconnaît dans un texte vu à l'écran.
+///
+/// **Seulement des identifiants de fil**, lus dans une URL de la forme
+/// `mail.google.com/mail/u/<n>/#<boîte>/<fil>` où le fil est une suite
+/// hexadécimale d'au moins seize caractères.
+///
+/// Pas d'adresse de courriel, et c'est le point : « le fil de jean@ex.com »
+/// désigne tous les fils où cette personne est jamais apparue. C'est une
+/// ambiguïté par construction, et R2.2 interdit de trancher entre eux. Le rôle
+/// du courriel ici est **inverse** — c'est ce connecteur qui *fournit* la clé
+/// qui résoudra le contact dans le CRM (`cles_du_fil`), pas l'inverse.
+pub fn cles_du_texte(texte: &str) -> Vec<Vec<(String, String)>> {
+    let mut sorties = Vec::new();
+    let mut vus: Vec<String> = Vec::new();
+
+    for depart in crate::candidates::indices_de(texte, "mail.google.com/") {
+        // Borné à l'URL : sans ça, un `#` situé bien plus loin dans le texte
+        // serait pris pour la partie fragment de CETTE adresse.
+        let reste = &texte[depart..];
+        let reste = &reste[..reste.find(char::is_whitespace).unwrap_or(reste.len())];
+        let Some(diese) = reste.find('#') else {
+            continue;
+        };
+        let mut morceaux = reste[diese + 1..].split('/');
+        let (Some(_boite), Some(fil)) = (morceaux.next(), morceaux.next()) else {
+            continue;
+        };
+        let fil = crate::candidates::segment(fil);
+        if fil.len() >= 16
+            && fil.bytes().all(|b| b.is_ascii_hexdigit())
+            && !vus.contains(&fil.to_owned())
+        {
+            vus.push(fil.to_owned());
+            sorties.push(vec![("system_id".to_owned(), fil.to_owned())]);
+        }
+    }
+    sorties
+}
+
+#[cfg(test)]
+mod tests_extraction {
+    use super::*;
+
+    #[test]
+    fn une_url_de_fil_donne_un_identifiant_systeme() {
+        assert_eq!(
+            cles_du_texte("https://mail.google.com/mail/u/0/#inbox/18f0c1a2b3c4d5e6"),
+            vec![vec![(
+                "system_id".to_owned(),
+                "18f0c1a2b3c4d5e6".to_owned()
+            )]]
+        );
+    }
+
+    #[test]
+    fn une_url_suivie_d_un_mot_donne_quand_meme_sa_candidate() {
+        let c = cles_du_texte("https://mail.google.com/mail/u/0/#inbox/18f0c1a2b3c4d5e6 lu");
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0][0].1, "18f0c1a2b3c4d5e6");
+    }
+
+    #[test]
+    fn un_diese_plus_loin_dans_le_texte_n_est_pas_le_fragment_de_l_url() {
+        // Borner a l'URL : sinon le `#` d'une phrase suivante devient la partie
+        // fragment de CETTE adresse, et l'entite est fausse.
+        assert!(
+            cles_du_texte("https://mail.google.com/mail/u/0/ puis #inbox/18f0c1a2b3c4d5e6")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn une_boite_sans_fil_ouvert_ne_donne_rien() {
+        assert!(cles_du_texte("https://mail.google.com/mail/u/0/#inbox").is_empty());
+        assert!(cles_du_texte("https://mail.google.com/mail/u/0/#inbox/1234").is_empty());
+        assert!(
+            cles_du_texte("https://mail.google.com/mail/u/0/#inbox/zzzzzzzzzzzzzzzz").is_empty()
+        );
+    }
+
+    #[test]
+    fn une_adresse_ne_resout_pas_un_fil() {
+        // « Le fil de jean@ex.com » designe tous les fils ou cette personne est
+        // jamais apparue : une ambiguite par construction.
+        assert!(cles_du_texte("De : Jean Dupont <jean@ex.com>").is_empty());
+    }
+}
