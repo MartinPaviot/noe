@@ -202,6 +202,14 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
             // gestes du precedent.
             *e.appariement.lock().expect("appariement empoisonne") =
                 presse_papiers::Appariement::nouveau();
+            // L'ANCIEN hook part d'abord, ARME ensuite, le nouveau en dernier.
+            //
+            // `*x = Some(poser())` evalue la droite puis droppe l'ancienne
+            // valeur — et `Drop for HookClavier` appelle `desarmer()`, qui
+            // effacait l'`armer()` de la ligne d'avant. L'episode suivant une
+            // cloture automatique demarrait donc avec ARME a faux et ne comptait
+            // aucun copier-coller, sans le moindre message.
+            drop(e.clavier.lock().expect("clavier empoisonne").take());
             HookClavier::armer();
             *e.clavier.lock().expect("clavier empoisonne") = Some(HookClavier::poser());
 
@@ -244,10 +252,23 @@ fn arreter<R: Runtime>(app: &AppHandle<R>) {
     // Le moteur se clot AVANT d'etre rendu : un delai d'inactivite deja expire
     // appartient a l'episode, et le laisser tomber perdrait un snapshot exige
     // par R2.3.
-    // Le hook clavier part en premier : desarme, il cesse de compter avant meme
-    // d etre retire, si bien qu aucune frappe ne peut se glisser entre les deux.
+    // Les gestes de la derniere seconde d'abord : le battement ne les a pas
+    // encore releves, et desarmer purge les compteurs. Sans ce drain, un Ctrl+V
+    // tape juste avant le hotkey de fin disparaitrait — un evenement muet, ce
+    // que R2.4 interdit.
+    let derniers = gestes_du_clavier(&e);
+    // Puis le hook : desarme, il cesse de compter avant meme d etre retire, si
+    // bien qu aucune frappe ne peut se glisser entre les deux.
     HookClavier::desarmer();
     drop(e.clavier.lock().expect("clavier empoisonne").take());
+    {
+        let mut m = e.moteur.lock().expect("moteur empoisonne");
+        if let Some(moteur) = m.as_mut() {
+            for ev in derniers {
+                moteur.traiter(ev);
+            }
+        }
+    }
 
     // Couper la source AVANT de clore : un evenement qui arriverait entre les
     // deux serait ecrit dans un episode deja termine, ce que R1.2 interdit.
@@ -527,6 +548,72 @@ fn sur_menu<R: Runtime>(app: &AppHandle<R>, id: &str) {
             }
         }
     }
+}
+
+/// D27 — les copies et les collages observes depuis le dernier battement.
+///
+/// Appelee UNIQUEMENT quand un episode est ouvert : la lecture du presse-papiers
+/// est le geste le plus intrusif du capteur, et R2.3 la borne a l'episode.
+///
+/// Les evenements rendus partent au moteur, qui decide de leur sort — dont le
+/// filtre de surface de R5.4. Ils n'y allaient pas : le vecteur etait construit,
+/// rempli, puis abandonne a la fin de l'iteration. `Declencheur::CopierColler`
+/// ne pouvait pas se produire en production, et on payait le cout vie privee de
+/// la lecture pour rien. Rust n'a rien dit — un `push` compte comme un usage.
+fn gestes_du_clavier(etat: &State<Etat>) -> Vec<RawEvent> {
+    let gestes = clavier::relever();
+    if gestes.rien() {
+        return Vec::new();
+    }
+    let pp = presse_papiers::PressePapiersWindows;
+    let maintenant = etat.horloge.monotone_ms();
+    // La surface de la frappe, pas celle du releve : le battement passe jusqu'a
+    // une seconde apres, et l'operateur a pu basculer entre-temps.
+    let surface_copie = uia::surface_de_fenetre(gestes.fenetre_copie);
+    let surface_collage = uia::surface_de_fenetre(gestes.fenetre_collage);
+    let liste = {
+        let c = etat.config.lock().expect("config empoisonnee");
+        c.surfaces.clone()
+    };
+    let mut evenements = Vec::new();
+    let mut a = etat.appariement.lock().expect("appariement empoisonne");
+
+    // R2.3 — LA lecture du presse-papiers. La regle vit dans
+    // `presse_papiers::lecture_autorisee`, ou elle se teste ; ici on l'applique.
+    //
+    // Une seule lecture par battement, quel que soit le nombre de copies : le
+    // presse-papiers ne contient qu'une chose.
+    if presse_papiers::lecture_autorisee(
+        gestes.copies,
+        surface_copie.as_deref(),
+        &liste,
+        u64::from(gestes.sequence_avant_copie),
+        presse_papiers::PressePapiers::sequence(&pp),
+    ) {
+        a.copie_observee(&pp);
+    }
+
+    for _ in 0..gestes.copies {
+        evenements.push(RawEvent {
+            source: source::Source::Uia,
+            monotone_ms: maintenant,
+            genre: source::GenreEvenement::Copie,
+            surface: surface_copie.clone(),
+        });
+    }
+    for _ in 0..gestes.collages {
+        // `coller` ne lit JAMAIS le contenu : il compare des numeros de
+        // sequence. Un collage dont la copie vient d'ailleurs est enregistre
+        // comme tel, et son contenu n'a jamais ete lu.
+        let apparie = matches!(a.coller(&pp), presse_papiers::Collage::Apparie { .. });
+        evenements.push(RawEvent {
+            source: source::Source::Uia,
+            monotone_ms: maintenant,
+            genre: source::GenreEvenement::Collage { apparie },
+            surface: surface_collage.clone(),
+        });
+    }
+    evenements
 }
 
 /// R5.4 — l'operateur active ou desactive une surface.
@@ -1010,44 +1097,7 @@ pub fn run() {
                         // la chronologie : le moteur date chaque evenement avec
                         // l'instant que la SOURCE lui a donne, pas avec celui de
                         // son arrivee.
-                        // D27 : les gestes du hook, releves au battement.
-                        //
-                        // La procedure de hook ne fait qu incrementer un compteur —
-                        // c est ici, hors du chemin critique du clavier, qu on lit
-                        // le presse-papiers et qu on apparie.
-                        let gestes = clavier::relever();
-                        let mut du_clavier: Vec<RawEvent> = Vec::new();
-                        if !gestes.rien() {
-                            let pp = presse_papiers::PressePapiersWindows;
-                            let maintenant = etat.horloge.monotone_ms();
-                            let mut a = etat.appariement.lock().expect("appariement empoisonne");
-                            for _ in 0..gestes.copies {
-                                a.copie_observee(&pp);
-                                du_clavier.push(RawEvent {
-                                    source: source::Source::Uia,
-                                    monotone_ms: maintenant,
-                                    genre: source::GenreEvenement::Copie,
-                                    // Le geste vient du clavier, pas d'une
-                                    // fenetre identifiee : la surface est celle
-                                    // qui a le focus au moment de la frappe.
-                                    surface: uia::surface_au_premier_plan(),
-                                });
-                            }
-                            for _ in 0..gestes.collages {
-                                let apparie = matches!(
-                                    a.coller(&pp),
-                                    presse_papiers::Collage::Apparie { .. }
-                                );
-                                du_clavier.push(RawEvent {
-                                    source: source::Source::Uia,
-                                    monotone_ms: maintenant,
-                                    genre: source::GenreEvenement::Collage { apparie },
-                                    surface: uia::surface_au_premier_plan(),
-                                });
-                            }
-                        }
-
-                        let arrives: Vec<RawEvent> = {
+                        let mut arrives: Vec<RawEvent> = {
                             let c = etat.capture.lock().expect("capture empoisonnee");
                             match c.as_ref() {
                                 Some((_, rx)) => rx.try_iter().collect(),
@@ -1058,6 +1108,20 @@ pub fn run() {
                             let mut m = etat.moteur.lock().expect("moteur empoisonne");
                             match m.as_mut() {
                                 Some(moteur) => {
+                                    // D27 : les gestes du hook, releves au
+                                    // battement. La procedure ne fait
+                                    // qu'incrementer un compteur — c'est ici,
+                                    // hors du chemin critique du clavier, qu'on
+                                    // lit le presse-papiers et qu'on apparie.
+                                    //
+                                    // **Dans la garde d'episode ouvert, et pas
+                                    // avant.** Ce bloc vivait en tete du
+                                    // battement : il ouvrait et lisait le
+                                    // presse-papiers meme sans episode, des
+                                    // qu'un compteur non purge trainait apres
+                                    // une cloture. R1.2 ne parle pas que du
+                                    // journal — hors episode, on ne lit rien.
+                                    arrives.extend(gestes_du_clavier(&etat));
                                     for ev in arrives {
                                         moteur.traiter(ev);
                                     }

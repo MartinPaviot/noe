@@ -69,6 +69,22 @@ static ARME: AtomicBool = AtomicBool::new(false);
 pub struct Gestes {
     pub copies: u64,
     pub collages: u64,
+    /// La fenêtre au premier plan **à l'instant de la frappe**, pas à celui du
+    /// relevé.
+    ///
+    /// Le battement passe jusqu'à une seconde après. Sans cette photo prise au
+    /// bon moment, une copie faite dans un gestionnaire de mots de passe puis
+    /// suivie d'une bascule vers le navigateur serait attribuée au navigateur —
+    /// donc autorisée, donc lue. R2.3 nomme ce cas.
+    pub fenetre_copie: isize,
+    /// Le numéro de séquence du presse-papiers **avant** cette copie.
+    ///
+    /// S'il n'a pas bougé au moment du relevé, le `Ctrl+C` n'a rien copié : une
+    /// console où il vaut interruption, une sélection vide. Sans cette
+    /// vérification, on s'approprierait ce qui traînait dans le presse-papiers —
+    /// le mot de passe copié trente secondes plus tôt.
+    pub sequence_avant_copie: u32,
+    pub fenetre_collage: isize,
 }
 
 impl Gestes {
@@ -82,8 +98,50 @@ pub fn relever() -> Gestes {
     Gestes {
         copies: COPIES.swap(0, Ordering::SeqCst),
         collages: COLLAGES.swap(0, Ordering::SeqCst),
+        fenetre_copie: FENETRE_COPIE.swap(0, Ordering::SeqCst),
+        sequence_avant_copie: SEQUENCE_AVANT_COPIE.swap(0, Ordering::SeqCst),
+        fenetre_collage: FENETRE_COLLAGE.swap(0, Ordering::SeqCst),
     }
 }
+
+/// Où la frappe a eu lieu, et ce que valait le presse-papiers avant elle.
+///
+/// Trois entiers, écrits depuis la procédure de hook. Des atomiques et non un
+/// verrou : la procédure d'un hook bas niveau est sur le chemin critique du
+/// clavier de tout le poste, et un verrou contesté y ferait bégayer la frappe.
+///
+/// Le dernier écrivain gagne. C'est le sens prudent : deux copies dans la même
+/// seconde laissent la fenêtre de la seconde, et si celle-là n'est pas
+/// autorisée, on refuse aussi la première. On perd un appariement, on ne fuit
+/// rien.
+static FENETRE_COPIE: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+static SEQUENCE_AVANT_COPIE: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+static FENETRE_COLLAGE: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+/// Note où la frappe a eu lieu. Production seulement : sans bureau, il n'y a pas
+/// de fenêtre au premier plan.
+#[cfg(not(test))]
+fn situer(geste: Geste) {
+    use windows::Win32::System::DataExchange::GetClipboardSequenceNumber;
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+    // SAFETY : deux lectures d'état global, sans allocation ni poignée à
+    // relâcher. Appelées depuis la procédure de hook, où tout doit être bref.
+    unsafe {
+        let fenetre = GetForegroundWindow().0 as isize;
+        match geste {
+            Geste::Copie => {
+                FENETRE_COPIE.store(fenetre, Ordering::SeqCst);
+                SEQUENCE_AVANT_COPIE.store(GetClipboardSequenceNumber(), Ordering::SeqCst);
+            }
+            Geste::Collage => FENETRE_COLLAGE.store(fenetre, Ordering::SeqCst),
+        }
+    }
+}
+
+#[cfg(test)]
+fn situer(_geste: Geste) {}
 
 /// Enregistre un geste. Appelée par la procédure de hook, et par les tests.
 fn compter(geste: Geste) {
@@ -94,6 +152,10 @@ fn compter(geste: Geste) {
         Geste::Copie => COPIES.fetch_add(1, Ordering::SeqCst),
         Geste::Collage => COLLAGES.fetch_add(1, Ordering::SeqCst),
     };
+    // Où, et dans quel état était le presse-papiers. Le compteur seul ne dit que
+    // « quelqu'un a tapé Ctrl+C quelque part sur le poste » — c'est trop peu
+    // pour autoriser une lecture.
+    situer(geste);
 }
 
 /// Le hook posé, à relâcher pour le retirer.
@@ -105,6 +167,19 @@ fn compter(geste: Geste) {
 pub struct HookClavier {
     #[cfg(not(test))]
     fin: Option<std::sync::mpsc::Sender<()>>,
+    /// L'identifiant du fil qui porte le hook.
+    ///
+    /// Sans lui, `Drop` n'avait personne a reveiller : il postait `WM_QUIT` sur
+    /// le fil `0`, qui n'existe pas — `PostThreadMessage` n'a aucune semantique
+    /// de diffusion, contrairement a `HWND_BROADCAST` de `PostMessage`. L'appel
+    /// echouait, le resultat etait jete, le fil restait endormi dans
+    /// `GetMessageW` et `UnhookWindowsHookEx` n'etait jamais atteint. Un hook de
+    /// plus par episode, tous chaines sur la meme procedure : au troisieme
+    /// episode d'une session, un seul Ctrl+V comptait trois collages.
+    #[cfg(not(test))]
+    fil_id: u32,
+    #[cfg(not(test))]
+    fil: Option<std::thread::JoinHandle<()>>,
 }
 
 impl HookClavier {
@@ -149,11 +224,16 @@ impl HookClavier {
         }
 
         let (fin, attendre_fin) = std::sync::mpsc::channel::<()>();
+        // Le fil annonce son identifiant une fois le hook pose. `poser` attend
+        // cette annonce : sans elle, l'episode se declarerait ouvert avant que
+        // le hook existe, et `Drop` n'aurait personne a reveiller s'il tombait
+        // dans l'intervalle.
+        let (dire_id, savoir_id) = std::sync::mpsc::channel::<Option<u32>>();
 
         // Un hook bas niveau exige une boucle de messages dans le thread qui
         // l'installe : sans elle, Windows le considère comme non répondant et
         // le retire de lui-même au bout de quelques instants.
-        std::thread::Builder::new()
+        let fil = std::thread::Builder::new()
             .name("noe-clavier".into())
             .spawn(move || {
                 // SAFETY : `procedure` a la signature imposée ; `None` pour le
@@ -164,9 +244,14 @@ impl HookClavier {
                     Ok(h) => h,
                     Err(e) => {
                         eprintln!("[noe] hook clavier refuse : {e} — le collage ne sera pas vu");
+                        let _ = dire_id.send(None);
                         return;
                     }
                 };
+                // SAFETY : lecture d'un entier propre au fil courant.
+                let _ = dire_id.send(Some(unsafe {
+                    windows::Win32::System::Threading::GetCurrentThreadId()
+                }));
                 eprintln!("[noe] hook clavier pose (4 combinaisons surveillees)");
 
                 let mut msg = MSG::default();
@@ -192,7 +277,23 @@ impl HookClavier {
             })
             .ok();
 
-        Self { fin: Some(fin) }
+        // Deux secondes suffisent largement a poser un hook ; au-dela, quelque
+        // chose ne va pas et il vaut mieux un episode sans detection de collage
+        // qu'un demarrage bloque.
+        let fil_id = savoir_id
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .ok()
+            .flatten()
+            .unwrap_or(0);
+        if fil_id == 0 {
+            eprintln!("[noe] hook clavier : aucun fil identifie, le collage ne sera pas vu");
+        }
+
+        Self {
+            fin: Some(fin),
+            fil_id,
+            fil,
+        }
     }
 
     /// En test, aucun hook n'est posé : c'est la logique qui est vérifiée.
@@ -211,8 +312,20 @@ impl HookClavier {
     /// Désarme. À la clôture — la procédure cesse de compter avant même que le
     /// hook ne soit retiré, si bien qu'aucune frappe ne peut se glisser entre
     /// les deux.
+    ///
+    /// **Et purge les compteurs.** Seul `armer()` le faisait, à l'ouverture
+    /// suivante : un Ctrl+C tapé deux cents millisecondes avant le hotkey de fin
+    /// laissait le compteur à un, et le battement suivant — jusqu'à une seconde
+    /// après la clôture — ouvrait le presse-papiers et le lisait, hors épisode.
+    /// R1.2 dit que rien n'entre après la clôture ; il n'y avait rien qui
+    /// entrait au journal, mais il y avait bien une lecture.
     pub fn desarmer() {
         ARME.store(false, Ordering::SeqCst);
+        COPIES.store(0, Ordering::SeqCst);
+        COLLAGES.store(0, Ordering::SeqCst);
+        FENETRE_COPIE.store(0, Ordering::SeqCst);
+        SEQUENCE_AVANT_COPIE.store(0, Ordering::SeqCst);
+        FENETRE_COLLAGE.store(0, Ordering::SeqCst);
     }
 }
 
@@ -220,24 +333,40 @@ impl Drop for HookClavier {
     fn drop(&mut self) {
         Self::desarmer();
         #[cfg(not(test))]
-        if let Some(fin) = self.fin.take() {
-            let _ = fin.send(());
+        {
+            if let Some(fin) = self.fin.take() {
+                let _ = fin.send(());
+            }
             // Réveille la boucle de messages, qui dort dans `GetMessageW`.
             //
-            // Sans ce réveil, le thread resterait bloqué jusqu'à la prochaine
-            // frappe du poste — et le hook avec lui, alors que l'épisode est
-            // clos. C'est exactement le genre de survie silencieuse que R1.2
-            // interdit.
-            unsafe {
-                use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
-                // Le thread se nomme, mais Windows veut son identifiant : on
-                // poste sur tous les threads de la file en dernier recours.
-                let _ = PostThreadMessageW(
-                    0,
-                    WM_QUIT,
-                    windows::Win32::Foundation::WPARAM(0),
-                    windows::Win32::Foundation::LPARAM(0),
-                );
+            // Sur SON identifiant de fil, obtenu par `GetCurrentThreadId` à
+            // l'installation. La version précédente postait sur le fil `0` en
+            // croyant à une diffusion : `PostThreadMessage` n'en a pas, l'appel
+            // échouait avec `ERROR_INVALID_THREAD_ID`, et le `let _ =` l'avalait.
+            // Le fil restait endormi, `UnhookWindowsHookEx` n'était jamais
+            // atteint, et chaque épisode ajoutait un hook à la chaîne.
+            if self.fil_id != 0 {
+                // SAFETY : poste un message sur une file de fil ; aucun pointeur
+                // n'est transmis.
+                unsafe {
+                    use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+                    if let Err(e) = PostThreadMessageW(
+                        self.fil_id,
+                        WM_QUIT,
+                        windows::Win32::Foundation::WPARAM(0),
+                        windows::Win32::Foundation::LPARAM(0),
+                    ) {
+                        eprintln!("[noe] reveil du fil clavier refuse : {e}");
+                    }
+                }
+            }
+            // Et on l'attend. « Le hook est retiré » doit être une garantie, pas
+            // un espoir : sans jointure, l'épisode suivant peut s'ouvrir pendant
+            // que l'ancien hook est encore dans la chaîne.
+            if let Some(fil) = self.fil.take() {
+                if fil.join().is_err() {
+                    eprintln!("[noe] le fil clavier s est termine en panique");
+                }
             }
         }
     }
@@ -245,6 +374,18 @@ impl Drop for HookClavier {
 
 #[cfg(test)]
 mod tests {
+    /// Les tests de ce module partagent COPIES, COLLAGES et ARME — des
+    /// statiques de processus. En parallele, ils se marchent dessus : un test
+    /// arme pendant qu'un autre desarme, et le rouge tombe sur le mauvais.
+    /// Un banc qui varie ne prouve rien, et D21 en fait un rouge.
+    static BANC: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Prend le banc. Un test qui panique empoisonne le verrou ; on reprend la
+    /// valeur plutot que de faire echouer tous les suivants pour la meme cause.
+    fn banc() -> std::sync::MutexGuard<'static, ()> {
+        BANC.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     use super::*;
 
     /// Les tests touchent des compteurs statiques : ils ne peuvent pas courir
@@ -305,6 +446,7 @@ mod tests {
 
     #[test]
     fn desarme_rien_n_est_compte() {
+        let _banc = banc();
         let _g = seul();
         HookClavier::desarmer();
         let _ = relever();
@@ -320,6 +462,7 @@ mod tests {
 
     #[test]
     fn arme_les_gestes_sont_comptes() {
+        let _banc = banc();
         let _g = seul();
         HookClavier::armer();
 
@@ -335,6 +478,7 @@ mod tests {
 
     #[test]
     fn relever_remet_les_compteurs_a_zero() {
+        let _banc = banc();
         // Sinon chaque battement re-signalerait les memes collages.
         let _g = seul();
         HookClavier::armer();
@@ -346,6 +490,7 @@ mod tests {
 
     #[test]
     fn armer_repart_de_zero() {
+        let _banc = banc();
         // Un episode ne doit pas heriter des gestes du precedent.
         let _g = seul();
         HookClavier::armer();
@@ -357,6 +502,7 @@ mod tests {
 
     #[test]
     fn relacher_le_hook_desarme() {
+        let _banc = banc();
         let _g = seul();
         HookClavier::armer();
         {
@@ -368,4 +514,38 @@ mod tests {
             "le hook relache doit cesser de compter, sans qu on ait a y penser"
         );
     }
+
+    #[test]
+    fn desarmer_purge_les_compteurs() {
+        let _banc = banc();
+        // Seul `armer()` les remettait a zero, a l'ouverture SUIVANTE. Un Ctrl+C
+        // tape deux cents millisecondes avant le hotkey de fin laissait le
+        // compteur a un, et le battement d'apres — jusqu'a une seconde apres la
+        // cloture — ouvrait le presse-papiers hors episode.
+        HookClavier::armer();
+        compter(Geste::Copie);
+        compter(Geste::Collage);
+        HookClavier::desarmer();
+        let apres = relever();
+        assert!(apres.rien(), "copies={} collages={}", apres.copies, apres.collages);
+    }
+
+    #[test]
+    fn le_drop_d_un_ancien_hook_ne_desarme_pas_le_nouveau() {
+        let _banc = banc();
+        // `*x = Some(poser())` evalue la droite PUIS droppe l'ancienne valeur, et
+        // `Drop` appelle `desarmer()`. L'episode qui suivait une cloture
+        // automatique demarrait donc avec ARME a faux et ne comptait aucun
+        // copier-coller, sans le moindre message. L'ordre correct — relacher,
+        // armer, poser — est celui qu'on fige ici.
+        let ancien = HookClavier::poser();
+        drop(ancien);
+        HookClavier::armer();
+        let nouveau = HookClavier::poser();
+        compter(Geste::Copie);
+        assert_eq!(relever().copies, 1, "le comptage doit etre arme");
+        drop(nouveau);
+        HookClavier::desarmer();
+    }
+
 }

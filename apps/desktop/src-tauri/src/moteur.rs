@@ -535,10 +535,27 @@ impl Moteur {
         }
         self.derniere_action = maintenant;
 
-        if let Some(cible) = ev.genre.cible() {
+        // Une copie et un collage n'ont pas de cible : ce sont des gestes du
+        // poste, pas des actions sur un element identifie. Les ecrire quand
+        // meme est la lettre de R2.3 — « un collage dont la copie vient
+        // d'ailleurs est enregistre `paste{paired:false}` » — et de R2.4 :
+        // jamais d'evenement muet.
+        //
+        // Ils ne l'etaient pas. Le geste ne produisait un declencheur que s'il
+        // etait apparie, et rien du tout sinon : on payait le cout vie privee
+        // d'une lecture du presse-papiers pour un benefice nul, et le collage
+        // non apparie — celui qui dit « cette valeur vient d'ailleurs », donc
+        // le plus interessant — disparaissait sans laisser de trou.
+        let geste_sans_cible = matches!(
+            ev.genre,
+            GenreEvenement::Copie | GenreEvenement::Collage { .. }
+        );
+        if ev.genre.cible().is_some() || geste_sans_cible {
             // « Resolu » se juge sur le nom BRUT : un nom vide le reste apres
-            // redaction, et un nom redacte n'est pas un nom perdu.
-            let unresolved = !cible.resolue();
+            // redaction, et un nom redacte n'est pas un nom perdu. Un geste sans
+            // cible n'a rien a resoudre — le compter comme non resolu ferait
+            // croire a une capture defaillante.
+            let unresolved = ev.genre.cible().is_some_and(|c| !c.resolue());
             if unresolved {
                 self.unresolved += 1;
             }

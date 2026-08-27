@@ -322,6 +322,38 @@ fn boucle_uia(
     let _ = automation.remove_all_event_handlers();
 }
 
+/// L'application propriétaire d'une fenêtre donnée (R5.4).
+///
+/// Prend une poignée brute plutôt qu'une `HWND` typée : elle vient d'un
+/// atomique écrit par la procédure de hook, où l'on ne veut ni allocation ni
+/// type Windows à faire traverser un `static`.
+#[cfg(not(test))]
+pub fn surface_de_fenetre(poignee: isize) -> Option<String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+
+    if poignee == 0 {
+        return None;
+    }
+    // SAFETY : lecture de l'état d'une fenêtre ; une poignée périmée rend
+    // simplement 0, ce que l'appelant traite comme « surface inconnue ».
+    let pid = unsafe {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(HWND(poignee as *mut core::ffi::c_void), Some(&mut pid));
+        pid
+    };
+    if pid == 0 {
+        return None;
+    }
+    nom_executable(pid)
+}
+
+/// Sans bureau, aucune fenêtre n'est nommable — donc rien n'est autorisé.
+#[cfg(test)]
+pub fn surface_de_fenetre(_poignee: isize) -> Option<String> {
+    None
+}
+
 /// Les applications actuellement visibles a l'ecran (R5.4).
 ///
 /// Sert a garnir le sous-menu « Surfaces observees » : sans liste a cocher, une
@@ -377,43 +409,6 @@ pub fn surfaces_visibles() -> Vec<String> {
 #[cfg(test)]
 pub fn surfaces_visibles() -> Vec<String> {
     Vec::new()
-}
-
-/// L'application au premier plan (R5.4).
-///
-/// Les gestes du clavier n'ont pas d'élément UIA d'origine : c'est la fenêtre
-/// qui a le focus qui les reçoit. Sans cette fonction, une copie faite dans un
-/// gestionnaire de mots de passe serait attribuée à `None`, donc refusée — ce
-/// qui est sûr, mais aussi faux : une copie faite dans une surface autorisée
-/// serait refusée pour la même raison.
-#[cfg(not(test))]
-pub fn surface_au_premier_plan() -> Option<String> {
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
-
-    // SAFETY : deux lectures de l'état global des fenêtres, sans allocation ni
-    // poignée à relâcher. On passe par le pid de la fenêtre et non par un
-    // élément UIA : la frappe arrive sur le fil du pompage de messages, et un
-    // aller-retour COM par touche coûterait plus cher que tout le reste du
-    // battement.
-    let pid = unsafe {
-        let fenetre = GetForegroundWindow();
-        if fenetre.is_invalid() {
-            return None;
-        }
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(fenetre, Some(&mut pid));
-        pid
-    };
-    if pid == 0 {
-        return None;
-    }
-    nom_executable(pid)
-}
-
-/// Sans bureau, aucune surface n'est nommable — donc rien n'est autorisé.
-#[cfg(test)]
-pub fn surface_au_premier_plan() -> Option<String> {
-    None
 }
 
 /// De quelle application vient cet élément (R5.4).

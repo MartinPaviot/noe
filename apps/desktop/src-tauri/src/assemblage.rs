@@ -276,7 +276,18 @@ pub fn assembler(
                         name: nom,
                         region,
                     },
-                    payload: None,
+                    // R2.3 exige `paste{paired:false}` : que le collage dise
+                    // d'ou vient ce qu'on colle. Le format n'a pas de champ
+                    // `paired` — `payload` porte donc un marqueur, deux mots
+                    // ASCII, jamais du contenu. Ajouter un champ au format est
+                    // une decision de spec 001, a prendre au gate ; perdre
+                    // l'information en attendant n'en est pas une.
+                    payload: match genre {
+                        GenreEvenement::Collage { apparie } => Some(
+                            if *apparie { "paired" } else { "unpaired" }.to_string(),
+                        ),
+                        _ => None,
+                    },
                 });
             }
 

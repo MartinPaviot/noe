@@ -124,6 +124,35 @@ fn empreinte(texte: &str) -> String {
 /// (`docs/decisions.md`, D27) : Windows n'émet pas d'événement de collage, et la
 /// seule voie fiable est un hook clavier système — une capacité que ce produit
 /// ne s'octroie pas sans qu'on l'ait dit.
+/// R2.3 — a-t-on le droit de lire le presse-papiers ?
+///
+/// La question est posée ici, en une fonction pure, parce que c'est le geste le
+/// plus intrusif du capteur : une garde éparpillée dans une boucle de battement
+/// n'est pas une garde, et surtout elle ne se teste pas.
+///
+/// Trois conditions, toutes nécessaires :
+///
+/// 1. **Une copie a été observée.** Sans frappe, pas de lecture — c'est ce qui
+///    distingue Noe d'un gestionnaire de presse-papiers.
+/// 2. **Elle a eu lieu sur une surface activée.** Le hook est posé sur tout le
+///    bureau ; il dit qu'une combinaison a été pressée quelque part, pas qu'elle
+///    l'a été là où on a le droit de regarder. Sans cette condition, un `Ctrl+C`
+///    dans un gestionnaire de mots de passe était lu et haché — le cas que R2.3
+///    nomme explicitement.
+/// 3. **Le presse-papiers a vraiment changé.** Un `Ctrl+C` qui ne copie rien —
+///    une console où il vaut interruption, une sélection vide — laissait
+///    s'approprier ce qui traînait, c'est-à-dire ce qui avait été copié avant
+///    l'épisode, ailleurs, et qu'on n'a jamais eu le droit de lire.
+pub fn lecture_autorisee(
+    copies: u64,
+    surface: Option<&str>,
+    liste: &crate::surfaces::ListeBlanche,
+    sequence_avant: u64,
+    sequence_maintenant: u64,
+) -> bool {
+    copies > 0 && liste.autorise(surface) && sequence_maintenant != sequence_avant
+}
+
 pub struct PressePapiersWindows;
 
 impl PressePapiers for PressePapiersWindows {
@@ -348,4 +377,61 @@ mod tests {
         assert!(!e.contains("exemple"));
         assert_eq!(e.len(), 19);
     }
+
+    // -- R2.3 : les trois conditions de la lecture -------------------------
+
+    fn autorisees(surfaces: &[&str]) -> crate::surfaces::ListeBlanche {
+        crate::surfaces::ListeBlanche::depuis(surfaces.iter().copied())
+    }
+
+    #[test]
+    fn sans_copie_observee_on_ne_lit_pas() {
+        // C'est ce qui distingue Noe d'un gestionnaire de presse-papiers : sans
+        // frappe de l'operateur, le presse-papiers n'est jamais ouvert.
+        assert!(!lecture_autorisee(0, Some("chrome.exe"), &autorisees(&["chrome.exe"]), 1, 2));
+    }
+
+    #[test]
+    fn un_ctrl_c_hors_surface_activee_ne_declenche_aucune_lecture() {
+        // Le cas que R2.3 nomme : le gestionnaire de mots de passe. Le hook est
+        // pose sur tout le bureau ; il dit qu'une combinaison a ete pressee
+        // quelque part, pas qu'elle l'a ete la ou on a le droit de regarder.
+        let liste = autorisees(&["chrome.exe"]);
+        assert!(!lecture_autorisee(1, Some("keepass.exe"), &liste, 1, 2));
+        assert!(!lecture_autorisee(1, Some("bitwarden.exe"), &liste, 1, 2));
+    }
+
+    #[test]
+    fn une_surface_non_nommee_ne_declenche_aucune_lecture() {
+        // Un processus protege ou eleve ne se laisse pas nommer. On n'autorise
+        // pas ce qu'on n'a pas su identifier.
+        assert!(!lecture_autorisee(1, None, &autorisees(&["chrome.exe"]), 1, 2));
+    }
+
+    #[test]
+    fn une_liste_vide_ne_declenche_jamais_de_lecture() {
+        // Au premier lancement, le presse-papiers n'est jamais ouvert.
+        for surface in [Some("chrome.exe"), Some("outlook.exe"), None] {
+            assert!(!lecture_autorisee(3, surface, &crate::surfaces::ListeBlanche::vide(), 1, 2));
+        }
+    }
+
+    #[test]
+    fn un_ctrl_c_qui_n_a_rien_copie_ne_declenche_aucune_lecture() {
+        // Une console ou Ctrl+C vaut interruption, une selection vide. Sans
+        // cette condition, on s'approprie ce qui trainait — le mot de passe
+        // copie trente secondes plus tot, ailleurs, avant l'episode.
+        let liste = autorisees(&["chrome.exe"]);
+        assert!(!lecture_autorisee(1, Some("chrome.exe"), &liste, 7, 7));
+    }
+
+    #[test]
+    fn une_copie_reelle_sur_surface_activee_est_lue() {
+        // Le seul cas qui passe, et il faut qu'il passe : sinon l'appariement
+        // copier-coller ne mesure rien.
+        let liste = autorisees(&["chrome.exe"]);
+        assert!(lecture_autorisee(1, Some("chrome.exe"), &liste, 7, 8));
+        assert!(lecture_autorisee(1, Some("CHROME.EXE"), &liste, 7, 8));
+    }
+
 }
