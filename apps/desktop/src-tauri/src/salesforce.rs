@@ -34,6 +34,7 @@
 #![allow(dead_code)] // retiré quand la tâche 0 rend l'org accessible
 
 use crate::federation::{EtatPlat, Issue, RefApi, Resolution};
+use std::collections::BTreeMap;
 
 /// La version d'API visée.
 ///
@@ -136,6 +137,58 @@ pub fn soql_historique(objet: &str, champ_lien: &str, id: &str, depuis_iso: &str
         objet_historique(objet),
         echapper_soql(id)
     )
+}
+
+/// Le chemin de la description d'un objet.
+///
+/// C'est elle qui donne les **libellés** des champs — et donc le seul moyen
+/// honnête de rapprocher ce que l'opérateur voit à l'écran de ce que l'API
+/// nomme. Les libellés sont traduits dans la langue de l'org : une table écrite
+/// à la main marcherait sur la machine de son auteur et nulle part ailleurs.
+pub fn chemin_description(objet: &str) -> String {
+    format!(
+        "/services/data/{VERSION_API}/sobjects/{}/describe",
+        encoder(objet)
+    )
+}
+
+/// L'index libellé → nom d'API, construit depuis une description d'objet.
+///
+/// La valeur est `None` quand **deux champs portent le même libellé**. Ce n'est
+/// pas théorique : un objet personnalisé peut porter « Statut » à côté du
+/// `Status` standard, et rien n'oblige les libellés à être uniques. Rendre l'un
+/// des deux serait deviner ; rendre les deux ferait entrer un champ que personne
+/// n'a touché. On rend l'ambiguïté, et l'appelant la déclare.
+pub fn index_des_libelles(description: &serde_json::Value) -> BTreeMap<String, Option<String>> {
+    let mut index: BTreeMap<String, Option<String>> = BTreeMap::new();
+    let vide = Vec::new();
+    for champ in description
+        .get("fields")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or(&vide)
+    {
+        let (Some(nom), Some(libelle)) = (
+            champ.get("name").and_then(serde_json::Value::as_str),
+            champ.get("label").and_then(serde_json::Value::as_str),
+        ) else {
+            continue;
+        };
+        let cle = crate::federation::normaliser_libelle(libelle);
+        if cle.is_empty() {
+            continue;
+        }
+        index
+            .entry(cle)
+            .and_modify(|e| {
+                // Un second champ pour le même libellé : l'entrée devient
+                // ambiguë, et le reste — un troisième ne la « désambiguïse » pas.
+                if e.as_deref() != Some(nom) {
+                    *e = None;
+                }
+            })
+            .or_insert_with(|| Some(nom.to_owned()));
+    }
+    index
 }
 
 /// Le nom de l'objet d'historique associé.
@@ -963,6 +1016,61 @@ mod tests_adaptateur {
             object: "Contact".into(),
             id: "003AAA".into(),
         }
+    }
+
+    #[test]
+    fn l_index_des_libelles_vient_de_l_org_et_pas_d_une_table() {
+        // Les libelles sont TRADUITS : une org en francais montre « Statut » la
+        // ou l'API dit `Status`. Une table ecrite a la main marcherait sur la
+        // machine de son auteur et nulle part ailleurs.
+        let description = serde_json::json!({"fields": [
+            {"name": "Status", "label": "Statut"},
+            {"name": "Rating", "label": "Evaluation"},
+            {"name": "Description", "label": "Description"}
+        ]});
+        let index = index_des_libelles(&description);
+        assert_eq!(index.get("statut"), Some(&Some("Status".to_owned())));
+        assert_eq!(index.get("evaluation"), Some(&Some("Rating".to_owned())));
+    }
+
+    #[test]
+    fn deux_champs_qui_partagent_un_libelle_rendent_l_ambiguite() {
+        // Ce n'est pas theorique : rien n'oblige les libelles a etre uniques, et
+        // un objet personnalise peut porter « Statut » a cote du standard.
+        let description = serde_json::json!({"fields": [
+            {"name": "Status", "label": "Statut"},
+            {"name": "Statut__c", "label": "Statut"}
+        ]});
+        assert_eq!(index_des_libelles(&description).get("statut"), Some(&None));
+    }
+
+    #[test]
+    fn un_troisieme_champ_ne_desambiguise_pas_un_libelle_deja_ambigu() {
+        let description = serde_json::json!({"fields": [
+            {"name": "A", "label": "Priorite"},
+            {"name": "B", "label": "Priorite"},
+            {"name": "C", "label": "Priorite"}
+        ]});
+        assert_eq!(
+            index_des_libelles(&description).get("priorite"),
+            Some(&None)
+        );
+    }
+
+    #[test]
+    fn une_description_vide_ou_illisible_ne_fait_pas_paniquer() {
+        assert!(index_des_libelles(&serde_json::json!({})).is_empty());
+        assert!(index_des_libelles(&serde_json::json!({"fields": "pas un tableau"})).is_empty());
+        // Un champ sans libelle n'entre pas : une cle vide rapprocherait tout.
+        let sans = serde_json::json!({"fields": [{"name": "X", "label": "  "}]});
+        assert!(index_des_libelles(&sans).is_empty());
+    }
+
+    #[test]
+    fn le_chemin_de_description_vise_bien_l_objet() {
+        let c = chemin_description("Lead");
+        assert!(c.contains("/sobjects/Lead/describe"), "{c}");
+        assert!(c.contains(VERSION_API), "{c}");
     }
 
     #[test]

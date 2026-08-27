@@ -172,6 +172,59 @@ pub enum Reponse {
     },
 }
 
+/// Normalise un libellé lu à l'écran, pour le rapprocher d'un libellé d'API.
+///
+/// Un nom accessible n'est pas un libellé propre : il porte les deux-points du
+/// rendu, l'astérisque du champ obligatoire, des espaces doubles, et une casse
+/// qui varie d'un thème à l'autre. Rapprocher sans normaliser ne rapprocherait
+/// presque rien — et l'échec serait silencieux, sous la forme d'un champ observé
+/// qu'on ne lit jamais.
+pub fn normaliser_libelle(brut: &str) -> String {
+    brut.replace(['*', ':', '\u{00a0}'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+/// R3.1 — les champs à lire : le **périmètre de la tâche**, plus les **champs
+/// observés changés**.
+///
+/// L'index vient du système lui-même (voir `salesforce::index_des_libelles`) et
+/// jamais d'une table écrite à la main : **les libellés sont traduits**. Une org
+/// en français montre « Statut » là où l'API dit `Status`, et une table figée
+/// marcherait sur la machine de son auteur et nulle part ailleurs.
+///
+/// Rend aussi les libellés observés qu'on **n'a pas su** rapprocher. Ils ne sont
+/// pas jetés : un champ observé qu'on ne lit pas est un état incomplet, et R3.3
+/// veut savoir pourquoi plutôt que de compter un `unknown_before` sans cause.
+pub fn champs_a_lire(
+    scope_fields: &[String],
+    libelles_observes: &[String],
+    index: &BTreeMap<String, Option<String>>,
+) -> (Vec<String>, Vec<String>) {
+    let mut champs: Vec<String> = scope_fields.to_vec();
+    let mut sans_correspondance = Vec::new();
+
+    for observe in libelles_observes {
+        match index.get(&normaliser_libelle(observe)) {
+            // Le libellé désigne exactement un champ : il entre.
+            Some(Some(nom)) => {
+                if !champs.contains(nom) {
+                    champs.push(nom.clone());
+                }
+            }
+            // **Deux champs portent ce libellé.** Prendre les deux ferait entrer
+            // dans l'épisode un champ que personne n'a touché ; prendre l'un des
+            // deux serait deviner, ce que R2.2 interdit ailleurs pour la même
+            // raison. On ne prend rien, et on le dit.
+            Some(None) => sans_correspondance.push(format!("{observe} (libelle ambigu)")),
+            None => sans_correspondance.push(format!("{observe} (libelle inconnu)")),
+        }
+    }
+    (champs, sans_correspondance)
+}
+
 /// Ce que le worker sait faire. Miroir du `ReadConnector` de TypeScript.
 ///
 /// **Aucune écriture.** Le trait ne l'expose pas, et le compilateur l'interdit :
@@ -1056,6 +1109,97 @@ impl Federation for Routeur {
                 Issue::HorsPerimetre(format!("connecteur non branche : {}", reference.connector))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_perimetre {
+    use super::*;
+
+    fn index() -> BTreeMap<String, Option<String>> {
+        let mut i = BTreeMap::new();
+        i.insert("statut".into(), Some("Status".into()));
+        i.insert("evaluation".into(), Some("Rating".into()));
+        i.insert("description".into(), Some("Description".into()));
+        // Deux champs portent ce libelle : l'org a un `Priorite__c` a cote d'un
+        // champ standard homonyme.
+        i.insert("priorite".into(), None);
+        i
+    }
+
+    fn scope() -> Vec<String> {
+        vec!["Status".into(), "Rating".into()]
+    }
+
+    #[test]
+    fn un_libelle_lu_a_l_ecran_se_normalise_avant_d_etre_rapproche() {
+        // Un nom accessible porte les deux-points du rendu, l'asterisque du
+        // champ obligatoire, des espaces doubles, une casse qui varie. Rapprocher
+        // sans normaliser ne rapprocherait presque rien — et l'echec serait
+        // silencieux, sous la forme d'un champ observe qu'on ne lit jamais.
+        assert_eq!(normaliser_libelle("Statut :"), "statut");
+        assert_eq!(normaliser_libelle("* Statut"), "statut");
+        assert_eq!(
+            normaliser_libelle("  Date  de   cloture "),
+            "date de cloture"
+        );
+        assert_eq!(normaliser_libelle("Statut\u{00a0}:"), "statut");
+    }
+
+    #[test]
+    fn le_perimetre_de_la_tache_est_toujours_lu() {
+        // Meme si rien n'a ete observe : c'est le perimetre qui definit ce que le
+        // juge compare, pas ce que l'operateur a touche.
+        let (champs, sans) = champs_a_lire(&scope(), &[], &index());
+        assert_eq!(champs, vec!["Status", "Rating"]);
+        assert!(sans.is_empty());
+    }
+
+    #[test]
+    fn un_champ_observe_hors_perimetre_s_ajoute() {
+        // R3.1 : « restreint aux scope_fields de la tache PLUS les champs
+        // observes changes ». Sans cette union, un changement vu a l'ecran
+        // n'aurait aucun etat en face de lui.
+        let (champs, sans) = champs_a_lire(&scope(), &["Description :".into()], &index());
+        assert_eq!(champs, vec!["Status", "Rating", "Description"]);
+        assert!(sans.is_empty());
+    }
+
+    #[test]
+    fn un_champ_deja_au_perimetre_ne_se_dedouble_pas() {
+        let (champs, _) = champs_a_lire(&scope(), &["Statut".into()], &index());
+        assert_eq!(champs, vec!["Status", "Rating"]);
+    }
+
+    #[test]
+    fn un_libelle_ambigu_n_entre_pas_et_se_declare() {
+        // Prendre les deux ferait entrer un champ que personne n'a touche ;
+        // prendre l'un des deux serait deviner, ce que R2.2 interdit ailleurs
+        // pour exactement la meme raison.
+        let (champs, sans) = champs_a_lire(&scope(), &["Priorite".into()], &index());
+        assert_eq!(champs, scope());
+        assert_eq!(sans.len(), 1);
+        assert!(sans[0].contains("ambigu"), "{sans:?}");
+    }
+
+    #[test]
+    fn un_libelle_inconnu_se_declare_au_lieu_d_etre_avale() {
+        // Un champ observe qu'on ne lit pas est un etat incomplet, et R3.3 veut
+        // savoir pourquoi plutot que de compter un unknown_before sans cause.
+        let (champs, sans) = champs_a_lire(&scope(), &["Chiffre d affaires".into()], &index());
+        assert_eq!(champs, scope());
+        assert_eq!(sans.len(), 1);
+        assert!(sans[0].contains("inconnu"), "{sans:?}");
+    }
+
+    #[test]
+    fn l_ordre_des_champs_ne_depend_pas_de_l_ordre_d_observation() {
+        // Deux episodes du meme parcours doivent demander les memes champs dans
+        // le meme ordre : une URL de lecture qui varie donne deux caches, et
+        // deux etats qui se comparent mal.
+        let a = champs_a_lire(&scope(), &["Description".into()], &index()).0;
+        let b = champs_a_lire(&scope(), &["Description".into(), "Statut".into()], &index()).0;
+        assert_eq!(a, b);
     }
 }
 
