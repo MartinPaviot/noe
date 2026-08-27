@@ -12,6 +12,7 @@ mod cle;
 mod config;
 mod empreinte;
 mod etat;
+mod federation;
 mod horloge;
 mod journal;
 mod moteur;
