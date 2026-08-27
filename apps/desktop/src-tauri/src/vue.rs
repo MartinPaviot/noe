@@ -130,6 +130,20 @@ pub fn friser(episode: &Episode) -> Vec<PointFrise> {
                 cible: String::new(),
                 region: None,
             },
+            // R7.2 : la degradation se VOIT sur la frise. C'est elle qui
+            // explique pourquoi la suite de l'episode est moins fournie ; sans
+            // elle, le fondateur lirait cette pauvrete comme une propriete du
+            // travail observe.
+            Evenement::Degraded {
+                seq, ts, degraded, ..
+            } => PointFrise {
+                seq: *seq,
+                ts: ts.clone(),
+                genre: "degrade".into(),
+                quoi: degraded.what.clone(),
+                cible: format!("{} → {}", degraded.from, degraded.to),
+                region: None,
+            },
         })
         .collect()
 }

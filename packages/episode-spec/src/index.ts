@@ -28,6 +28,7 @@ export {
 export {
   CONFIRMATION_API_VERIFIABLE,
   Completeness,
+  Degradation,
   Entity,
   Episode,
   Event,

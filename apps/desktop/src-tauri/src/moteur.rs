@@ -88,6 +88,17 @@ pub enum EntreeJournal {
     },
     /// R1.3 : la borne oubliée.
     ClotureAuto { seq: u64, monotone_ms: u64 },
+    /// R7.2 : le capteur a réduit sa qualité pour tenir son budget.
+    ///
+    /// **Écrit, jamais tu.** Un épisode dont les snapshots ont été suspendus n'a
+    /// pas moins de photos par hasard : il en a moins parce que la machine
+    /// chauffait. Sans cette trace, la spec 004 comparerait des épisodes
+    /// dégradés à des épisodes complets sans savoir qu'elle le fait.
+    Degradation {
+        seq: u64,
+        monotone_ms: u64,
+        quoi: crate::empreinte::Degradation,
+    },
     /// R5.4 : des actions ont eu lieu hors des surfaces activées.
     ///
     /// **Combien, et rien d'autre.** Ni le nom de l'application, ni la nature
@@ -117,7 +128,8 @@ impl EntreeJournal {
             | Self::Gap { seq, .. }
             | Self::Snapshot { seq, .. }
             | Self::ClotureAuto { seq, .. }
-            | Self::HorsPerimetre { seq, .. } => *seq,
+            | Self::HorsPerimetre { seq, .. }
+            | Self::Degradation { seq, .. } => *seq,
         }
     }
 
@@ -128,7 +140,8 @@ impl EntreeJournal {
             | Self::Gap { monotone_ms, .. }
             | Self::Snapshot { monotone_ms, .. }
             | Self::ClotureAuto { monotone_ms, .. }
-            | Self::HorsPerimetre { monotone_ms, .. } => *monotone_ms,
+            | Self::HorsPerimetre { monotone_ms, .. }
+            | Self::Degradation { monotone_ms, .. } => *monotone_ms,
         }
     }
 }
@@ -228,6 +241,19 @@ pub struct Moteur {
     snapshotteur: Option<std::sync::Arc<dyn Snapshotteur>>,
     /// Combien de photos ont réellement été prises (R2.3).
     snapshots_pris: u64,
+    /// R7.1 et R7.2 : ce que coûte la capture, et ce qu'on a déjà lâché.
+    empreinte: crate::empreinte::Empreinte,
+    /// La dernière frappe vue sur une cible, pour l'antirebond de R7.2.
+    ///
+    /// Une seule entrée : c'est un antirebond, pas un cache. L'opérateur tape
+    /// dans un champ à la fois, et retenir tous les champs de la session ferait
+    /// grossir le moteur sans rien mesurer de plus.
+    derniere_frappe: Option<(String, u64)>,
+    /// Combien de frappes ont été fondues par l'antirebond élargi.
+    ///
+    /// Comptées et dites à la clôture : la dégradation qui les a autorisées est
+    /// déjà au journal, mais leur nombre dit de combien la finesse a baissé.
+    frappes_fondues: u64,
     /// Combien ont été refusées parce que le focus avait quitté le périmètre.
     ///
     /// Compté et dit à la clôture. Un refus n'est pas un incident, mais un
@@ -269,6 +295,9 @@ impl Moteur {
             echecs_ecriture: 0,
             snapshotteur: None,
             snapshots_pris: 0,
+            empreinte: crate::empreinte::Empreinte::nouvelle(),
+            derniere_frappe: None,
+            frappes_fondues: 0,
             photos_hors_perimetre: 0,
         }
     }
@@ -381,6 +410,15 @@ impl Moteur {
                 monotone_ms: r(monotone_ms),
                 combien,
             },
+            EntreeJournal::Degradation {
+                seq,
+                monotone_ms,
+                quoi,
+            } => EntreeJournal::Degradation {
+                seq,
+                monotone_ms: r(monotone_ms),
+                quoi,
+            },
         }
     }
 
@@ -413,6 +451,13 @@ impl Moteur {
     /// instant : à la relecture, on voit d'abord pourquoi on a photographié,
     /// puis ce qu'on a vu.
     fn photographier(&mut self, quoi: Declencheur, monotone_ms: u64) {
+        // R7.2, premier palier : quand la machine chauffe, on cesse de
+        // photographier. Le déclencheur reste consigné — c'est lui
+        // l'information ; la photo est le détail qu'on peut perdre sans perdre
+        // la chronologie. Et la dégradation, elle, est déjà au journal.
+        if !self.empreinte.snapshots_actifs() {
+            return;
+        }
         let Some(s) = self.snapshotteur.clone() else {
             return;
         };
@@ -452,6 +497,38 @@ impl Moteur {
     /// R5.4 — combien de photos ont ete refusees hors perimetre.
     pub fn photos_hors_perimetre(&self) -> u64 {
         self.photos_hors_perimetre
+    }
+
+    /// R7.1, R7.2 — une fenetre de mesure vient de s'achever.
+    ///
+    /// Rend la degradation decidee, s'il y en a une, APRES l'avoir ecrite au
+    /// journal : c'est l'ecriture qui compte, le retour ne sert qu'a prevenir
+    /// l'operateur au dernier palier.
+    pub fn observer_empreinte(
+        &mut self,
+        m: crate::empreinte::Mesure,
+    ) -> Option<crate::empreinte::Degradation> {
+        if self.clos {
+            return None;
+        }
+        let d = self.empreinte.observer(m)?;
+        let seq = self.prochain_seq();
+        let maintenant = self.horloge.monotone_ms();
+        self.pousser(EntreeJournal::Degradation {
+            seq,
+            monotone_ms: maintenant,
+            quoi: d.clone(),
+        });
+        Some(d)
+    }
+
+    /// R7.2 — combien de frappes l'antirebond elargi a fondues.
+    pub fn frappes_fondues(&self) -> u64 {
+        self.frappes_fondues
+    }
+
+    pub fn empreinte(&self) -> &crate::empreinte::Empreinte {
+        &self.empreinte
     }
 
     /// R5.2 — l'episode est-il suspendu ?
@@ -505,7 +582,22 @@ impl Moteur {
             }
             return true;
         }
-        self.liste_blanche.autorise(ev.surface.as_deref())
+        // D19 : la partition par classe de surface, ENFORCÉE.
+        //
+        // L'abonnement UIA est global filtré : il voit le navigateur comme le
+        // reste. Sans cette règle, chaque geste dans une page comptait deux fois
+        // — une fois par le DOM, une fois par UIA — et l'interface du navigateur
+        // elle-même entrait dans l'épisode. Mesuré sur une capture réelle :
+        // 1960 événements dont la quasi-totalité était la chrome de Chrome.
+        //
+        // Le refus se compte comme un hors-périmètre : ce n'est pas une perte,
+        // c'est l'autre source qui a la charge.
+        let bonne_source = match ev.surface.as_deref().map(crate::surfaces::classe) {
+            Some(crate::surfaces::Classe::Navigateur) => ev.source == Source::Dom,
+            Some(crate::surfaces::Classe::Native) => ev.source != Source::Dom,
+            None => false,
+        };
+        bonne_source && self.liste_blanche.autorise(ev.surface.as_deref())
     }
 
     /// Declare la plage hors perimetre qui vient de s'achever, s'il y en a une.
@@ -675,6 +767,36 @@ impl Moteur {
         // d'une lecture du presse-papiers pour un benefice nul, et le collage
         // non apparie — celui qui dit « cette valeur vient d'ailleurs », donc
         // le plus interessant — disparaissait sans laisser de trou.
+        // R7.2, deuxième palier : l'antirebond élargi FOND les frappes
+        // répétées sur la même cible.
+        //
+        // C'est le seul palier qui perd de l'information sans qu'un trou le
+        // dise, et c'est assumé : la dégradation qui l'a autorisé est écrite au
+        // journal juste avant, et le nombre de frappes fondues est dit à la
+        // clôture. Sans ce palier, « élargir le debounce » ne serait qu'un
+        // réglage sans effet — le genre de dégradation qu'on annonce et qu'on ne
+        // fait pas.
+        if let Some(cible) = ev.genre.cible() {
+            if matches!(
+                ev.genre,
+                GenreEvenement::Saisie(_) | GenreEvenement::ChangementValeur(_)
+            ) {
+                let cle = format!("{}|{}", cible.role, cible.nom);
+                let fenetre = self.empreinte.debounce_ms();
+                if let Some((precedente, quand)) = &self.derniere_frappe {
+                    if *precedente == cle && maintenant.saturating_sub(*quand) < fenetre {
+                        self.frappes_fondues += 1;
+                        // La frappe compte quand même pour l'inactivité : c'est
+                        // une frappe réelle, seul son ÉCRITURE est fondue.
+                        self.derniere_saisie = Some(maintenant);
+                        self.derniere_action = maintenant;
+                        return;
+                    }
+                }
+                self.derniere_frappe = Some((cle, maintenant));
+            }
+        }
+
         let geste_sans_cible = matches!(
             ev.genre,
             GenreEvenement::Copie | GenreEvenement::Collage { .. }
@@ -2316,5 +2438,344 @@ mod tests {
             0,
             "un ecran verrouille n'est pas un refus de perimetre"
         );
+    }
+
+    // -- Tache 13 : l'empreinte et la degradation ordonnee (R7.1, R7.2) -----
+
+    fn chaud() -> crate::empreinte::Mesure {
+        crate::empreinte::Mesure {
+            cpu_pct: 12.0,
+            ram_octets: 40 * 1024 * 1024,
+        }
+    }
+
+    #[test]
+    fn l_antirebond_nominal_fond_deux_frappes_rapprochees() {
+        // 300 ms est le debounce du design, pas une invention de la tache 13 :
+        // taper « Dupont » dans un champ, c'est six frappes et UNE action.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Saisie(cible("textbox", "Nom")),
+        ));
+        m.traiter(depuis(
+            "chrome",
+            100,
+            GenreEvenement::Saisie(cible("textbox", "Nom")),
+        ));
+        m.traiter(depuis(
+            "chrome",
+            200,
+            GenreEvenement::Saisie(cible("textbox", "Nom")),
+        ));
+
+        let actions = m
+            .journal()
+            .iter()
+            .filter(|e| matches!(e, EntreeJournal::UiAction { .. }))
+            .count();
+        assert_eq!(actions, 1, "trois frappes rapprochees, une action");
+        assert_eq!(m.frappes_fondues(), 2);
+    }
+
+    #[test]
+    fn au_dela_de_l_antirebond_la_frappe_compte() {
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Saisie(cible("textbox", "Nom")),
+        ));
+        m.traiter(depuis(
+            "chrome",
+            400,
+            GenreEvenement::Saisie(cible("textbox", "Nom")),
+        ));
+        let actions = m
+            .journal()
+            .iter()
+            .filter(|e| matches!(e, EntreeJournal::UiAction { .. }))
+            .count();
+        assert_eq!(actions, 2);
+        assert_eq!(m.frappes_fondues(), 0);
+    }
+
+    #[test]
+    fn deux_champs_differents_ne_se_fondent_jamais() {
+        // Sinon passer d'un champ a l'autre en tapant vite ferait disparaitre le
+        // second — et c'est exactement le geste qu'on veut mesurer.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Saisie(cible("textbox", "Nom")),
+        ));
+        m.traiter(depuis(
+            "chrome",
+            50,
+            GenreEvenement::Saisie(cible("textbox", "Prenom")),
+        ));
+        m.traiter(depuis(
+            "chrome",
+            100,
+            GenreEvenement::Saisie(cible("textbox", "Ville")),
+        ));
+        let actions = m
+            .journal()
+            .iter()
+            .filter(|e| matches!(e, EntreeJournal::UiAction { .. }))
+            .count();
+        assert_eq!(actions, 3);
+        assert_eq!(m.frappes_fondues(), 0);
+    }
+
+    #[test]
+    fn une_frappe_fondue_compte_quand_meme_pour_l_inactivite() {
+        // Seule son ECRITURE est fondue : l'operateur a bien tape, et le
+        // declencheur « saisie puis 2 s » doit partir depuis la DERNIERE frappe.
+        // Sinon un champ rempli d'une traite declencherait au milieu de la
+        // saisie.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Saisie(cible("textbox", "Nom")),
+        ));
+        m.traiter(depuis(
+            "chrome",
+            100,
+            GenreEvenement::Saisie(cible("textbox", "Nom")),
+        ));
+        h.avancer(Duration::from_millis(1_500));
+        m.battre();
+        assert!(
+            !m.declencheurs()
+                .contains(&Declencheur::SaisiePuisInactivite),
+            "1,5 s depuis la derniere frappe : trop tot"
+        );
+        h.avancer(Duration::from_millis(1_000));
+        m.battre();
+        assert!(m
+            .declencheurs()
+            .contains(&Declencheur::SaisiePuisInactivite));
+    }
+
+    #[test]
+    fn trois_fenetres_chaudes_ecrivent_un_degraded_au_journal() {
+        // R7.2 : « CHAQUE degradation DOIT etre ecrite dans le flux ». Une
+        // qualite qui baisse en silence biaise les statistiques en silence.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        assert!(m.observer_empreinte(chaud()).is_none());
+        assert!(m.observer_empreinte(chaud()).is_none());
+        let d = m.observer_empreinte(chaud()).expect("degradation");
+        assert_eq!(d.what, "snapshots");
+
+        let ecrites: Vec<&crate::empreinte::Degradation> = m
+            .journal()
+            .iter()
+            .filter_map(|e| match e {
+                EntreeJournal::Degradation { quoi, .. } => Some(quoi),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ecrites.len(), 1, "une entree au journal, pas zero");
+        assert_eq!(ecrites[0].what, "snapshots");
+    }
+
+    #[test]
+    fn le_premier_palier_arrete_vraiment_les_photos() {
+        // Un palier annonce et pas applique serait pire que pas de palier : on
+        // ecrirait au journal une degradation qui n'a pas eu lieu.
+        let photo = PhotographeFaux::new("rien");
+        let (mut m, _h) = moteur_avec(photo.clone());
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Soumission(cible("button", "Enregistrer")),
+        ));
+        assert_eq!(photo.prises(), 1, "avant degradation, on photographie");
+
+        for _ in 0..3 {
+            m.observer_empreinte(chaud());
+        }
+        m.traiter(depuis(
+            "chrome",
+            5_000,
+            GenreEvenement::Soumission(cible("button", "Envoyer")),
+        ));
+        assert_eq!(photo.prises(), 1, "apres degradation, plus aucune photo");
+        assert!(
+            m.declencheurs().len() >= 2,
+            "mais le declencheur reste : c'est lui l'information"
+        );
+    }
+
+    #[test]
+    fn le_deuxieme_palier_elargit_vraiment_l_antirebond() {
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        for _ in 0..6 {
+            m.observer_empreinte(chaud());
+        }
+        assert_eq!(
+            m.empreinte().palier(),
+            crate::empreinte::Palier::DebounceElargi
+        );
+
+        // 400 ms separent ces deux frappes : au nominal elles comptent pour
+        // deux, a 900 ms elles n'en font qu'une.
+        m.traiter(depuis(
+            "chrome",
+            0,
+            GenreEvenement::Saisie(cible("textbox", "Nom")),
+        ));
+        m.traiter(depuis(
+            "chrome",
+            400,
+            GenreEvenement::Saisie(cible("textbox", "Nom")),
+        ));
+        let actions = m
+            .journal()
+            .iter()
+            .filter(|e| matches!(e, EntreeJournal::UiAction { .. }))
+            .count();
+        assert_eq!(actions, 1);
+        assert_eq!(m.frappes_fondues(), 1);
+    }
+
+    #[test]
+    fn apres_cloture_on_ne_degrade_plus() {
+        // R1.2 : plus rien n'entre. Une degradation ecrite apres la cloture
+        // arriverait dans un episode deja assemble.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = moteur_neuf(&h);
+        m.clore();
+        for _ in 0..6 {
+            assert!(m.observer_empreinte(chaud()).is_none());
+        }
+        assert!(!m
+            .journal()
+            .iter()
+            .any(|e| matches!(e, EntreeJournal::Degradation { .. })));
+    }
+
+    // -- D19 : la partition par classe de surface --------------------------
+
+    fn depuis_source(
+        source: Source,
+        surface: &str,
+        monotone_ms: u64,
+        genre: GenreEvenement,
+    ) -> RawEvent {
+        RawEvent {
+            source,
+            monotone_ms,
+            surface: Some(surface.to_string()),
+            genre,
+        }
+    }
+
+    #[test]
+    fn uia_ne_capture_pas_le_navigateur() {
+        // L'abonnement UIA est GLOBAL filtre : il voit la chrome de Chrome comme
+        // le reste. Une capture reelle l'a montre — 1960 evenements dont la
+        // quasi-totalite etait « about:blank - Google Chrome » et « Barre
+        // d'adresse et de recherche ». Le travail de l'operateur y etait noye.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(h, redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome.exe"]));
+
+        m.traiter(depuis_source(
+            Source::Uia,
+            "chrome.exe",
+            0,
+            GenreEvenement::Invocation(cible("button", "Barre d adresse")),
+        ));
+        assert!(
+            m.journal().is_empty(),
+            "UIA n'a rien a faire dans le navigateur"
+        );
+        assert_eq!(m.hors_perimetre(), 1, "et le refus se compte");
+    }
+
+    #[test]
+    fn le_dom_ne_capture_pas_une_application_native() {
+        // La reciproque, qui n'arrive que si le pont ment sur sa surface. Une
+        // source qui se tromperait de classe passerait sous le radar de la liste
+        // blanche du natif.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(h, redacteur(), "outlook")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["outlook.exe"]));
+
+        m.traiter(depuis_source(
+            Source::Dom,
+            "outlook.exe",
+            0,
+            GenreEvenement::Invocation(cible("button", "Repondre")),
+        ));
+        assert!(m.journal().is_empty());
+        assert_eq!(m.hors_perimetre(), 1);
+    }
+
+    #[test]
+    fn chaque_source_capture_sa_propre_classe() {
+        // Le cas nominal, et il doit rester nominal : la regle refuse le
+        // croisement, pas la capture.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(h, redacteur(), "outlook").avec_liste_blanche(
+            crate::surfaces::ListeBlanche::depuis(["outlook.exe", "chrome.exe"]),
+        );
+        m.traiter(depuis_source(
+            Source::Uia,
+            "outlook.exe",
+            0,
+            GenreEvenement::Invocation(cible("button", "Repondre")),
+        ));
+        m.traiter(depuis_source(
+            Source::Dom,
+            "chrome.exe",
+            100,
+            GenreEvenement::Invocation(cible("button", "Enregistrer")),
+        ));
+        let actions = m
+            .journal()
+            .iter()
+            .filter(|e| matches!(e, EntreeJournal::UiAction { .. }))
+            .count();
+        assert_eq!(actions, 2);
+        assert_eq!(m.hors_perimetre(), 0);
+    }
+
+    #[test]
+    fn un_geste_dans_une_page_ne_compte_pas_deux_fois() {
+        // Le defaut exact qu'on ferme : le meme clic vu par les DEUX sources.
+        // Sans la partition, l'episode comptait deux actions pour un geste, et
+        // toute mesure d'accord de la spec 004 aurait ete fausse d'un facteur
+        // deux sur les surfaces navigateur.
+        let h = std::sync::Arc::new(HorlogeSimulee::new());
+        let mut m = Moteur::ouvrir(h, redacteur(), "chrome")
+            .avec_liste_blanche(crate::surfaces::ListeBlanche::depuis(["chrome.exe"]));
+        let geste = |source| {
+            depuis_source(
+                source,
+                "chrome.exe",
+                0,
+                GenreEvenement::Invocation(cible("button", "Enregistrer")),
+            )
+        };
+        m.traiter(geste(Source::Dom));
+        m.traiter(geste(Source::Uia));
+        let actions = m
+            .journal()
+            .iter()
+            .filter(|e| matches!(e, EntreeJournal::UiAction { .. }))
+            .count();
+        assert_eq!(actions, 1, "un geste, une action");
     }
 }

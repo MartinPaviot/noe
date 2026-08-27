@@ -1222,3 +1222,39 @@ dont la moitié des photos manquent ne se lit pas comme un épisode complet.
 
 Le déclencheur, lui, reste consigné. C'est la doctrine d'avant : mieux vaut un
 déclencheur sans photo qu'une photo qu'on n'avait pas le droit de prendre.
+
+## 2026-08-27 — D33 : la partition des sources n'était qu'une intention
+
+D19 écrivait la règle : `UiaSource` prend toutes les applications natives,
+`DomSource` toutes les surfaces navigateur, et **pas de bascule dynamique sur une
+même surface**. Le code la respectait dans son intention et pas dans son effet :
+l'abonnement UIA est **global filtré**, il voit le navigateur comme le reste.
+
+**La première capture réelle l'a montré, et pas un seul test.** Un épisode de
+1960 événements dont les `scope_fields` étaient « about:blank - Google Chrome »,
+« Barre d'adresse et de recherche », « about:blank - Utilisation de la mémoire —
+19,4 Mo ». Le travail de l'opérateur était noyé dans la chrome du navigateur, et
+chaque geste dans une page comptait **deux fois** — une par le DOM, une par UIA.
+
+La conséquence dépasse le bruit. La spec 004 mesure l'accord entre ce qu'un agent
+ferait et ce que l'humain a fait ; un dénominateur doublé sur toutes les surfaces
+navigateur aurait faussé cette mesure d'un facteur deux, sans que rien ne le
+signale.
+
+**Décision.** `surfaces::classe()` range chaque surface, et `Moteur::admissible`
+exige que la source corresponde à la classe. Le croisement est refusé et compté
+au hors-périmètre : ce n'est pas une perte, c'est l'autre source qui a la charge.
+
+Deux points de méthode, parce qu'ils se reproduiront :
+
+- **La liste des navigateurs est une liste, pas une heuristique.** Deviner « c'est
+  sûrement un navigateur » sur un nom de processus se tromperait dans les deux
+  sens, et les deux coûtent.
+- **Une surface inconnue est native.** L'erreur n'est pas symétrique : ranger un
+  navigateur inconnu en natif fait capturer sa chrome, ce qui est du bruit qu'on
+  voit ; ranger une application native en navigateur la rendrait invisible, ce qui
+  est une perte qu'on ne voit pas.
+
+Après correction, le même protocole donne exactement 540 événements pour 45
+répétitions de 12 observations, et des `scope_fields` réduits aux vrais champs :
+« Description », « Statut de la piste », « Enregistrer ».

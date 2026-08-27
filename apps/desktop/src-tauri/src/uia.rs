@@ -445,6 +445,38 @@ fn surface_de(el: &uiautomation::UIElement) -> Option<String> {
     nom_executable(el.get_process_id().ok()?)
 }
 
+/// Le nom des processus déjà résolus, par identifiant.
+///
+/// **Un cache, parce que l'abonnement est global filtré.** Chaque événement UIA
+/// demandait son `OpenProcess` + `QueryFullProcessImageNameW` — deux appels
+/// système par événement, sur une source qui en voit des centaines par minute.
+/// Mesuré : le processus tenait 5 à 6 % d'un cœur sous charge, au-dessus du
+/// budget de R7.1, et cette paire d'appels en était une part directe.
+///
+/// Un identifiant de processus est réutilisé par Windows après la mort du
+/// précédent, donc le cache peut mentir. Le risque est borné et il penche du bon
+/// côté : au pire on attribue un événement à l'application qui occupait le
+/// numéro avant, et la liste blanche tranche sur un nom qui n'est pas le bon —
+/// pour une fenêtre de temps qui se compte en millisecondes, entre la mort d'un
+/// processus et le prochain événement d'un autre qui aurait hérité du numéro.
+/// Le cache est vidé à chaque épisode, ce qui borne l'accumulation.
+#[cfg(not(test))]
+static NOMS_DE_PROCESSUS: std::sync::Mutex<Option<std::collections::HashMap<u32, Option<String>>>> =
+    std::sync::Mutex::new(None);
+
+/// Vide le cache. À l'ouverture d'un épisode : les identifiants d'hier ne valent
+/// rien aujourd'hui, et un cache qui vit aussi longtemps que le processus finit
+/// par contenir des numéros recyclés.
+#[cfg(not(test))]
+pub fn oublier_les_processus() {
+    if let Ok(mut c) = NOMS_DE_PROCESSUS.lock() {
+        *c = None;
+    }
+}
+
+#[cfg(test)]
+pub fn oublier_les_processus() {}
+
 /// Le nom de fichier de l'exécutable d'un processus, en minuscules.
 ///
 /// Rend `None` si le processus ne se laisse pas nommer — un service protégé, une
@@ -452,6 +484,27 @@ fn surface_de(el: &uiautomation::UIElement) -> Option<String> {
 /// l'événement, ce qui est le bon sens de l'erreur.
 #[cfg(not(test))]
 fn nom_executable(pid: u32) -> Option<String> {
+    // Le cache d'abord : deux appels système par événement, sur une source
+    // globale, se paient en pourcentage de cœur.
+    if let Ok(cache) = NOMS_DE_PROCESSUS.lock() {
+        if let Some(connus) = cache.as_ref() {
+            if let Some(nom) = connus.get(&pid) {
+                return nom.clone();
+            }
+        }
+    }
+    let nom = interroger_processus(pid);
+    if let Ok(mut cache) = NOMS_DE_PROCESSUS.lock() {
+        cache
+            .get_or_insert_with(std::collections::HashMap::new)
+            .insert(pid, nom.clone());
+    }
+    nom
+}
+
+/// L'interrogation réelle, sans cache.
+#[cfg(not(test))]
+fn interroger_processus(pid: u32) -> Option<String> {
     use windows::Win32::Foundation::{CloseHandle, MAX_PATH};
     use windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,

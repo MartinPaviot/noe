@@ -108,6 +108,45 @@ describe('canary sweep — aucune fuite en sortie (R5.2)', () => {
     }
   });
 
+  /**
+   * Le sweep ETENDU : sur des épisodes réellement capturés (spec 002, R4.3).
+   *
+   * Le corpus doré est écrit à la main, donc il ne prouve rien sur ce que la
+   * *capture* laisse passer. Ce cas-ci balaie un dossier d'épisodes produits par
+   * l'application, quand on lui en donne un.
+   *
+   * Il est **sauté sans dossier**, et c'est assumé : ce balayage a besoin d'un
+   * vrai bureau, d'un vrai navigateur et d'un vrai pont, qu'aucune CI n'a. Ce
+   * qu'il apporte, c'est d'être rejouable à l'identique par l'opérateur, avec le
+   * même code que le sweep du corpus doré — un second balayage écrit à part
+   * finirait par diverger du premier.
+   *
+   *   NOE_EPISODES=%APPDATA%\app.noe.desktop\episodes pnpm test:only
+   */
+  it('aucun canari dans les episodes REELLEMENT captures (R4.3)', async () => {
+    const dossier = process.env['NOE_EPISODES'];
+    if (dossier === undefined || dossier.length === 0) {
+      // Pas de `skip` silencieux : on dit pourquoi, sinon un vert ici se lirait
+      // comme une preuve alors qu'il n'y a rien eu à prouver.
+      console.warn(
+        'sweep etendu ignore : NOE_EPISODES absent (il faut une capture reelle, pas une CI)',
+      );
+      return;
+    }
+    const liste = await canaris();
+    const fichiers = await tousLesFichiers(dossier);
+    expect(fichiers.length, `aucun fichier sous ${dossier}`).toBeGreaterThan(0);
+
+    const fuites: string[] = [];
+    for (const f of fichiers) {
+      const contenu = await readFile(f, 'utf8').catch(() => '');
+      for (const c of liste) {
+        if (contenu.includes(c)) fuites.push(`${f} contient « ${c} »`);
+      }
+    }
+    expect(fuites).toEqual([]);
+  });
+
   it('le sweep detecte bien une fuite — un test qui ne peut pas echouer ne prouve rien', async () => {
     const liste = await canaris();
     const sortie = await mkdtemp(join(tmpdir(), 'noe-sweep-neg-'));

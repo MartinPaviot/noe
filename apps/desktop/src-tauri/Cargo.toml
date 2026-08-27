@@ -43,6 +43,8 @@ windows = { version = "0.58", features = ["Win32_Security_Cryptography",
     # Tache 6b : le tuyau nomme du pont DOM, restreint au compte courant.
     "Win32_System_Pipes",
     "Win32_System_IO",
+    # R7.1 : mesurer le CPU et la memoire du PROCESSUS, pas de la machine.
+    "Win32_System_ProcessStatus",
     "Win32_System_SystemServices",
     "Win32_Security",
     "Win32_Security_Authorization",

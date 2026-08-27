@@ -10,6 +10,7 @@ mod assemblage;
 mod clavier;
 mod cle;
 mod config;
+mod empreinte;
 mod etat;
 mod horloge;
 mod journal;
@@ -187,6 +188,11 @@ fn demarrer<R: Runtime>(app: &AppHandle<R>) {
 
     match resultat {
         Ok((id, slug)) => {
+            // Le cache de noms de processus repart a neuf : les identifiants
+            // d'un episode precedent peuvent avoir ete recycles par Windows, et
+            // un nom faux ferait trancher la liste blanche de travers.
+            uia::oublier_les_processus();
+
             // La source d'abord : c'est elle qui fournit le photographe, et le
             // moteur doit le recevoir avant de traiter le premier declencheur.
             let mut native = UiaSource::new(e.horloge.clone());
@@ -463,6 +469,13 @@ fn clore_episode<R: Runtime>(app: &AppHandle<R>, cause: CauseCloture) {
                 // episode dont la moitie des photos manquent ne se lit pas
                 // comme un episode complet.
                 moteur.photos_hors_perimetre(),
+                // R7.1 : ce que l'episode a coute. L'operateur doit pouvoir
+                // savoir a quel point on s'est approche, meme sans degradation.
+                moteur.empreinte().pire_cpu_pct(),
+                moteur.empreinte().pire_ram_octets(),
+                moteur.empreinte().palier(),
+                moteur.empreinte().fenetres(),
+                moteur.frappes_fondues(),
             )
         })
     };
@@ -500,12 +513,62 @@ fn clore_episode<R: Runtime>(app: &AppHandle<R>, cause: CauseCloture) {
 
     match resultat {
         Ok(ep) => {
-            let (_, entrees, unresolved, echecs, trous, declencheurs, photos, hors, refusees) =
-                bilan.unwrap_or((Vec::new(), 0, 0, 0, 0, 0, 0, 0, 0));
+            let (
+                _,
+                entrees,
+                unresolved,
+                echecs,
+                trous,
+                declencheurs,
+                photos,
+                hors,
+                refusees,
+                cpu,
+                ram,
+                palier,
+                fenetres,
+                fondues,
+            ) = bilan.unwrap_or((
+                Vec::new(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0.0,
+                0,
+                empreinte::Palier::Nominal,
+                0,
+                0,
+            ));
             // R3.4 : un echec d'ecriture se DIT. Un episode incomplet qu'on
             // annonce complet est pire qu'un episode manquant.
             let alerte = if echecs > 0 {
                 format!(" · ATTENTION : {echecs} entrees non ecrites")
+            } else {
+                String::new()
+            };
+            // R7.1 : ce que l'episode a coute, sur combien de fenetres. Sans le
+            // nombre de fenetres, « pointe a 4 % » ne dit pas si on a mesure
+            // trente secondes ou une heure.
+            let cout = if fenetres > 0 {
+                format!(
+                    " · pointe {cpu:.1} % CPU / {} Mo sur {fenetres} fenetre(s){}{}",
+                    ram / (1024 * 1024),
+                    if palier == empreinte::Palier::Nominal {
+                        String::new()
+                    } else {
+                        format!(" · DEGRADE ({palier:?})")
+                    },
+                    if fondues > 0 {
+                        format!(" · {fondues} frappes fondues")
+                    } else {
+                        String::new()
+                    }
+                )
             } else {
                 String::new()
             };
@@ -524,7 +587,7 @@ fn clore_episode<R: Runtime>(app: &AppHandle<R>, cause: CauseCloture) {
                     CauseCloture::Timeout => "Episode clos automatiquement (60 min)",
                 },
                 &format!(
-                    "{} — tache « {} » · {entrees} entrees, {declencheurs} declencheurs,                      {photos} photos, {trous} trous, {unresolved} non resolues{dehors}{alerte}.
+                    "{} — tache « {} » · {entrees} entrees, {declencheurs} declencheurs,                      {photos} photos, {trous} trous, {unresolved} non resolues{dehors}{cout}{alerte}.
 {}",
                     ep.id,
                     ep.task_slug,
@@ -1503,6 +1566,12 @@ pub fn run() {
                 std::thread::spawn(move || {
                     let temps = veille::TempsWindows;
                     let mut detecteur = veille::DetecteurVeille::nouveau(&temps);
+                    // R7.1 : le compteur d'empreinte vit avec le battement.
+                    // Il mesure le PROCESSUS, pas la machine — un operateur ne
+                    // desinstalle pas Noe parce que Windows indexe son disque.
+                    let mut compteur = empreinte::Compteur::nouveau();
+                    let mut prochaine_fenetre_ms = 0u64;
+
                     loop {
                         std::thread::sleep(std::time::Duration::from_secs(1));
                         let etat: State<Etat> = batteur.state();
@@ -1523,6 +1592,7 @@ pub fn run() {
                                 None => Vec::new(),
                             }
                         };
+                        let mut degradation = None;
                         let clos = {
                             let mut m = etat.moteur.lock().expect("moteur empoisonne");
                             match m.as_mut() {
@@ -1557,11 +1627,43 @@ pub fn run() {
                                     }
                                     moteur.battre();
                                     moteur.battre_journal();
+
+                                    // R7.1, R7.2 : une fenetre de 30 s vient
+                                    // peut-etre de s'achever. La mesure passe au
+                                    // moteur, qui decide s'il faut degrader et
+                                    // ECRIT le palier au journal.
+                                    let t = etat.horloge.monotone_ms();
+                                    if prochaine_fenetre_ms == 0 {
+                                        prochaine_fenetre_ms = t + empreinte::FENETRE_MS;
+                                        let _ = compteur.fenetre(t);
+                                    } else if t >= prochaine_fenetre_ms {
+                                        prochaine_fenetre_ms = t + empreinte::FENETRE_MS;
+                                        if let Some(m) = compteur.fenetre(t) {
+                                            degradation = moteur.observer_empreinte(m);
+                                        }
+                                    }
+
                                     moteur.clos()
                                 }
                                 None => false,
                             }
                         };
+                        // R7.2, dernier palier : « alerter ». Les deux premiers
+                        // se contentent d'etre ecrits ; celui-ci rend la main a
+                        // l'operateur, parce qu'une alerte ne libere aucune
+                        // ressource — elle lui laisse la decision.
+                        if let Some(d) = degradation {
+                            if d.what == "alerte" {
+                                notifier(
+                                    &batteur,
+                                    "Noe se met en retrait",
+                                    "La machine est chargee depuis plusieurs minutes. Les photos \
+                                     sont suspendues et la capture s'est espacee ; tout est ecrit \
+                                     dans l'episode.",
+                                );
+                            }
+                        }
+
                         // R1.3 : l'episode s'est clos tout seul. Meme chemin de
                         // cloture que le hotkey — assemblage, persistance ou
                         // quarantaine, journal ferme, source et hook relaches.

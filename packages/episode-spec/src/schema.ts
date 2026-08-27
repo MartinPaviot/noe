@@ -46,6 +46,26 @@ export const Gap = z.object({
   to_seq: z.number().int().nonnegative(),
 });
 
+/**
+ * Ce que le capteur a cessé de faire pour rester dans son budget (spec 002, R7.2).
+ *
+ * **Une qualité qui baisse en silence biaise les statistiques en silence.** Un
+ * épisode dont les snapshots ont été suspendus n'a pas moins de photos par
+ * hasard : il en a moins parce que la machine chauffait. Sans cette trace, la
+ * spec 004 comparerait des épisodes dégradés à des épisodes complets sans savoir
+ * qu'elle le fait, et conclurait que la capture est instable.
+ *
+ * `from` et `to` sont des chaînes et non des nombres : un débounce passe de
+ * « 300 » à « 900 », mais les snapshots passent de « actifs » à « suspendus ».
+ * Un type unique pour les deux évite un champ par sorte de dégradation.
+ */
+export const Degradation = z.object({
+  /** Ce qui a été dégradé : `snapshots`, `debounce`, `alerte`. */
+  what: z.string().min(1),
+  from: z.string().min(1),
+  to: z.string().min(1),
+});
+
 const baseEvent = {
   schema_v: z.literal(SCHEMA_V),
   seq: z.number().int().nonnegative(),
@@ -76,6 +96,12 @@ export const Event = z.discriminatedUnion('kind', [
     kind: z.literal('gap'),
     source: z.literal('system'),
     gap: Gap,
+  }),
+  z.object({
+    ...baseEvent,
+    kind: z.literal('degraded'),
+    source: z.literal('system'),
+    degraded: Degradation,
   }),
 ]);
 

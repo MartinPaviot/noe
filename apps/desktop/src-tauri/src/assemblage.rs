@@ -64,6 +64,14 @@ pub enum Evenement {
         source: String,
         gap: Trou,
     },
+    /// R7.2 : une qualité qui baisse, dite au flux.
+    Degraded {
+        schema_v: u32,
+        seq: u64,
+        ts: String,
+        source: String,
+        degraded: crate::empreinte::Degradation,
+    },
 }
 
 impl Evenement {
@@ -72,7 +80,7 @@ impl Evenement {
     #[cfg(test)]
     pub fn seq(&self) -> u64 {
         match self {
-            Self::UiAction { seq, .. } | Self::Gap { seq, .. } => *seq,
+            Self::UiAction { seq, .. } | Self::Gap { seq, .. } | Self::Degraded { seq, .. } => *seq,
         }
     }
 }
@@ -320,6 +328,23 @@ pub fn assembler(
             // parce qu'il n'y a rien eu a observer.
             EntreeJournal::HorsPerimetre { combien, .. } => {
                 hors_perimetre += combien;
+            }
+
+            // R7.2 : celle-ci, en revanche, se raconte. Elle explique pourquoi
+            // la suite de l'episode est moins fournie, et sans elle on lirait
+            // cette pauvrete comme une propriete du travail observe.
+            EntreeJournal::Degradation {
+                monotone_ms, quoi, ..
+            } => {
+                seq += 1;
+                dernier_seq_utile = seq;
+                evenements.push(Evenement::Degraded {
+                    schema_v: SCHEMA_V,
+                    seq,
+                    ts: mural(*monotone_ms),
+                    source: "system".to_string(),
+                    degraded: quoi.clone(),
+                });
             }
 
             // Déclencheurs, snapshots et clôture appartiennent au film. Le récit
@@ -757,7 +782,9 @@ mod tests {
         assert_eq!(ep.t1, horodater(T0 + 3_000));
         for e in &ep.events {
             let ts = match e {
-                Evenement::UiAction { ts, .. } | Evenement::Gap { ts, .. } => ts,
+                Evenement::UiAction { ts, .. }
+                | Evenement::Gap { ts, .. }
+                | Evenement::Degraded { ts, .. } => ts,
             };
             assert!(ts.as_str() >= ep.t0.as_str(), "{ts} avant t0");
             assert!(ts.as_str() <= ep.t1.as_str(), "{ts} apres t1");

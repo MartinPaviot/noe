@@ -21,6 +21,57 @@ pub fn normaliser(surface: &str) -> String {
     surface.trim().to_lowercase()
 }
 
+/// La classe d'une surface : qui a le droit de l'observer.
+///
+/// D19 partitionne les sources **par classe de surface**, pas par échec et pas
+/// par fenêtre : `UiaSource` prend toutes les applications natives, `DomSource`
+/// toutes les surfaces navigateur, et il n'existe aucune bascule dynamique sur
+/// une même surface.
+///
+/// Sans cette classe, la partition n'était qu'une intention. L'abonnement UIA est
+/// **global filtré** : il voit le navigateur comme le reste. Une capture réelle
+/// l'a montré — un épisode de 1960 événements dont la quasi-totalité venait de
+/// l'interface de Chrome elle-même, avec des `scope_fields` comme « about:blank -
+/// Google Chrome » et « Barre d'adresse et de recherche ». Le travail de
+/// l'opérateur était noyé dans la chrome du navigateur, et chaque geste dans la
+/// page comptait deux fois.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Classe {
+    Native,
+    Navigateur,
+}
+
+/// Les exécutables que `DomSource` couvre, et que `UiaSource` doit donc laisser.
+///
+/// Une liste et non une heuristique : deviner « c'est sûrement un navigateur »
+/// sur un nom de processus se tromperait dans les deux sens, et les deux sens
+/// coûtent cher — soit on perd une application native, soit on capture deux fois
+/// la même page.
+const NAVIGATEURS: &[&str] = &[
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "brave.exe",
+    "opera.exe",
+    "vivaldi.exe",
+    "chromium.exe",
+];
+
+/// À quelle classe appartient cette surface ?
+///
+/// Une surface inconnue est **native** : c'est le défaut qui capture, et il est
+/// correct ici. Le risque d'une erreur de classe n'est pas symétrique — ranger un
+/// navigateur inconnu en natif fait capturer sa chrome, ce qui est du bruit ;
+/// ranger une application native en navigateur la rendrait invisible, ce qui est
+/// une perte.
+pub fn classe(surface: &str) -> Classe {
+    if NAVIGATEURS.contains(&normaliser(surface).as_str()) {
+        Classe::Navigateur
+    } else {
+        Classe::Native
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ListeBlanche {
     autorisees: BTreeSet<String>,
@@ -186,5 +237,40 @@ mod tests {
         let l = ListeBlanche::depuis(["chrome.exe", "outlook.exe"]);
         let json = serde_json::to_string(&l).unwrap();
         assert_eq!(serde_json::from_str::<ListeBlanche>(&json).unwrap(), l);
+    }
+
+    #[test]
+    fn les_navigateurs_connus_sont_ranges_comme_tels() {
+        for n in [
+            "chrome.exe",
+            "CHROME.EXE",
+            "msedge.exe",
+            "firefox.exe",
+            " brave.exe ",
+        ] {
+            assert_eq!(classe(n), Classe::Navigateur, "{n}");
+        }
+    }
+
+    #[test]
+    fn tout_le_reste_est_natif() {
+        for n in [
+            "outlook.exe",
+            "explorer.exe",
+            "notepad.exe",
+            "",
+            "inconnu.exe",
+        ] {
+            assert_eq!(classe(n), Classe::Native, "{n}");
+        }
+    }
+
+    #[test]
+    fn le_defaut_penche_du_cote_qui_capture() {
+        // Le risque d'erreur de classe n'est pas symetrique : ranger un
+        // navigateur inconnu en natif fait capturer sa chrome, ce qui est du
+        // bruit qu'on voit ; ranger une application native en navigateur la
+        // rendrait invisible, ce qui est une perte qu'on ne voit pas.
+        assert_eq!(classe("un-navigateur-de-2030.exe"), Classe::Native);
     }
 }
