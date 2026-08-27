@@ -91,6 +91,53 @@ unsafe fn recuperer(sortie: &mut CRYPT_INTEGER_BLOB) -> Vec<u8> {
     copie
 }
 
+/// Chiffre des octets pour le compte Windows courant.
+///
+/// Extrait de `CleHmac` parce que la spec 003 a un second secret à protéger —
+/// les jetons OAuth — et qu'un second chemin DPAPI écrit à côté finirait par
+/// diverger du premier.
+///
+/// **L'entropie applicative est un paramètre, pas une constante.** Deux secrets
+/// de nature différente ne doivent pas se déchiffrer avec la même mécanique :
+/// sans cette séparation, une confusion de chemin livrerait les jetons là où le
+/// code attend la clé HMAC, et l'erreur ne se verrait qu'au moment où les jetons
+/// serviraient de clé de pseudonymisation.
+// Appelée par `CoffreJetons::enregistrer`, qui attend le flux d'autorisation de
+// la spec 003 — lui-même en attente d'une application connectée. La lecture
+// (`deproteger_octets`), elle, a déjà un appelant au démarrage.
+#[allow(dead_code)] // retiré quand la tâche 0 rend l'org accessible
+pub fn proteger_octets(clair: &[u8], entropie: &[u8]) -> Result<Vec<u8>, ErreurCle> {
+    let mut copie = clair.to_vec();
+    let mut ent = entropie.to_vec();
+    let entree = blob(&mut copie);
+    let ent = blob(&mut ent);
+    let mut sortie = CRYPT_INTEGER_BLOB::default();
+
+    // SAFETY : les trois blobs pointent sur des tampons vivants pendant tout
+    // l'appel, et `sortie` est recopie puis libere immediatement apres.
+    unsafe {
+        CryptProtectData(&entree, None, Some(&ent), None, None, 0, &mut sortie)
+            .map_err(|e| ErreurCle::Dpapi(e.message()))?;
+        Ok(recuperer(&mut sortie))
+    }
+}
+
+/// Déchiffre des octets protégés par `proteger_octets`, même entropie.
+pub fn deproteger_octets(chiffre: &[u8], entropie: &[u8]) -> Result<Vec<u8>, ErreurCle> {
+    let mut copie = chiffre.to_vec();
+    let mut ent = entropie.to_vec();
+    let entree = blob(&mut copie);
+    let ent = blob(&mut ent);
+    let mut sortie = CRYPT_INTEGER_BLOB::default();
+
+    // SAFETY : idem `proteger_octets`.
+    unsafe {
+        CryptUnprotectData(&entree, None, Some(&ent), None, None, 0, &mut sortie)
+            .map_err(|e| ErreurCle::Dpapi(e.message()))?;
+        Ok(recuperer(&mut sortie))
+    }
+}
+
 impl CleHmac {
     /// Tire une clé neuve avec le générateur du système.
     pub fn generer() -> Result<Self, ErreurCle> {

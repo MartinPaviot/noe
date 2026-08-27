@@ -17,6 +17,7 @@ mod horloge;
 mod journal;
 mod moteur;
 mod motifs;
+mod oauth;
 mod panique;
 pub mod pont;
 mod presse_papiers;
@@ -100,6 +101,12 @@ struct Etat {
     clavier: Mutex<Option<HookClavier>>,
     /// L'appariement copier-coller de l'épisode en cours (R2.3).
     appariement: Mutex<presse_papiers::Appariement>,
+    /// Spec 003, R1.3 : l'état des systèmes branchés.
+    ///
+    /// Il vit dans l'état de l'application et pas dans le connecteur, parce que
+    /// c'est le TRAY qui doit le montrer : un connecteur qui saurait qu'il est
+    /// déconnecté sans que personne ne le voie ne servirait à rien.
+    connecteur: Mutex<oauth::EtatConnecteur>,
 }
 
 /// L'identifiant de l'application, tel que `tauri.conf.json` le déclare.
@@ -119,6 +126,14 @@ fn dossier_donnees<R: Runtime>(app: &AppHandle<R>) -> std::path::PathBuf {
 
 fn chemin_config<R: Runtime>(app: &AppHandle<R>) -> std::path::PathBuf {
     dossier_donnees(app).join("config.json")
+}
+
+/// Spec 003, R1.2 — le coffre à jetons, à côté de la clé HMAC.
+///
+/// Même dossier, entropie applicative **différente** : deux secrets de nature
+/// différente ne doivent pas se déchiffrer avec la même mécanique.
+fn chemin_jetons<R: Runtime>(app: &AppHandle<R>) -> std::path::PathBuf {
+    dossier_donnees(app).join("jetons.bin")
 }
 
 /// Notifie l'opérateur, et retombe sur la journalisation si le canal manque.
@@ -660,6 +675,21 @@ fn construire_menu<R: Runtime>(app: &AppHandle<R>, cfg: &Config) -> tauri::Resul
         s.en_pause()
     };
 
+    // Spec 003, R1.3 : l'etat des systemes se LIT dans le menu. L'icone dit
+    // qu'il y a une question ; cette ligne dit laquelle.
+    let etat_connecteur = {
+        let e: State<Etat> = app.state();
+        let c = *e.connecteur.lock().expect("connecteur empoisonne");
+        c
+    };
+    let systemes = MenuItem::with_id(
+        app,
+        "systemes",
+        format!("Systemes : {}", etat_connecteur.infobulle()),
+        false,
+        None::<&str>,
+    )?;
+
     let fenetre = MenuItem::with_id(app, ID_FENETRE, "Voir les episodes", true, None::<&str>)?;
     let pause = CheckMenuItem::with_id(app, ID_PAUSE, "Pause", true, en_pause, None::<&str>)?;
     // R5.3 : trois fenetres, et le choix EST la confirmation.
@@ -709,6 +739,7 @@ fn construire_menu<R: Runtime>(app: &AppHandle<R>, cfg: &Config) -> tauri::Resul
             &pause,
             &panique,
             &separateur,
+            &systemes,
             &dossier,
             &quitter,
         ],
@@ -891,6 +922,19 @@ fn paniquer<R: Runtime>(app: &AppHandle<R>, minutes: u64) {
     // ferait apparier un collage a une copie que l'operateur vient de faire
     // effacer.
     *e.appariement.lock().expect("appariement empoisonne") = presse_papiers::Appariement::nouveau();
+    // Les jetons d'acces aussi (spec 003, R1.2). Un operateur qui panique veut
+    // que la trace parte, et un jeton qui survit laisse la porte ouverte sur les
+    // memes systemes — c'est-a-dire sur les memes donnees.
+    if let Err(err) = oauth::CoffreJetons::effacer(&chemin_jetons(app)) {
+        eprintln!("[noe] jetons non effaces : {err}");
+    }
+    *e.connecteur.lock().expect("connecteur empoisonne") = oauth::EtatConnecteur::Absent;
+    // La question qui demandait une reconnexion n'a plus d'objet : il n'y a plus
+    // de connexion a reprendre.
+    e.session
+        .lock()
+        .expect("session empoisonnee")
+        .repondre_question();
 
     // 2. Effacer. Le dossier de l'episode avorte est dans la fenetre : il vient
     //    de s'ouvrir, donc il intersecte forcement.
@@ -1536,7 +1580,35 @@ pub fn run() {
                 capture: Mutex::new(None),
                 clavier: Mutex::new(None),
                 appariement: Mutex::new(presse_papiers::Appariement::nouveau()),
+                connecteur: Mutex::new(oauth::EtatConnecteur::Absent),
             });
+
+            // Spec 003, R1.3 : l'etat des systemes branches, des le demarrage.
+            //
+            // Un jeton illisible — profil Windows change, fichier tronque — ne
+            // fait PAS echouer le demarrage. C'est la difference avec la cle
+            // HMAC : perdre la cle rend tout le corpus muet, perdre un jeton
+            // coute une reconnexion.
+            {
+                let e: State<Etat> = handle.state();
+                let chemin = chemin_jetons(&handle);
+                let resultat = oauth::CoffreJetons::charger(&chemin);
+                let etat = resultat.etat();
+                *e.connecteur.lock().expect("connecteur empoisonne") = etat;
+                if let oauth::Resultat::Illisible(raison) = &resultat {
+                    eprintln!("[noe] jetons illisibles : {raison}");
+                    e.session
+                        .lock()
+                        .expect("session empoisonnee")
+                        .poser_question();
+                    notifier(
+                        &handle,
+                        "Reconnexion demandee",
+                        "Les jetons d acces sont illisibles. La capture continue ; \
+                         les lectures d etat manqueront et seront declarees comme trous.",
+                    );
+                }
+            }
 
             // R3.2 : avant tout le reste. Un episode orphelin doit etre clos et
             // assemble avant qu'un nouveau ne s'ouvre, sinon deux journaux

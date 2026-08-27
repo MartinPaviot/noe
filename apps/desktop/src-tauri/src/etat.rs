@@ -143,16 +143,19 @@ impl Session {
         self.en_pause
     }
 
-    // Les questions en attente sont posees par la boucle de la spec 004
-    // (shadow, file priorisee). L etat existe deja parce que R5.1 exige TROIS
-    // etats de tray des maintenant : le rendre inatteignable jusque-la aurait
-    // demande de le recabler plus tard, et laisse un etat non teste entre-temps.
-    #[allow(dead_code)]
+    /// Une question attend l'opérateur — troisième état du tray (R5.1 de la 002).
+    ///
+    /// Son premier usage réel arrive avec la spec 003 : `reauth_required`. Un
+    /// connecteur dont le jeton ne se rafraîchit plus ne doit ni crasher ni se
+    /// taire — il demande, et l'icône le dit. La boucle de la spec 004 s'en
+    /// servira aussi pour sa file priorisée.
+    ///
+    /// L'`allow(dead_code)` qui gardait ces deux méthodes est retiré : elles ont
+    /// un appelant.
     pub fn poser_question(&mut self) {
         self.question_en_attente = true;
     }
 
-    #[allow(dead_code)]
     pub fn repondre_question(&mut self) {
         self.question_en_attente = false;
     }
