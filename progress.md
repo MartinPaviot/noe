@@ -888,3 +888,57 @@ ce global n'arrivait que par les **fichiers de test**, qui importent vitest. Le
 typage d'un module de production dépendait de la présence de ses bancs.
 
 ---
+
+## 2026-08-27 (8) — L'audit des invariants
+
+### Ce qui s'est passé
+
+Troisième axe, après les exigences et les miroirs : **`docs/invariants.md`
+énonce sept invariants. Lesquels sont gardés par une mécanique ?**
+
+Deux ne l'étaient par rien du tout, et ce sont les deux premiers de la liste.
+
+### INVARIANT VI — « `@noe/core` est pur »
+
+Quatre violations y vivaient : un `setTimeout` et deux `Math.random` en valeurs
+par défaut dans `client.ts`, un `ulid()` dans `close.ts`. Aucune n'était
+malveillante ; chacune était une commodité. C'est précisément pour ça qu'un
+invariant a besoin d'un banc — **personne n'écrit une violation en se disant
+qu'il en écrit une.**
+
+Le plus gênant : le compilateur me l'avait dit la veille. En donnant un build à
+`@noe/core`, `tsc` a refusé `setTimeout`, et j'ai fait taire le message en
+ajoutant `@types/node` — c'est-à-dire en déclarant que ce paquet a le droit
+d'avoir une horloge. Il ne l'a pas.
+
+### INVARIANT I — « aucun contenu utilisateur ne quitte le poste »
+
+La première des cinq règles, gardée par des commentaires. Le banc pose trois
+contrôles : chaque `fetch` de l'extension vise une ressource empaquetée, aucune
+autre voie d'émission n'y existe, et le capteur ne parle au réseau que par
+`transport.rs`.
+
+Le `fetch` de `motifs.js` visait bien une ressource locale — mais la cible était
+calculée trois lignes plus haut. L'appel a été recollé : **une garantie qui
+demande au lecteur de la suivre est une garantie qu'un jour il ne suivra pas.**
+
+### Ce que j'ai failli committer
+
+J'ai d'abord écrit, dans la documentation du banc, que le commentaire du service
+worker mentait en affirmant « aucun `fetch` ». Il ne ment pas : il parle de **ce
+fichier-là**, où c'est vrai. Ce qui manquait, c'est que personne ne regardait le
+reste de l'extension.
+
+La différence entre « rien ne sortait » et « rien ne le vérifiait » est toute la
+valeur d'un banc — et j'ai failli écrire l'inverse dans le dépôt.
+
+### Vert
+
+**612 tests Rust + 2 d'intégration + 5 visuels**, 269 TypeScript, sept miroirs,
+deux invariants mécanisés. Clippy strict propre.
+
+### Prochaine tâche
+
+Toujours la **0**.
+
+---
