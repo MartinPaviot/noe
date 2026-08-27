@@ -815,3 +815,76 @@ Aucune écriture hors dépôt. Les témoins de jetons créés pour éprouver le 
 effacés — aucun n'a jamais été un vrai jeton, et aucun n'a touché le dépôt.
 
 ---
+
+## 2026-08-27 (7) — L'audit des miroirs
+
+### Ce qui s'est passé
+
+L'audit des exigences était clos. Restait un autre axe, que la veille avait
+laissé ouvert : **qu'est-ce qui vit en double entre les deux langages, sans que
+rien ne le vérifie ?** J'avais moi-même créé un cas la veille, en recopiant à la
+main les constantes du client TypeScript en Rust.
+
+Quatre miroirs plus tard, trois divergences réelles.
+
+### Fait
+
+- **Le client de reprise** — constantes et, surtout, **soixante vecteurs de
+  sortie**. Comparer `TENTATIVES_MAX = 5` des deux côtés ne prouve presque rien :
+  les constantes sont la partie qu'on relit. Ce qui diverge en silence, c'est
+  l'arithmétique.
+- **Les règles de résolution** — l'ordre de force des clés et la normalisation
+  des identifiants, jusque-là garanties par un commentaire dans quatre fichiers.
+  La normalisation vit maintenant une seule fois.
+- **Le corpus doré**, que rien ne lisait côté Rust.
+- **Un épisode « tout allumé »**, parce que le corpus doré n'exerce ni
+  `resolved`, ni `state_meta`, ni `supersedes`.
+
+### Les trois divergences
+
+**`api_change`.** Le schéma porte un quatrième type d'événement depuis la spec
+001. Le miroir Rust ne l'a jamais eu : le type refusait les cinq épisodes du
+corpus, purement et simplement, avec un « unknown variant » qu'aucun banc n'avait
+jamais provoqué. Un capteur qui aurait écrit un épisode que le harness refuse ne
+l'aurait découvert qu'au rejeu. Et c'est précisément là que les changements
+collectés par R4.1 devaient atterrir.
+
+**`supersedes`.** Il porte l'INVARIANT IV — un épisode clôturé n'est jamais
+modifié, une correction produit un épisode neuf qui référence l'ancien. Le type
+Rust ne l'avait pas : une lecture-écriture l'aurait **effacé en silence**, et avec
+lui le seul fil qui relie une correction à ce qu'elle corrige.
+
+**`degraded.reason`** — celle-là est la mienne. J'ai inventé un champ qui
+n'existe nulle part, Zod l'a accepté sans un mot parce que ses objets ne sont pas
+stricts par défaut, et c'est le miroir Rust qui l'a signalé. En le comptant comme
+un champ perdu, ce qu'il était, mais pour la mauvaise raison.
+
+### Ce que ça apprend sur les contrôles
+
+**Un contrôle ne vaut que ses vecteurs.** J'ai mesuré, plutôt que supposé, que le
+corpus doré n'exerce pas trois des champs d'entité. Le générateur de l'épisode
+complet **refuse** désormais de produire un fichier qui n'allume pas tout ce que
+le schéma déclare — le jour où quelqu'un ajoute un champ, ça s'arrête là, et pas
+six mois plus tard sur un épisode réel.
+
+**Et un contrôle doit refuser dans les deux sens.** Exiger que tout soit exercé
+ne dit rien de ce qui est exercé en trop.
+
+### Vert
+
+`pnpm verify` · `cargo test --all-targets` : **611 tests Rust + 2 d'intégration
++ 5 visuels**, 260 TypeScript. **Sept miroirs vérifiés** dans `pnpm verify`.
+Clippy strict propre. Les deux workflows verts.
+
+### Prochaine tâche
+
+Toujours la **0**. Les exigences sont tenues, les miroirs tiennent ensemble.
+
+### Coûts
+
+Une dépendance ajoutée : `@types/node` sur `@noe/core`, qui n'avait pas de build
+du tout. En lui en donnant un, le compilateur a refusé `setTimeout` — le type de
+ce global n'arrivait que par les **fichiers de test**, qui importent vitest. Le
+typage d'un module de production dépendait de la présence de ses bancs.
+
+---
