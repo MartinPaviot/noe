@@ -661,3 +661,75 @@ est synchrone et qu'un ordonnanceur complet pour faire des GET dans un fil qui
 n'a rien d'autre à faire serait du poids sans contrepartie.
 
 ---
+
+## 2026-08-27 (5) — Ce que « non bloqué » voulait encore dire
+
+### Ce qui s'est passé
+
+J'avais annoncé qu'il ne restait plus rien à avancer sans l'org. C'était faux, et
+la spec le disait : R1.1 exige que **le code n'encode jamais le CRM hors de son
+adaptateur**, et `candidates.rs` le nommait dans une constante depuis le matin
+même. Relire l'exigence a rouvert une demi-journée de travail.
+
+### Fait
+
+- **R1.1** — la forme d'une URL Lightning et l'algorithme du suffixe de contrôle
+  sont des faits sur Salesforce : ils vivent dans `salesforce.rs`, les
+  identifiants de fil dans `gmail.rs`. `terrain.rs` lit et valide
+  `terrain.json`, qui porte le choix. Changer de CRM, c'est changer une ligne.
+- **R5.3** — le budget d'appels aussi vient du terrain, pas d'une constante.
+- **Tâche 9** — une troisième famille de canaris, `hors_perimetre`, et un sweep
+  qui sait enfin **dire non**.
+- **Tâche 0** — `plan.mjs` (pur, dix tests) et `peupler.mjs` (rejouable, et qui
+  refuse de faire semblant sur l'historique des champs).
+- **Un défaut OAuth réel**, trouvé par un test devenu instable.
+
+### Ce que l'instabilité a appris
+
+Un test s'est mis à échouer une fois sur six. La tentation était de le relancer.
+En cherchant : `attendre()` met l'écouteur en non-bloquant pour borner l'accept,
+et **la socket acceptée en hérite**. La lecture rendait `WouldBlock` dès que les
+octets du navigateur n'étaient pas déjà arrivés — et le délai de lecture ne
+s'applique pas à une socket non bloquante, donc il ne rattrapait rien.
+
+En production, l'écart entre la connexion et la requête est plus grand qu'en
+test. Le défaut mordait donc **plus** souvent sur un vrai navigateur, et il se
+serait lu « la connexion OAuth ne marche pas », sans rien pour dire pourquoi. Un
+test déterministe le garde maintenant : le navigateur attend quatre cents
+millisecondes avant d'envoyer sa requête.
+
+**Un test instable n'est pas un test fragile. C'est un défaut qui se montre une
+fois sur six.**
+
+### Les contrôles vus échouer
+
+Neuf tests écrits cette session ont été mis en échec avant d'être crus : les
+quatre de la revue adverse, les deux du budget de terrain, et les trois de la
+socket. Le sweep de canaris, lui, n'avait **aucun** test de sa propre détection —
+il ne balayait que des sorties propres, donc un `includes` cassé serait passé
+inaperçu pour toujours. Il en a un.
+
+### Ce qui n'est toujours pas prouvé
+
+Rien n'a changé de ce côté : aucun adaptateur n'a parlé à une org, sept modules
+attendent un jeton, et le worker n'a jamais démarré en production.
+
+### Vert
+
+`pnpm verify` · `cargo test --all-targets` : **550 tests Rust + 2 d'intégration
++ 5 visuels**, 260 TypeScript. Six passes complètes de suite sans une seule
+instabilité. Clippy strict propre.
+
+### Prochaine tâche
+
+Toujours la **0**, et toujours pour la même raison. Mais le jour où l'accès
+revient, la suite tient en trois commandes : `sonder`, `peupler`, puis la
+connexion OAuth.
+
+### Coûts
+
+Aucune écriture hors dépôt. Un chemin codé en dur retiré de `sonder.mjs` : il
+pointait sur un profil utilisateur nommé, et un outil qui ne tourne que sur une
+machine n'est pas un outil.
+
+---

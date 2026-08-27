@@ -5,12 +5,17 @@
  * est déjà là — une org créée hier peut avoir expiré, ou contenir des données de
  * démonstration Salesforce qu'il vaut mieux connaître avant d'en ajouter.
  *
- * Usage : `node scripts/terrain/sonder.mjs [--visible]`
+ * Usage : `node apps/terrain/sonder.mjs [--visible]`
  */
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { ouvrirCoffre } from './coffre.mjs';
 import { api, ouvrirSession } from './session.mjs';
 
-const COFFRE = 'C:\\Users\\marti\\.noe\\coffre\\salesforce-de.dpapi';
+// Le chemin se derive du profil et n'est pas ecrit en dur : un outil qui ne
+// tourne que sur une machine n'est pas un outil, et le jour ou quelqu'un
+// d'autre reprend la tache 0, il n'a pas a chercher pourquoi ca ne marche pas.
+const COFFRE = join(homedir(), '.noe', 'coffre', 'salesforce-de.dpapi');
 const VERSION_API = 'v62.0';
 
 const coffre = ouvrirCoffre(COFFRE);
