@@ -40,14 +40,53 @@
 
 use std::time::Duration;
 
+/// Ce qu'une réponse rapporte.
+///
+/// **`retry_after_ms` est un champ et pas un détail.** R5.1 exige de respecter
+/// `Retry-After`, et on ne peut pas respecter un en-tête qu'on ne lit pas. Une
+/// signature qui ne rendait que le statut et le corps rendait cette exigence
+/// inatteignable sans qu'aucun test ne le dise.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReponseHttp {
+    pub statut: u16,
+    pub corps: String,
+    /// `Retry-After`, quand le serveur en donne un et qu'il est en secondes.
+    ///
+    /// La RFC autorise aussi une **date**. On ne la lit pas, et on ne fait pas
+    /// semblant : sans valeur, le client retombe sur son propre calcul, qui est
+    /// borné. Mal analyser une date donnerait une attente fausse, ce qui est pire
+    /// que pas d'attente du tout.
+    pub retry_after_ms: Option<u64>,
+}
+
+impl ReponseHttp {
+    /// Une réponse sans `Retry-After`. Sert surtout aux bancs.
+    pub fn simple(statut: u16, corps: impl Into<String>) -> Self {
+        Self {
+            statut,
+            corps: corps.into(),
+            retry_after_ms: None,
+        }
+    }
+}
+
 /// Ce qu'un adaptateur sait demander au réseau.
 ///
 /// **Aucune écriture.** Le trait ne connaît que `get` : la promotion appartient à
 /// une spec ultérieure, et une méthode exposée « pour plus tard » finit
 /// implémentée puis appelée.
 pub trait Transport: Send + Sync {
-    /// Un GET authentifié sur un chemin relatif à la base. Rend `(statut, corps)`.
-    fn get(&self, chemin: &str) -> Result<(u16, String), String>;
+    /// Un GET authentifié sur un chemin relatif à la base.
+    fn get(&self, chemin: &str) -> Result<ReponseHttp, String>;
+}
+
+/// Lit un `Retry-After` en secondes. Rend `None` pour la forme datée.
+pub fn retry_after_ms(brut: Option<&str>) -> Option<u64> {
+    brut?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(|s| s.saturating_mul(1000))
 }
 
 /// Le délai global d'un appel.
@@ -296,7 +335,7 @@ impl ClientHttp {
 }
 
 impl Transport for ClientHttp {
-    fn get(&self, chemin: &str) -> Result<(u16, String), String> {
+    fn get(&self, chemin: &str) -> Result<ReponseHttp, String> {
         let url = format!("{}{chemin}", self.base);
         // Re-vérifiée à chaque appel : la base est sûre, mais un chemin qui
         // commencerait par `//` ou par un schéma changerait l'hôte.
@@ -316,6 +355,12 @@ impl Transport for ClientHttp {
         if (300..400).contains(&statut) {
             return Err(format!("redirection {statut} non suivie"));
         }
+        let attente = retry_after_ms(
+            reponse
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok()),
+        );
 
         let corps = reponse
             .into_body()
@@ -323,7 +368,11 @@ impl Transport for ClientHttp {
             .limit(PLAFOND_REPONSE)
             .read_to_string()
             .map_err(|e| format!("corps illisible ou au-dela de {PLAFOND_REPONSE} octets : {e}"))?;
-        Ok((statut, corps))
+        Ok(ReponseHttp {
+            statut,
+            corps,
+            retry_after_ms: attente,
+        })
     }
 }
 
@@ -499,9 +548,9 @@ mod tests {
         let (port, _rx) = servir(reponse("404 Not Found", "{\"e\":1}"), 1);
         // Un 404 n'est pas une panne de transport : c'est une reponse, et c'est
         // l'adaptateur qui sait ce qu'elle veut dire.
-        let (statut, corps) = client(port).get("/x").unwrap();
-        assert_eq!(statut, 404);
-        assert_eq!(corps, "{\"e\":1}");
+        let r = client(port).get("/x").unwrap();
+        assert_eq!(r.statut, 404);
+        assert_eq!(r.corps, "{\"e\":1}");
     }
 
     #[test]
@@ -514,6 +563,33 @@ mod tests {
             tete.to_lowercase().contains("accept: application/json"),
             "{tete}"
         );
+    }
+
+    #[test]
+    fn un_retry_after_en_secondes_remonte_jusqu_au_client() {
+        // R5.1 : on ne peut pas respecter un en-tete qu'on ne lit pas.
+        let mut r = reponse("429 Too Many Requests", "{}");
+        let entete = b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 12\r\n";
+        r.splice(
+            0..b"HTTP/1.1 429 Too Many Requests\r\n".len(),
+            entete.iter().copied(),
+        );
+        let (port, _rx) = servir(r, 1);
+        let recu = client(port).get("/x").unwrap();
+        assert_eq!(recu.statut, 429);
+        assert_eq!(recu.retry_after_ms, Some(12_000));
+    }
+
+    #[test]
+    fn un_retry_after_date_ne_devient_pas_une_attente_fausse() {
+        // La RFC autorise une date. On ne la lit pas, et sans valeur le client
+        // retombe sur son propre calcul, qui est borne. Mal analyser une date
+        // donnerait une attente fausse, ce qui est pire que pas d'attente.
+        assert_eq!(retry_after_ms(Some("Wed, 21 Oct 2026 07:28:00 GMT")), None);
+        assert_eq!(retry_after_ms(Some("12")), Some(12_000));
+        assert_eq!(retry_after_ms(Some("  30 ")), Some(30_000));
+        assert_eq!(retry_after_ms(Some("")), None);
+        assert_eq!(retry_after_ms(None), None);
     }
 
     #[test]

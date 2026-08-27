@@ -152,6 +152,38 @@ pub fn chemin_query(soql: &str) -> String {
     format!("/services/data/{VERSION_API}/query?q={}", encoder(soql))
 }
 
+/// Le code d'erreur Salesforce, où qu'il soit dans la réponse.
+fn code_erreur(corps: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(corps)
+        .ok()
+        .and_then(|v| {
+            v.as_array()
+                .and_then(|a| a.first().cloned())
+                .or(Some(v))?
+                .get("errorCode")?
+                .as_str()
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
+/// R5.1 — ce qu'une réponse veut dire pour la reprise.
+///
+/// **Un `403` n'est pas toujours un refus de droits.** Salesforce renvoie
+/// `REQUEST_LIMIT_EXCEEDED` avec ce statut quand l'org a brûlé son quota
+/// quotidien d'appels — et là, réessayer plus tard est exactement ce qu'il faut
+/// faire. Le confondre avec un refus de droits transformerait une limite
+/// passagère en entité définitivement non résolue.
+pub fn classe_reprise(statut: u16, corps: &str) -> crate::client::Classe {
+    use crate::client::Classe;
+    match (statut, code_erreur(corps).as_str()) {
+        (401, _) => Classe::NonAutorise,
+        (403, "REQUEST_LIMIT_EXCEEDED") | (408 | 429, _) => Classe::Reessayable,
+        (s, _) if s >= 500 => Classe::Reessayable,
+        _ => Classe::Finale,
+    }
+}
+
 /// Aplatit un enregistrement Salesforce en `FlatState`.
 ///
 /// Trois règles, et chacune vient d'une façon dont Salesforce diffère du modèle
@@ -279,17 +311,7 @@ pub fn lire_resolution(
 /// le message : les messages sont traduits dans la langue de l'org, et une
 /// classification qui les lirait se tromperait sur une org en français.
 pub fn classer_erreur(statut: u16, corps: &str) -> Issue {
-    let code = serde_json::from_str::<serde_json::Value>(corps)
-        .ok()
-        .and_then(|v| {
-            v.as_array()
-                .and_then(|a| a.first().cloned())
-                .or(Some(v))?
-                .get("errorCode")?
-                .as_str()
-                .map(str::to_string)
-        })
-        .unwrap_or_default();
+    let code = code_erreur(corps);
 
     match statut {
         401 => Issue::Trou(format!("session invalide ({code})")),
@@ -608,7 +630,7 @@ impl<T: Transport> Adaptateur<T> {
 
     /// Exécute une requête de résolution et rend les identifiants trouvés.
     fn identifiants(&self, soql: &str) -> Result<Vec<String>, String> {
-        let (statut, corps) = self
+        let crate::transport::ReponseHttp { statut, corps, .. } = self
             .transport
             .get(&chemin_query(soql))
             .map_err(|e| format!("transport : {e}"))?;
@@ -736,11 +758,11 @@ impl<T: Transport> crate::federation::Federation for Adaptateur<T> {
         let chemin = chemin_lecture(&reference.object, &reference.id, champs);
         match self.transport.get(&chemin) {
             Err(e) => Issue::Trou(format!("transport : {e}")),
-            Ok((200, corps)) => match serde_json::from_str::<serde_json::Value>(&corps) {
+            Ok(r) if r.statut == 200 => match serde_json::from_str::<serde_json::Value>(&r.corps) {
                 Ok(v) => Issue::Lu(aplatir(&v, champs)),
                 Err(e) => Issue::Trou(format!("reponse illisible : {e}")),
             },
-            Ok((statut, corps)) => classer_erreur(statut, &corps),
+            Ok(r) => classer_erreur(r.statut, &r.corps),
         }
     }
 }
@@ -753,8 +775,9 @@ mod tests_adaptateur {
     /// Un transport enregistré : le test décide de la réponse à partir du chemin.
     struct Faux<F: Fn(&str) -> (u16, String) + Send + Sync>(F);
     impl<F: Fn(&str) -> (u16, String) + Send + Sync> Transport for Faux<F> {
-        fn get(&self, chemin: &str) -> Result<(u16, String), String> {
-            Ok((self.0)(chemin))
+        fn get(&self, chemin: &str) -> Result<crate::transport::ReponseHttp, String> {
+            let (statut, corps) = (self.0)(chemin);
+            Ok(crate::transport::ReponseHttp::simple(statut, corps))
         }
     }
 
@@ -940,6 +963,22 @@ mod tests_adaptateur {
             object: "Contact".into(),
             id: "003AAA".into(),
         }
+    }
+
+    #[test]
+    fn un_quota_d_org_est_reessayable_meme_en_403() {
+        // Salesforce rend REQUEST_LIMIT_EXCEEDED avec un 403 quand l'org a brule
+        // son quota quotidien. Le confondre avec un refus de droits
+        // transformerait une limite passagere en entite definitivement non
+        // resolue.
+        use crate::client::Classe;
+        let quota = serde_json::json!([{"errorCode": "REQUEST_LIMIT_EXCEEDED"}]).to_string();
+        let droits = serde_json::json!([{"errorCode": "INSUFFICIENT_ACCESS"}]).to_string();
+        assert_eq!(classe_reprise(403, &quota), Classe::Reessayable);
+        assert_eq!(classe_reprise(403, &droits), Classe::Finale);
+        assert_eq!(classe_reprise(401, "{}"), Classe::NonAutorise);
+        assert_eq!(classe_reprise(503, "{}"), Classe::Reessayable);
+        assert_eq!(classe_reprise(404, "{}"), Classe::Finale);
     }
 
     #[test]

@@ -243,7 +243,22 @@ pub fn classer_historique(statut: u16, corps: &str) -> Suite {
 /// réessayer plus tard, ou sortir du périmètre et le déclarer. La `reason` est
 /// stable ; le message, lui, est traduit et reformulé.
 pub fn classer_erreur(statut: u16, corps: &str) -> Issue {
-    let raison = serde_json::from_str::<serde_json::Value>(corps)
+    let raison = raison_erreur(corps);
+
+    match (statut, raison.as_str()) {
+        (403, "rateLimitExceeded" | "userRateLimitExceeded") | (429, _) => {
+            Issue::Trou(format!("quota : {statut} {raison}"))
+        }
+        (401, _) => Issue::Trou("jeton refuse : reauth requise".into()),
+        (403, _) => Issue::HorsPerimetre(format!("droits insuffisants : {raison}")),
+        (404, _) => Issue::HorsPerimetre("introuvable".into()),
+        _ => Issue::Trou(format!("api gmail : {statut} {raison}")),
+    }
+}
+
+/// La `reason` de l'erreur Google, si la réponse en porte une.
+fn raison_erreur(corps: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(corps)
         .ok()
         .and_then(|v| {
             v.get("error")?
@@ -254,16 +269,24 @@ pub fn classer_erreur(statut: u16, corps: &str) -> Issue {
                 .as_str()
                 .map(str::to_owned)
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
 
-    match (statut, raison.as_str()) {
-        (403, "rateLimitExceeded" | "userRateLimitExceeded") | (429, _) => {
-            Issue::Trou(format!("quota : {statut} {raison}"))
+/// R5.1 — ce qu'une réponse veut dire pour la reprise.
+///
+/// **Le même `403` veut dire « ralentis » ou « tu n'as pas le droit ».** Le
+/// premier se reprend, le second jamais — et se tromper de sens coûte cher dans
+/// les deux directions : marteler une API qui refuse des droits ressemble à une
+/// attaque, abandonner sur un quota perd une entité pour rien.
+pub fn classe_reprise(statut: u16, corps: &str) -> crate::client::Classe {
+    use crate::client::Classe;
+    match (statut, raison_erreur(corps).as_str()) {
+        (401, _) => Classe::NonAutorise,
+        (403, "rateLimitExceeded" | "userRateLimitExceeded" | "backendError") | (408 | 429, _) => {
+            Classe::Reessayable
         }
-        (401, _) => Issue::Trou("jeton refuse : reauth requise".into()),
-        (403, _) => Issue::HorsPerimetre(format!("droits insuffisants : {raison}")),
-        (404, _) => Issue::HorsPerimetre("introuvable".into()),
-        _ => Issue::Trou(format!("api gmail : {statut} {raison}")),
+        (s, _) if s >= 500 => Classe::Reessayable,
+        _ => Classe::Finale,
     }
 }
 
@@ -854,6 +877,26 @@ mod tests {
     }
 
     #[test]
+    fn le_meme_403_se_reprend_ou_ne_se_reprend_pas() {
+        // Se tromper de sens coute cher dans les deux directions : marteler une
+        // API qui refuse des droits ressemble a une attaque, abandonner sur un
+        // quota perd une entite pour rien.
+        use crate::client::Classe;
+        assert_eq!(
+            classe_reprise(403, &erreur("rateLimitExceeded", "x")),
+            Classe::Reessayable
+        );
+        assert_eq!(
+            classe_reprise(403, &erreur("insufficientPermissions", "x")),
+            Classe::Finale
+        );
+        assert_eq!(classe_reprise(401, "{}"), Classe::NonAutorise);
+        assert_eq!(classe_reprise(429, "{}"), Classe::Reessayable);
+        assert_eq!(classe_reprise(500, "{}"), Classe::Reessayable);
+        assert_eq!(classe_reprise(404, "{}"), Classe::Finale);
+    }
+
+    #[test]
     fn un_429_est_un_trou_et_pas_un_hors_perimetre() {
         assert!(matches!(classer_erreur(429, "{}"), Issue::Trou(_)));
     }
@@ -894,7 +937,7 @@ impl<T: Transport> Adaptateur<T> {
 
     /// Va chercher un fil. Rend le corps si le fil existe.
     fn fil(&self, id: &str) -> Result<Option<serde_json::Value>, String> {
-        let (statut, corps) = self
+        let crate::transport::ReponseHttp { statut, corps, .. } = self
             .transport
             .get(&chemin_fil(id))
             .map_err(|e| format!("transport : {e}"))?;
@@ -987,8 +1030,9 @@ mod tests_adaptateur {
 
     struct Faux<F: Fn(&str) -> (u16, String) + Send + Sync>(F);
     impl<F: Fn(&str) -> (u16, String) + Send + Sync> Transport for Faux<F> {
-        fn get(&self, chemin: &str) -> Result<(u16, String), String> {
-            Ok((self.0)(chemin))
+        fn get(&self, chemin: &str) -> Result<crate::transport::ReponseHttp, String> {
+            let (statut, corps) = (self.0)(chemin);
+            Ok(crate::transport::ReponseHttp::simple(statut, corps))
         }
     }
 

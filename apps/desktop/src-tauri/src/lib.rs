@@ -10,6 +10,7 @@ mod assemblage;
 mod candidates;
 mod clavier;
 mod cle;
+mod client;
 mod config;
 mod empreinte;
 mod etat;
