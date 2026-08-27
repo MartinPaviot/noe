@@ -141,7 +141,7 @@ fn identifiants_lightning(texte: &str) -> Vec<String> {
         let (Some(_objet), Some(brut)) = (morceaux.next(), morceaux.next()) else {
             continue;
         };
-        if let Some(id) = normaliser_identifiant_crm(brut) {
+        if let Some(id) = normaliser_identifiant_crm(segment(brut)) {
             if !trouves.contains(&id) {
                 trouves.push(id);
             }
@@ -157,7 +157,10 @@ fn identifiants_lightning(texte: &str) -> Vec<String> {
 fn identifiants_fils(texte: &str) -> Vec<String> {
     let mut trouves = Vec::new();
     for depart in indices_de(texte, "mail.google.com/") {
+        // Borné à l'URL : sans ça, un `#` situé bien plus loin dans le texte
+        // serait pris pour la partie fragment de CETTE adresse.
         let reste = &texte[depart..];
+        let reste = &reste[..reste.find(char::is_whitespace).unwrap_or(reste.len())];
         let Some(diese) = reste.find('#') else {
             continue;
         };
@@ -170,6 +173,7 @@ fn identifiants_fils(texte: &str) -> Vec<String> {
         let (Some(_boite), Some(fil)) = (morceaux.next(), morceaux.next()) else {
             continue;
         };
+        let fil = segment(fil);
         if fil.len() >= 16 && fil.bytes().all(|b| b.is_ascii_hexdigit()) {
             let fil = fil.to_owned();
             if !trouves.contains(&fil) {
@@ -178,6 +182,19 @@ fn identifiants_fils(texte: &str) -> Vec<String> {
         }
     }
     trouves
+}
+
+/// Coupe un segment d'URL à ce qui ne peut plus en faire partie.
+///
+/// **Une URL lue à l'écran n'est presque jamais seule.** Elle est suivie d'une
+/// espace, d'un guillemet, d'un point d'interrogation. Sans cette coupe, un
+/// identifiant suivi d'un mot avait la mauvaise longueur et l'entité disparaissait
+/// en silence — le pire des échecs, parce qu'il ressemble à « rien à voir ici ».
+fn segment(brut: &str) -> &str {
+    let fin = brut
+        .find(|c: char| !c.is_ascii_alphanumeric())
+        .unwrap_or(brut.len());
+    &brut[..fin]
 }
 
 /// Toutes les positions d'une aiguille dans une botte de foin.
@@ -340,6 +357,30 @@ mod tests {
             c[0].cles,
             vec![("system_id".to_owned(), "18f0c1a2b3c4d5e6".to_owned())]
         );
+    }
+
+    #[test]
+    fn une_url_suivie_d_un_mot_donne_quand_meme_sa_candidate() {
+        // Une URL lue a l'ecran n'est presque jamais seule. Sans la coupe,
+        // l'identifiant avait la mauvaise longueur et l'entite disparaissait en
+        // silence — le pire des echecs, parce qu'il ressemble a « rien a voir ».
+        let c = candidates_du_texte("Ouvrir /lightning/r/Contact/0035g00000LmT4EAAV maintenant");
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].cles[0].1, "0035g00000LmT4EAAV");
+
+        let f = candidates_du_texte("https://mail.google.com/mail/u/0/#inbox/18f0c1a2b3c4d5e6 lu");
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].cles[0].1, "18f0c1a2b3c4d5e6");
+    }
+
+    #[test]
+    fn un_diese_plus_loin_dans_le_texte_n_est_pas_le_fragment_de_l_url() {
+        // Borner a l'URL : sinon le `#` d'une phrase suivante devient la partie
+        // fragment de CETTE adresse, et l'entite est fausse.
+        assert!(candidates_du_texte(
+            "https://mail.google.com/mail/u/0/ puis #inbox/18f0c1a2b3c4d5e6"
+        )
+        .is_empty());
     }
 
     #[test]

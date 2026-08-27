@@ -131,9 +131,22 @@ pub fn verifier_url(url: &str, politique: &Politique) -> Result<(), String> {
     }
 
     // Le port ne fait pas partie de l'hôte. Une adresse IPv6 littérale est entre
-    // crochets, donc le dernier `:` hors crochets sépare le port.
+    // crochets et contient des `:` : le dernier `:` ne sépare un port que si ce
+    // qui suit est un nombre **et** si ce qui précède est soit un nom sans `:`,
+    // soit une adresse entre crochets fermés.
+    //
+    // La première écriture demandait l'inverse — que l'hôte NE finisse PAS par
+    // `]` — ce qui est exactement le cas où le découpage est valable. Elle
+    // laissait `[::1]:8080` entier, donc jamais reconnu comme boucle locale.
+    // L'erreur était fermante et non ouvrante, mais elle était là.
     let hote = match autorite.rsplit_once(':') {
-        Some((h, p)) if !h.ends_with(']') && p.chars().all(|c| c.is_ascii_digit()) => h,
+        Some((h, p))
+            if !p.is_empty()
+                && p.chars().all(|c| c.is_ascii_digit())
+                && (h.ends_with(']') || !h.contains(':')) =>
+        {
+            h
+        }
         _ => autorite.as_str(),
     };
 
@@ -374,6 +387,22 @@ mod tests {
     fn un_port_ne_change_pas_l_hote() {
         assert!(verifier_url("https://monorg.my.salesforce.com:8443/x", &sf()).is_ok());
         assert!(verifier_url("https://ailleurs.example:443/x", &sf()).is_err());
+    }
+
+    #[test]
+    fn une_adresse_ipv6_locale_garde_son_hote() {
+        // La garde du port etait ecrite a l'envers : elle laissait `[::1]:8080`
+        // entier, donc jamais reconnu comme boucle locale.
+        assert!(verifier_url("http://[::1]:8080/cb", &locale()).is_ok());
+        assert!(verifier_url("http://[::1]/cb", &locale()).is_ok());
+        // Et une IPv6 quelconque ne devient pas Salesforce pour autant.
+        assert!(verifier_url("https://[2001:db8::1]:443/x", &sf()).is_err());
+    }
+
+    #[test]
+    fn un_deux_points_sans_port_ne_mange_pas_l_hote() {
+        assert!(verifier_url("https://monorg.my.salesforce.com:/x", &sf()).is_err());
+        assert!(verifier_url("https://monorg.my.salesforce.com:abc/x", &sf()).is_err());
     }
 
     #[test]

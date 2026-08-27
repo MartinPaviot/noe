@@ -409,7 +409,15 @@ pub fn adresses_de_liste(valeur: &str) -> Vec<String> {
                 // Le nom affiché est jeté : l'adresse fait foi.
                 courant.clear();
             }
-            '>' if dans_chevrons => dans_chevrons = false,
+            '>' if dans_chevrons => {
+                // Poussée **ici** et pas au séparateur suivant : sans virgule
+                // entre deux adresses — ce que la RFC interdit et que des
+                // clients écrivent quand même — le `<` suivant viderait le
+                // tampon et l'adresse précédente disparaîtrait en silence.
+                dans_chevrons = false;
+                pousser_adresse(&mut sorties, &courant);
+                courant.clear();
+            }
             ',' if !dans_guillemets && !dans_chevrons => {
                 pousser_adresse(&mut sorties, &courant);
                 courant.clear();
@@ -611,6 +619,17 @@ mod tests {
         assert!(adresses_de_liste("undisclosed-recipients:;").is_empty());
         assert!(adresses_de_liste("").is_empty());
         assert!(adresses_de_liste("Jean Dupont").is_empty());
+    }
+
+    #[test]
+    fn deux_adresses_sans_virgule_ne_se_mangent_pas() {
+        // La RFC 5322 exige la virgule ; des clients l'oublient. Sans la poussee
+        // au chevron fermant, la premiere adresse disparaissait EN SILENCE — et
+        // un participant perdu est une cle de resolution perdue.
+        assert_eq!(
+            adresses_de_liste("<a@ex.com> <b@ex.com>"),
+            vec!["a@ex.com", "b@ex.com"]
+        );
     }
 
     #[test]
