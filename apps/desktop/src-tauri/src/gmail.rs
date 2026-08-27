@@ -71,10 +71,8 @@ pub const TYPES_HISTORIQUE: &[&str] = &[
     "labelRemoved",
 ];
 
-/// Ce que l'adaptateur sait demander au réseau. Voir `salesforce::Transport`.
-pub trait Transport: Send + Sync {
-    fn get(&self, chemin: &str) -> Result<(u16, String), String>;
-}
+/// Ce que l'adaptateur sait demander au réseau — le même que le CRM.
+pub use crate::transport::Transport;
 
 fn encoder(s: &str) -> String {
     crate::oauth::encoder_composant(s)

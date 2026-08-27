@@ -1356,3 +1356,82 @@ Deux choses, et la seconde compte plus que la première.
    doit pouvoir en rendre compte, et je ne le peux pas ici. Les outils de terrain
    de `apps/terrain/` n'écrivent nulle part hors de leur dossier ; c'est peu, et
    il faudra faire mieux.
+
+## 2026-08-27 — D35 : le transport HTTP, et ce qu'un porteur de jeton doit refuser
+
+Les adaptateurs des tâches 4 et 11 isolent leur appel réseau derrière un trait,
+ce qui les rend vérifiables sans org. Restait à écrire l'implémentation qui parle
+vraiment — et elle non plus n'a pas besoin de l'org : tout ce qu'elle fait se
+prouve contre un serveur de boucle locale.
+
+### La bibliothèque : `ureq`, et pas `reqwest`
+
+Le code de Noe est **synchrone de bout en bout** : le worker de fédération est un
+fil, l'écouteur de retour OAuth est bloquant, le moteur de capture tourne sur son
+fil d'affinité UIA. `reqwest` amènerait `tokio` et `hyper` — un ordonnanceur
+complet pour faire des GET dans un fil qui n'a rien d'autre à faire. `ureq` est
+bloquant, en Rust pur, avec `rustls` : onze caisses ajoutées au total.
+
+Les racines de certificats sont **embarquées** (`webpki-roots`) et pas celles du
+poste. La conséquence est voulue : derrière un proxy d'entreprise qui inspecte le
+TLS, les appels **échouent bruyamment** au lieu de réussir en silence. Un succès
+silencieux voudrait dire que les lectures d'API sont passées en clair chez un
+tiers, et la règle 1 ne parle pas seulement du contenu qu'on envoie — elle parle
+de ce qui sort du poste. Le proxy système est respecté (`win-system-proxy`) :
+suivre la route de l'entreprise, oui ; se laisser ouvrir, non.
+
+### Quatre refus
+
+Un client HTTP qui porte un jeton de porteur n'est pas un client HTTP ordinaire.
+Le jeton part avec **chaque** requête, et il suffit qu'il parte une fois au
+mauvais endroit pour donner à quelqu'un d'autre la lecture du CRM.
+
+1. **Rien en clair.** `http://` enverrait le jeton lisible.
+2. **Aucune redirection suivie.** Un `302` vers un autre hôte y emporte l'en-tête
+   `Authorization`. C'est la fuite classique, et elle est silencieuse **parce que
+   la requête réussit** : personne ne va chercher un incident dans un `200`.
+3. **Aucun identifiant dans l'URL.** `https://login.salesforce.com@ailleurs` a
+   l'air de pointer sur Salesforce ; l'hôte réel est `ailleurs`.
+4. **L'hôte doit tomber dans la liste blanche, sur une frontière de point.** Ce
+   quatrième refus est le moins évident et le plus important : **l'URL d'instance
+   d'une org arrive dans la réponse de jeton**, c'est-à-dire du réseau. La croire
+   sans la vérifier laisserait cette réponse choisir où notre jeton s'en va. Et la
+   frontière de point n'est pas un détail — `evilsalesforce.com` finit bien par
+   `salesforce.com`.
+
+La vérification est une **fonction pure**, séparée de l'appel : c'est la partie
+qui doit être vraie dans tous les cas tordus, et elle se teste sans réseau. Elle
+est rejouée à **chaque** appel et pas seulement à la construction, parce qu'un
+chemin peut changer d'hôte.
+
+### Deux bornes
+
+Un délai global de quinze secondes, et pas soixante : R3.2 borne la **clôture**
+à soixante secondes, or une clôture lit plusieurs entités et le client robuste
+réessaie. Un appel qui s'autoriserait tout le budget le prendrait à tous les
+autres.
+
+Un plafond de réponse à huit mégaoctets, parce que R7.1 donne à l'application
+deux cents mégaoctets de mémoire. Au-delà, la réponse est **refusée et pas
+tronquée** : un JSON coupé au milieu produirait une erreur d'analyse qui parlerait
+de syntaxe, et personne ne remonterait de là au vrai problème.
+
+### Ce qui reste ouvert
+
+Rien ne construit encore de client : il manque un jeton, donc une application
+connectée, donc la tâche 0. Le module porte l'`allow(dead_code)` qui nomme la
+tâche chargée de le retirer, comme `federation.rs`, `oauth.rs`, `salesforce.rs`
+et `gmail.rs`. Cinq modules écrits et prouvés en attente d'une seule chose ; c'est
+beaucoup, et c'est le prix de l'incident du coffre.
+
+Un seul trait `Transport` sert les deux adaptateurs. En avoir deux identiques
+obligerait le transport à les implémenter tous les deux, et le jour où l'un
+gagnerait une garantie que l'autre n'a pas, rien ne le dirait.
+
+### Les pistes locales de récupération du coffre sont épuisées
+
+Consigné ici parce que l'incident reste ouvert et que la prochaine session ne
+doit pas refaire ces recherches : aucun fichier `.dpapi` ne subsiste dans le
+profil utilisateur, la corbeille n'en contient aucun, et les clichés instantanés
+de volume demandent des droits d'administration que la session n'a pas. La reprise
+passe toujours par une réinitialisation depuis `contact+noespike@elevay.app`.

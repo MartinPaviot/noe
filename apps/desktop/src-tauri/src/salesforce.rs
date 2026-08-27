@@ -46,11 +46,12 @@ pub const VERSION_API: &str = "v62.0";
 ///
 /// Un trait, et non `fetch` en dur : c'est ce qui rend l'adaptateur vérifiable
 /// sur des réponses enregistrées. Le client robuste de R5 — backoff, budget,
-/// classification — s'intercale ici, dans l'implémentation de production.
-pub trait Transport: Send + Sync {
-    /// Un GET authentifié. Rend `(statut, corps)`.
-    fn get(&self, chemin: &str) -> Result<(u16, String), String>;
-}
+/// classification — s'intercale entre les deux.
+///
+/// **Un seul trait pour les deux adaptateurs.** En avoir deux identiques
+/// obligerait le transport à les implémenter tous les deux, et le jour où l'un
+/// gagnerait une garantie que l'autre n'a pas, rien ne le dirait.
+pub use crate::transport::Transport;
 
 /// Échappe une valeur destinée à une clause SOQL.
 ///

@@ -58,6 +58,7 @@ ulid = "1"
 # `event` : l abonnement aux evenements UIA n est pas dans les features par
 # defaut du crate. Le spike y a perdu du temps ; la note reste ici.
 uiautomation = { version = "0.25", features = ["event"] }
+ureq = { version = "3.2.1", features = ["win-system-proxy"] }
 
 [profile.release]
 codegen-units = 1
