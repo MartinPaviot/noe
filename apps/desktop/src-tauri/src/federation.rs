@@ -40,8 +40,13 @@ use std::sync::{Arc, Mutex};
 /// R3.2 + design §4 : au-delà, la clôture n'attend plus.
 pub const ATTENTE_MAX_CLOTURE_MS: u64 = 60_000;
 
-/// R5.3 : le budget d'appels par épisode, par défaut.
-pub const BUDGET_APPELS: u32 = 30;
+/// R5.3 : le budget d'appels par épisode, **quand le terrain n'en fixe pas**.
+///
+/// La valeur réelle vient de `terrain.json` (`budgets.reads_per_episode`), comme
+/// le design §2 le prévoit. Celle-ci n'est qu'un défaut : une constante qui
+/// gouvernerait pour de bon serait un réglage de terrain encodé dans le binaire,
+/// exactement ce que R1.1 refuse pour le nom du CRM.
+pub const BUDGET_APPELS: u32 = crate::terrain::BUDGET_PAR_DEFAUT;
 
 /// Une référence d'enregistrement chez le système distant.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -349,6 +354,7 @@ impl Worker {
         registre: Arc<Registre>,
         champs: Vec<String>,
         redacteur: Arc<crate::redaction::Redacteur>,
+        budget: u32,
     ) -> (Self, std::thread::JoinHandle<()>) {
         let (demandes, reception) = std::sync::mpsc::channel();
         let fil = std::thread::Builder::new()
@@ -360,6 +366,7 @@ impl Worker {
                     &registre,
                     &champs,
                     redacteur.as_ref(),
+                    budget,
                 )
             })
             .expect("fil de federation");
@@ -392,10 +399,11 @@ fn boucle(
     registre: &Arc<Registre>,
     champs: &[String],
     redacteur: &crate::redaction::Redacteur,
+    budget_initial: u32,
 ) {
     // Le budget vit avec l'épisode, pas avec le connecteur : deux connecteurs se
     // partageraient sinon le double.
-    let mut budget = BUDGET_APPELS;
+    let mut budget = budget_initial;
 
     while let Ok(d) = reception.recv() {
         match d {
@@ -407,7 +415,7 @@ fn boucle(
                 if budget == 0 {
                     registre.appliquer(Reponse::EtatAvant {
                         candidate_id,
-                        issue: Issue::Trou(format!("budget d appels epuise ({BUDGET_APPELS})")),
+                        issue: Issue::Trou(format!("budget d appels epuise ({budget_initial})")),
                     });
                     continue;
                 }
@@ -443,7 +451,9 @@ fn boucle(
                     if budget == 0 {
                         registre.appliquer(Reponse::EtatApres {
                             candidate_id: id,
-                            issue: Issue::Trou(format!("budget d appels epuise ({BUDGET_APPELS})")),
+                            issue: Issue::Trou(format!(
+                                "budget d appels epuise ({budget_initial})"
+                            )),
                         });
                         continue;
                     }
@@ -577,7 +587,8 @@ mod tests {
         // d'apres. C'est toute la difficulte de la spec en une phrase.
         let registre = Arc::new(Registre::nouveau());
         let banc = Arc::new(Banc::nouveau(resolue(), etat("nouveau")));
-        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
+        let (w, fil) =
+            Worker::demarrer(banc, registre.clone(), champs(), redacteur(), BUDGET_APPELS);
         w.premiere_vue("c1", 1, vec![("email_token".into(), "EMAIL_aaa".into())]);
         w.relire_tout();
         assert!(fil.join().is_ok());
@@ -595,7 +606,8 @@ mod tests {
         // et « non resolu » tout court laisse chercher au mauvais endroit.
         let registre = Arc::new(Registre::nouveau());
         let banc = Arc::new(Banc::nouveau(Resolution::Ambigue(3), etat("x")));
-        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
+        let (w, fil) =
+            Worker::demarrer(banc, registre.clone(), champs(), redacteur(), BUDGET_APPELS);
         w.premiere_vue("c1", 1, vec![]);
         w.relire_tout();
         let _ = fil.join();
@@ -616,7 +628,8 @@ mod tests {
             resolue(),
             Issue::Trou("api indisponible apres 5 tentatives".into()),
         ));
-        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
+        let (w, fil) =
+            Worker::demarrer(banc, registre.clone(), champs(), redacteur(), BUDGET_APPELS);
         w.premiere_vue("c1", 1, vec![]);
         w.relire_tout();
         let _ = fil.join();
@@ -637,7 +650,8 @@ mod tests {
             resolue(),
             Issue::HorsPerimetre("droits insuffisants sur Lead.Statut".into()),
         ));
-        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
+        let (w, fil) =
+            Worker::demarrer(banc, registre.clone(), champs(), redacteur(), BUDGET_APPELS);
         w.premiere_vue("c1", 1, vec![]);
         w.relire_tout();
         let _ = fil.join();
@@ -647,12 +661,62 @@ mod tests {
     }
 
     #[test]
+    fn le_budget_vient_du_terrain_et_pas_d_une_constante() {
+        // R5.3 et le design §2 : `budgets.reads_per_episode` vit dans
+        // terrain.json. Une constante qui gouvernerait pour de bon serait un
+        // reglage de terrain encode dans le binaire — exactement ce que R1.1
+        // refuse pour le nom du CRM.
+        let registre = Arc::new(Registre::nouveau());
+        let banc = Arc::new(Banc::nouveau(resolue(), etat("x")));
+        let (w, fil) = Worker::demarrer(banc.clone(), registre.clone(), champs(), redacteur(), 2);
+        for i in 0..10 {
+            w.premiere_vue(&format!("c{i}"), 1, vec![]);
+        }
+        w.relire_tout();
+        let _ = fil.join();
+
+        let appels = *banc.appels.lock().unwrap();
+        assert!(appels <= 2, "{appels} appels pour un budget de 2");
+        assert!(appels > 0, "un budget de 2 n est pas un budget de 0");
+    }
+
+    #[test]
+    fn un_depassement_de_budget_se_dit_avec_le_chiffre_du_terrain() {
+        // Le trou declare doit citer le budget REEL : « epuise (30) » sur un
+        // terrain qui en fixe 2 enverrait chercher au mauvais endroit.
+        let registre = Arc::new(Registre::nouveau());
+        let banc = Arc::new(Banc::nouveau(resolue(), etat("x")));
+        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur(), 2);
+        for i in 0..6 {
+            w.premiere_vue(&format!("c{i}"), 1, vec![]);
+        }
+        drop(w);
+        let _ = fil.join();
+
+        let trous: Vec<String> = registre
+            .instantane()
+            .into_values()
+            .flat_map(|e| e.trous)
+            .collect();
+        assert!(
+            trous.iter().any(|t| t.contains("(2)")),
+            "aucun trou ne cite le budget du terrain : {trous:?}"
+        );
+    }
+
+    #[test]
     fn le_budget_d_appels_borne_l_episode() {
         // R5.3 : depassement -> arret des lectures + trou declare, jamais de
         // tempete de requetes.
         let registre = Arc::new(Registre::nouveau());
         let banc = Arc::new(Banc::nouveau(resolue(), etat("x")));
-        let (w, fil) = Worker::demarrer(banc.clone(), registre.clone(), champs(), redacteur());
+        let (w, fil) = Worker::demarrer(
+            banc.clone(),
+            registre.clone(),
+            champs(),
+            redacteur(),
+            BUDGET_APPELS,
+        );
         // Chaque premiere vue coute deux appels : resolution + lecture.
         for i in 0..(BUDGET_APPELS + 10) {
             w.premiere_vue(&format!("c{i}"), 1, vec![]);
@@ -676,7 +740,13 @@ mod tests {
         let registre = Arc::new(Registre::nouveau());
         let mut banc = Banc::nouveau(resolue(), etat("x"));
         banc.lenteur_ms = 5_000;
-        let (w, fil) = Worker::demarrer(Arc::new(banc), registre.clone(), champs(), redacteur());
+        let (w, fil) = Worker::demarrer(
+            Arc::new(banc),
+            registre.clone(),
+            champs(),
+            redacteur(),
+            BUDGET_APPELS,
+        );
         w.premiere_vue("c1", 1, vec![]);
 
         let horloge: Arc<dyn crate::horloge::Horloge> =
@@ -830,7 +900,8 @@ mod tests {
             ("tel".to_string(), serde_json::json!(CANARIS[1])),
         ]);
         let banc = Arc::new(Banc::nouveau(resolue(), Issue::Lu(sale)));
-        let (w, fil) = Worker::demarrer(banc, registre.clone(), champs(), redacteur());
+        let (w, fil) =
+            Worker::demarrer(banc, registre.clone(), champs(), redacteur(), BUDGET_APPELS);
         w.premiere_vue("c1", 1, vec![]);
         w.relire_tout();
         let _ = fil.join();
