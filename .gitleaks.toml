@@ -6,6 +6,51 @@ title = "noe"
 [extend]
 useDefault = true
 
+# ---------------------------------------------------------------------------
+# Spec 003, R1.2 : « les tokens NE DOIVENT JAMAIS apparaitre dans un fichier
+# suivi, un log ou un export non enveloppe ».
+#
+# Le jeu de regles par defaut de gitleaks n'attrape AUCUNE des quatre formes qui
+# comptent ici : verifie le 2026-08-27 sur un fichier temoin, « no leaks found »
+# sur les quatre. L'exigence etait donc gardee par une intention et par rien
+# d'autre.
+#
+# Les jetons vivent sous DPAPI, hors du depot. Ces regles ne les protegent pas :
+# elles attrapent l'accident — un jeton colle dans une note de debogage, recopie
+# dans un test, ou echappe dans une trace committee.
+# ---------------------------------------------------------------------------
+
+[[rules]]
+id = "noe-salesforce-session"
+description = "Jeton de session Salesforce (prefixe d organisation, puis un !)"
+regex = '''00D[A-Za-z0-9]{12,15}![A-Za-z0-9._+=/-]{40,}'''
+keywords = ["00D"]
+
+[[rules]]
+id = "noe-salesforce-refresh"
+description = "Jeton de rafraichissement Salesforce"
+regex = '''5Aep[A-Za-z0-9._-]{40,}'''
+keywords = ["5Aep"]
+
+[[rules]]
+id = "noe-google-acces"
+description = "Jeton d acces Google (ya29.)"
+regex = '''ya29\.[A-Za-z0-9_-]{40,}'''
+keywords = ["ya29."]
+
+[[rules]]
+id = "noe-google-refresh"
+description = "Jeton de rafraichissement Google (1//)"
+regex = '''1//0[A-Za-z0-9_-]{30,}'''
+keywords = ["1//0"]
+
+# Note pour qui voudra eprouver ces quatre regles : le temoin doit RESSEMBLER a
+# un vrai jeton. Une valeur bricolee a la main — des suites d alphabet, des mots
+# lisibles — passe au travers, parce que le jeu par defaut de gitleaks ecarte les
+# trouvailles qui contiennent ses mots-vides. Ce n est pas la regle qui dort,
+# c est le temoin qui n en est pas un. Le premier essai du 2026-08-27 s y est
+# laisse prendre, et a failli faire ecrire une fausse explication ici meme.
+
 [allowlist]
 description = "Valeurs factices documentaires"
 paths = [

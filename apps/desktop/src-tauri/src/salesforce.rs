@@ -113,14 +113,25 @@ pub fn soql_par_domaine_nom(objet: &str, domaine: &str, nom: &str) -> String {
     )
 }
 
-/// R4.1 — le delta : ce qui a bougé depuis un instant.
+/// R4.1 — le delta : ce qui a bougé **entre deux instants**.
 ///
 /// `LastModifiedById` sert à R4.2 : un changement fait par quelqu'un d'autre est
 /// hors périmètre, pas un trou de capture.
-pub fn soql_delta(objet: &str, depuis_iso: &str) -> String {
+///
+/// **La borne haute n'est pas décorative.** R4.4 interdit de collecter des
+/// changements survenus hors de tout épisode. Sans elle, la requête rendrait
+/// tout jusqu'à « maintenant » — et « maintenant » n'est pas une borne : il
+/// dérive si l'appel est retardé, repris après un `429`, ou lancé une seconde
+/// fois. Un changement fait cinq minutes après la clôture deviendrait alors un
+/// trou de capture attribué à un épisode déjà fermé.
+///
+/// L'appelant passe `t1 + la marge de soixante secondes` que R4.1 accorde, et
+/// pas l'heure courante.
+pub fn soql_delta(objet: &str, depuis_iso: &str, jusqu_a_iso: &str) -> String {
     format!(
         "SELECT Id, LastModifiedDate, LastModifiedById FROM {objet} \
-         WHERE LastModifiedDate > {depuis_iso} ORDER BY LastModifiedDate LIMIT 200"
+         WHERE LastModifiedDate > {depuis_iso} AND LastModifiedDate <= {jusqu_a_iso} \
+         ORDER BY LastModifiedDate LIMIT 200"
     )
 }
 
@@ -554,7 +565,7 @@ mod tests {
     fn le_delta_demande_l_acteur() {
         // R4.2 : un changement fait par quelqu'un d'autre est hors perimetre, pas
         // un trou de capture. Sans `LastModifiedById`, on ne peut pas trancher.
-        let s = soql_delta("Lead", "2026-01-14T09:00:00Z");
+        let s = soql_delta("Lead", "2026-01-14T09:00:00Z", "2026-01-14T09:30:00Z");
         assert!(s.contains("LastModifiedById"), "{s}");
         assert!(s.contains("ORDER BY LastModifiedDate"), "{s}");
     }
@@ -1127,6 +1138,28 @@ mod tests_adaptateur {
     }
 
     #[test]
+    fn le_delta_est_borne_des_deux_cotes() {
+        // R4.4 interdit de collecter des changements survenus hors de tout
+        // episode. « Maintenant » n'est pas une borne : il derive si l'appel est
+        // retarde, repris apres un 429, ou lance une seconde fois. Un changement
+        // fait cinq minutes apres la cloture deviendrait un trou de capture
+        // attribue a un episode deja ferme.
+        let soql = soql_delta(
+            "Lead",
+            "2026-08-27T10:00:00.000Z",
+            "2026-08-27T10:31:00.000Z",
+        );
+        assert!(
+            soql.contains("LastModifiedDate > 2026-08-27T10:00:00.000Z"),
+            "{soql}"
+        );
+        assert!(
+            soql.contains("LastModifiedDate <= 2026-08-27T10:31:00.000Z"),
+            "la borne haute manque : {soql}"
+        );
+    }
+
+    #[test]
     fn un_delta_rend_les_changements_avec_leur_acteur() {
         let corps = delta(
             serde_json::json!([{
@@ -1221,7 +1254,11 @@ mod tests_adaptateur {
     fn la_requete_de_delta_demande_bien_l_acteur() {
         // R4.2 a besoin de lui : sans `LastModifiedById`, un changement fait par
         // un collegue serait compte comme un trou de capture.
-        let soql = soql_delta("Lead", "2026-08-27T10:00:00.000Z");
+        let soql = soql_delta(
+            "Lead",
+            "2026-08-27T10:00:00.000Z",
+            "2026-08-27T10:31:00.000Z",
+        );
         assert!(soql.contains("LastModifiedById"), "{soql}");
         assert!(soql.contains("ORDER BY LastModifiedDate"), "{soql}");
     }
