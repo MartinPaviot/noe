@@ -20,7 +20,7 @@ Périmètre : brancher les deux systèmes de vérité du terrain en LECTURE, ré
 ### Requirement 2 — La résolution des entités
 **User story** : en tant que corpus, mes entités pointent vers de vrais enregistrements, ou disent honnêtement qu'elles ne savent pas.
 2.1. QUAND un épisode contient des entités candidates (spec 002), LE SYSTÈME DOIT tenter leur résolution en `api_refs` par clés fortes uniquement : identifiant système exact, email exact (comparé en tokens HMAC des deux côtés — voir R6.2), domaine + nom exact.
-2.2. SI la résolution est ambiguë (0 ou ≥ 2 candidats), ALORS l'entité DOIT rester non résolue avec la raison précise (`not_found` | `ambiguous:n`) — LE SYSTÈME NE DOIT JAMAIS deviner.
+2.2. SI la résolution est ambiguë (0 ou ≥ 2 candidats), ALORS l'entité DOIT rester non résolue avec la raison précise (`not_found` | `ambiguous:n` | `blocked:<cause>`) — LE SYSTÈME NE DOIT JAMAIS deviner. **Amendé le 2026-08-27 par D36** : l'énumération n'avait que deux raisons, ce qui obligeait un adaptateur qui prend un `403` à répondre `not_found` — c'est-à-dire à affirmer une absence qu'il n'a pas constatée. La troisième raison élargit l'exigence d'honnêteté, elle ne la relâche pas.
 2.3. QUAND une entité est résolue, LE SYSTÈME DOIT enregistrer `resolved:{by, at}` (la clé qui a tranché, l'horodatage).
 
 ### Requirement 3 — Les lectures avant/après

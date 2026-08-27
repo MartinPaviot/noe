@@ -1479,3 +1479,10 @@ travail d'un opérateur attribué au dossier de quelqu'un d'autre, avec l'air
 d'être juste. Une page incomplète empêche donc au lieu de conclure. De même,
 qu'un seul des objets interrogés réponde `403` suffit à empêcher : « exactement
 un candidat » n'est plus démontrable si on n'a pas pu regarder partout.
+
+**Ce que ça amende.** R2.2 énumérait deux raisons — `not_found` et `ambiguous:n`.
+L'exigence est amendée sur place, datée, et pointe ici. Ce n'est pas une exigence
+qu'on assouplit pour la faire passer : c'est une exigence d'honnêteté qui
+**s'élargit**, parce que la version à deux raisons obligeait le système à
+affirmer une absence qu'il n'avait pas constatée. Le contraire aurait été d'écrire
+`not_found` et de passer à autre chose.
