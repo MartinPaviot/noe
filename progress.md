@@ -733,3 +733,85 @@ pointait sur un profil utilisateur nommé, et un outil qui ne tourne que sur une
 machine n'est pas un outil.
 
 ---
+
+## 2026-08-27 (6) — L'audit des exigences, une par une
+
+### Ce qui s'est passé
+
+Deux fois j'avais annoncé qu'il ne restait rien à avancer sans l'org. Deux fois
+c'était faux. Cette fois, au lieu de conclure à l'intuition, j'ai relu les vingt
+et une exigences de la spec 003 et vérifié chacune contre le code.
+
+**Cinq d'entre elles n'étaient pas tenues.** Aucune ne demandait l'org.
+
+### Fait
+
+- **R5.1** — « TOUTE requête DOIT passer par le client commun ». Le client
+  TypeScript existait depuis la tâche 3 ; le chemin Rust appelait le transport
+  **une fois**, sans reprise, sans `Retry-After`, sans rafraîchissement sur 401.
+  Un `429` devenait un trou définitif.
+- **R3.1** — « restreint aux `scope_fields` **plus les champs observés
+  changés** ». La seconde moitié n'existait pas.
+- **R3.3** — le verdict sur l'état d'avant existait en TypeScript, pas en Rust.
+- **R4.1** — la jointure des changements était écrite, la **collecte** ne l'était
+  nulle part.
+- **R4.4 et R1.2** — deux exigences gardées par une intention et rien d'autre.
+
+### Ce que l'audit a appris
+
+**On ne respecte pas un en-tête qu'on ne lit pas.** R5.1 exige `Retry-After` ;
+le transport ne rendait que le statut et le corps. L'exigence était inatteignable
+par construction, et rien ne le disait. La signature a changé.
+
+**Les libellés sont traduits.** Rapprocher un champ vu à l'écran d'un nom d'API
+demande un index, et une table écrite à la main marcherait sur la machine de son
+auteur et nulle part ailleurs. L'index vient du `describe` de l'org.
+
+**Aucune API ne dit si un champ est historisé.** C'est pourquoi `terrain.json`
+porte désormais `field_history`, établi par l'expérience dans `peupler.mjs`. Sans
+lui, « l'historique est vide » et « le champ n'est pas suivi » sont
+indistinguables — et mènent à des conclusions opposées.
+
+**« Maintenant » n'est pas une borne.** Le delta n'en avait pas de haute : il
+dérive si l'appel est retardé ou repris, et un changement postérieur à la clôture
+serait devenu un trou attribué à un épisode fermé.
+
+**Le scan de secrets ne connaissait aucun jeton.** Vérifié sur fichier témoin :
+les quatre formes qui comptent ici passaient toutes.
+
+### Et une leçon dans la leçon
+
+Mon premier témoin de jeton était bricolé à la main. Trois règles sur quatre
+mordaient, et l'explication qui m'est venue — « le préfiltre désactive la règle en
+silence » — était fausse. C'est le jeu par défaut de gitleaks qui écarte les
+trouvailles contenant ses mots-vides : **le témoin n'en était pas un**. J'ai
+failli committer cette explication avant de la vérifier.
+
+Un diagnostic plausible qu'on n'éprouve pas est une deuxième erreur posée
+par-dessus la première, et celle-là on la relit sans la voir.
+
+### Ce qui n'est toujours pas prouvé
+
+Rien n'a changé : aucun adaptateur n'a parlé à une org, huit modules attendent un
+jeton, et le worker n'a jamais démarré en production. Ce qui a changé, c'est
+qu'ils sont maintenant conformes à ce que la spec leur demande.
+
+### Vert
+
+`pnpm verify` · `cargo test --all-targets` : **599 tests Rust + 2 d'intégration
++ 5 visuels**, 260 TypeScript. `pnpm secrets` propre sur 96 commits. Clippy
+strict propre.
+
+### Prochaine tâche
+
+Toujours la **0**. Après l'audit, il ne reste plus une seule exigence de la spec
+003 que je puisse satisfaire sans l'org : R7.2 et R7.3 demandent des épisodes
+réels, et tout le reste est tenu.
+
+### Coûts
+
+Aucune écriture hors dépôt. Les témoins de jetons créés pour éprouver le scan ont
+été tirés au hasard, écrits dans le répertoire temporaire de la session, et
+effacés — aucun n'a jamais été un vrai jeton, et aucun n'a touché le dépôt.
+
+---
