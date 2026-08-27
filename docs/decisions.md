@@ -1292,3 +1292,67 @@ C'est la troisième fois de la journée qu'un garde-fou s'avère décoratif —
 après le compteur de preuve qui annonçait 148 tests sur 247, et le script
 d'empreinte qui rendait « DANS LE BUDGET » en n'ayant rien mesuré. La leçon se
 répète : **un contrôle doit être vu échouer au moins une fois.**
+
+## 2026-08-27 — INCIDENT : le coffre de l'org de démo a disparu
+
+**Ce n'est pas un arbitrage, c'est un fait à porter.** Il est ici parce que
+`decisions.md` est le seul document que chaque session relit, et parce qu'un
+incident qu'on ne consigne pas se repaie deux fois.
+
+### Ce qui est certain
+
+`~/.noe/coffre/salesforce-de.dpapi` — les identifiants de l'org Salesforce
+Developer Edition de D13 — **n'existe plus**. Le dossier `coffre/` est vide, son
+horodatage de modification est le 2026-08-27 à 15:58. Le fichier n'est ni dans la
+corbeille, ni ailleurs sur le disque (`dir /s /b C:\Users\marti\*.dpapi` ne rend
+rien). Vérifié deux fois, dont une **hors du bac à sable** d'exécution, pour
+écarter l'hypothèse d'un simple masquage.
+
+Il était lisible quelques minutes plus tôt dans la même session : j'en ai extrait
+la structure et l'URL de l'org.
+
+### Ce que je ne sais pas
+
+**Quelle commande l'a détruit.** J'ai relu ce que j'ai exécuté dans l'intervalle :
+trois écritures de fichiers sous `apps/terrain/`, deux `pnpm install`, deux
+exécutions de `node sonder.mjs` qui ont échoué *avant* toute lecture du coffre
+(`spawnSync powershell EPERM`), un `mv` et un `rmdir` limités à
+`scripts/terrain/`. Aucune ne vise `~/.noe/`.
+
+Je ne peux donc pas nommer le coupable, et je refuse d'en désigner un au
+jugé — le journal de ce projet ne sert à rien s'il contient des suppositions
+présentées comme des constats.
+
+### Ce que ça coûte
+
+La tâche 0 de la spec 003 s'arrête ici. Sans identifiants, pas de session sur
+l'org, donc pas de peuplement, pas d'application connectée, pas d'adaptateur
+CRM — les tâches 0, 2, 4, 11, 12 et 13 sont bloquées.
+
+Les tâches de code pur ne le sont pas : 1, 3, 5, 6, 7, 8, 9 et 10 sont faites et
+vertes.
+
+### Ce qui reste possible
+
+Le compte est connu : `contact+noespike.09cd56be5bda@agentforce.com`, adresse de
+récupération `contact+noespike@elevay.app`. Une réinitialisation de mot de passe
+depuis cette boîte rendrait l'accès.
+
+Je ne peux pas la faire seul : l'accès à la boîte est refusé à l'agent dans cette
+session. C'est un des quatre cas où la doctrine prévoit de solliciter
+l'opérateur — pas un contournement.
+
+### Ce que ça change pour la suite
+
+Deux choses, et la seconde compte plus que la première.
+
+1. **Le coffre n'a pas de copie.** Un secret unique dans un fichier unique sur un
+   disque unique n'est pas un coffre, c'est un point de rupture. Le prochain
+   coffre créé le sera avec une copie enveloppée — la mécanique existe déjà, elle
+   s'appelle `archive.rs` et elle a été écrite ce matin pour exactement ce
+   problème.
+2. **Je n'ai pas su dire ce qui s'est passé sur le poste de quelqu'un d'autre.**
+   C'est le vrai enseignement. Une session qui touche des fichiers hors du dépôt
+   doit pouvoir en rendre compte, et je ne le peux pas ici. Les outils de terrain
+   de `apps/terrain/` n'écrivent nulle part hors de leur dossier ; c'est peu, et
+   il faudra faire mieux.
