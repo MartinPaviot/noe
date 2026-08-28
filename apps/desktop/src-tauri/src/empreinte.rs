@@ -89,9 +89,20 @@ impl Palier {
     }
 
     /// Ce que le palier change, tel que l'événement `degraded` le nomme.
-    fn transition(self) -> (&'static str, String, String) {
-        match self {
-            Self::Nominal => ("rien", "nominal".into(), "nominal".into()),
+    ///
+    /// **`None` pour `Nominal`**, et c'est le point. Ce bras fabriquait
+    /// `("rien", "nominal", "nominal")` — un événement de dégradation qui dit
+    /// que rien n'a été dégradé. Il est inatteignable aujourd'hui, puisque
+    /// `suivant()` ne rend jamais `Nominal` ; mais un jour où il le deviendrait,
+    /// l'épisode aurait porté une dégradation vide, et la spec 004 aurait
+    /// comparé des épisodes « dégradés » à des épisodes complets sans savoir
+    /// qu'elle le faisait.
+    ///
+    /// Le rendre impossible vaut mieux que le rendre inoffensif : ici, si
+    /// l'impossible arrive, rien n'est écrit.
+    fn transition(self) -> Option<(&'static str, String, String)> {
+        Some(match self {
+            Self::Nominal => return None,
             Self::SnapshotsSuspendus => ("snapshots", "actifs".into(), "suspendus".into()),
             Self::DebounceElargi => (
                 "debounce",
@@ -99,7 +110,7 @@ impl Palier {
                 DEBOUNCE_DEGRADE_MS.to_string(),
             ),
             Self::Alerte => ("alerte", "silencieux".into(), "operateur prevenu".into()),
-        }
+        })
     }
 }
 
@@ -190,7 +201,7 @@ impl Empreinte {
         self.consecutives = 0;
         let suivant = self.palier.suivant()?;
         self.palier = suivant;
-        let (what, de, vers) = suivant.transition();
+        let (what, de, vers) = suivant.transition()?;
         Some(Degradation {
             what: what.to_string(),
             from: de,

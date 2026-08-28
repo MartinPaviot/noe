@@ -1,9 +1,17 @@
 /**
- * @noe/connectors — adaptateurs vers les systemes de verite.
- * Vide en session 0. Chaque connecteur est en lecture bornee et journalise ses trous.
+ * @noe/connectors — les systemes de verite que Noe sait brancher.
+ *
+ * **Les noms viennent d'ici et se verifient contre le terrain.** Ils vivaient en
+ * trois exemplaires : ce fichier, les adaptateurs Rust, et `terrain.json`. Les
+ * deux premiers avaient deja diverge — ce paquet annoncait `google-workspace`
+ * la ou l'adaptateur s'appelle `gmail` — sans que rien ne le dise, parce que le
+ * seul banc du paquet comptait la longueur du tableau.
+ *
+ * L'implementation, elle, vit en Rust : la resolution et les lectures se font
+ * pendant l'episode ouvert, et le harness ne voit les episodes qu'apres coup.
  */
 
-/** Identifiants des systemes de verite envisages. Aucun n'est implemente. */
-export const SYSTEMES_ENVISAGES = ['salesforce', 'google-workspace'] as const;
+/** Les connecteurs que le capteur sait parler. */
+export const SYSTEMES_ENVISAGES = ['salesforce', 'gmail'] as const;
 
 export type SystemeDeVerite = (typeof SYSTEMES_ENVISAGES)[number];

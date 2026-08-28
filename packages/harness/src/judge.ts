@@ -7,9 +7,24 @@ import type { Episode, FlatState, ToolCall } from '@noe/episode-spec';
 
 export type Valeur = string | number | boolean | null;
 
-/** Une date « parsable » doit d'abord ressembler à une date. Date.parse est trop laxiste. */
-const RESSEMBLE_A_UNE_DATE =
-  /^(\d{4}-\d{2}-\d{2}([T ]|$)|\d{1,2}\/\d{1,2}\/\d{4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})/;
+/**
+ * Une date comparable est une date **ISO-8601**, et rien d'autre.
+ *
+ * R4.1 exige des dates comparees en ISO-8601 UTC. Deux formes ont ete retirees
+ * le 2026-08-28 parce qu'elles ne pouvaient pas tenir cette promesse :
+ *
+ * - `15/08/2026` et `08/15/2026` sont **la meme date ecrite deux fois**, et
+ *   `Date.parse` n'en lit qu'une — l'autre rend `NaN`. Deux ecritures du meme
+ *   jour ne pouvaient donc jamais etre equivalentes ;
+ * - `August 15, 2026` depend de l'implementation et du fuseau.
+ *
+ * Ce qui n'est pas reconnu reste une **chaine**, comparee telle quelle. C'est
+ * moins malin et c'est reproductible, ce qui vaut mieux pour un juge.
+ */
+const RESSEMBLE_A_UNE_DATE = /^\d{4}-\d{2}-\d{2}([T ]|$)/;
+
+/** Un fuseau explicite : `Z`, `+02:00`, `-0500`. */
+const PORTE_UN_FUSEAU = /(Z|[+-]\d{2}:?\d{2})$/;
 
 const EST_NUMERIQUE = /^[+-]?\d+(\.\d+)?$/;
 
@@ -34,7 +49,16 @@ export function normalize(v: unknown): Valeur {
   if (EST_NUMERIQUE.test(s)) return Number(s);
 
   if (RESSEMBLE_A_UNE_DATE.test(s)) {
-    const t = Date.parse(s);
+    // **Sans fuseau, on lit UTC.** `Date.parse('2026-08-15T00:00:00')` rend un
+    // instant en heure LOCALE : le meme corpus, juge sur deux postes, donnait
+    // deux valeurs normalisees differentes — et l'empreinte qui en decoule
+    // aussi. Un juge dont la mesure depend de la machine n'est pas une mesure.
+    //
+    // Une date seule (`2026-08-15`) est deja UTC par la norme ; on n'y touche
+    // pas.
+    const avecT = s.replace(' ', 'T');
+    const explicite = avecT.length <= 10 || PORTE_UN_FUSEAU.test(avecT) ? avecT : `${avecT}Z`;
+    const t = Date.parse(explicite);
     if (!Number.isNaN(t)) return new Date(t).toISOString();
   }
 

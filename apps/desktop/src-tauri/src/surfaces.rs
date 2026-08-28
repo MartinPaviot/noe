@@ -85,7 +85,6 @@ impl ListeBlanche {
     // La production construit la liste au fil des clics de l'operateur, jamais
     // d'un bloc. Ce constructeur sert aux bancs — et il porte la normalisation,
     // qui doit etre testee la ou elle s'ecrit.
-    #[allow(dead_code)]
     pub fn depuis<I: IntoIterator<Item = S>, S: AsRef<str>>(surfaces: I) -> Self {
         Self {
             autorisees: surfaces

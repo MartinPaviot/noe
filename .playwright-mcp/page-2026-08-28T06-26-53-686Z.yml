@@ -1,0 +1,19 @@
+- generic [ref=f6e1]:
+  - generic [ref=f6e4]:
+    - generic [ref=f6e5]: Connexion à Salesforce
+    - heading "Réinitialiser votre mot de passe" [level=1] [ref=f6e9]
+    - generic [ref=f6e10]:
+      - paragraph [ref=f6e11]: Nous vous enverrons un e-mail, puis vérifierons votre identité.
+      - paragraph [ref=f6e12]:
+        - link "Comment puis-je vérifier mon identité ?" [ref=f6e13] [cursor=pointer]:
+          - /url: https://help.salesforce.com/s/articleView?id=xcloud.retrieving_forgotten_passwords.htm&type=5
+      - generic [ref=f6e14]:
+        - paragraph [ref=f6e15]: Vous avez besoin d'aide ? Contactez votre administrateur Salesforce.
+        - generic [ref=f6e16]:
+          - textbox "Saisissez votre nom d'utilisateur..." [active] [ref=f6e17]
+          - button "Annuler" [ref=f6e18] [cursor=pointer]
+          - button "Continuer" [ref=f6e19] [cursor=pointer]
+        - generic [ref=f6e20]: Vous avez oublié votre nom d’utilisateur ?
+        - link "Utilisez votre adresse e-mail" [ref=f6e22] [cursor=pointer]:
+          - /url: https://welcome.salesforce.com/reset-password
+  - generic [ref=f6e24]: © 2026 Salesforce, Inc. Tous droits réservés.

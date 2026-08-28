@@ -10,15 +10,22 @@ Les regles longues vivent dans `docs/invariants.md` ; ci-dessous le strict neces
 
 | But | Commande |
 | --- | --- |
-| Tout verifier (ce que la CI fait) | `pnpm verify` |
+| Tout verifier avant de committer | `pnpm verify` |
 | Lint + format check | `pnpm lint` |
 | Corriger le formatage | `pnpm format` |
 | Typecheck strict, tous packages | `pnpm typecheck` |
 | Tests | `pnpm test` |
 | Scan de secrets | `pnpm secrets` |
-| CLI du harness | `pnpm --filter @noe/harness exec tsx src/cli.ts` |
+| CLI du harness | `pnpm --filter @noe/harness build` puis `node packages/harness/dist/cli.js` |
 | Coquille desktop (dev) | `pnpm --filter @noe/desktop tauri dev` |
 | Evidence quotidienne (D26) | `pnpm evidence` |
+| Tests visuels | `pnpm --filter @noe/desktop exec playwright test` |
+
+> **`pnpm verify` n'est pas « ce que la CI fait ».** La CI en fait plus : elle
+> rejoue le corpus doré, vérifie que la politique nulle échoue bien, et scanne
+> l'historique complet avec gitleaks. `verify` est ce qu'on lance avant de
+> committer ; il ne dispense pas de regarder la CI.
+
 
 ## Mission
 

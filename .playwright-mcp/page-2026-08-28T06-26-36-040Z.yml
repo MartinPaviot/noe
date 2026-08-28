@@ -1,0 +1,22 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - generic [ref=f1e5]:
+      - generic [ref=f1e6]: Connexion à Salesforce
+      - generic [ref=f1e11]:
+        - generic [ref=f1e12]:
+          - generic [ref=f1e13]: "Erreur : Vérifiez votre nom d'utilisateur et votre mot de passe. Si vous ne parvenez toujours pas à vous connecter, contactez votre administrateur Salesforce."
+          - heading "Connexion à Salesforce" [level=1] [ref=f1e14]
+          - generic [ref=f1e15]:
+            - text: Nom d'utilisateur
+            - textbox "Nom d'utilisateur" [active] [ref=f1e17]
+          - button "Se connecter" [ref=f1e18] [cursor=pointer]
+          - generic [ref=f1e19]:
+            - checkbox "Mémoriser mes informations" [ref=f1e20]
+            - generic [ref=f1e21]: Mémoriser mes informations
+        - link "Mot de passe oublié ?" [ref=f1e23] [cursor=pointer]:
+          - /url: /secur/forgotpassword.jsp?locale=fr&lqs=eco%3D1%26ec%3D20037
+    - generic [ref=f1e24]: © 2026 Salesforce, Inc. Tous droits réservés.
+  - iframe [ref=f1e26]
+  - generic: Connexion
+  - iframe [ref=f1e27]:
+    

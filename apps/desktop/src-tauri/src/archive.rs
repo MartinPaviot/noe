@@ -475,6 +475,17 @@ pub fn importer(
             std::fs::create_dir_all(parent).map_err(|e| ErreurArchive::Disque(e.to_string()))?;
         }
         std::fs::write(&cible, contenu).map_err(|e| ErreurArchive::Disque(e.to_string()))?;
+
+        // INVARIANT IV — un épisode importé est aussi immuable qu'un épisode
+        // capturé. `persister` posait l'attribut, l'import ne le posait pas :
+        // le seul garde-fou mécanique de l'immuabilité disparaissait au passage
+        // par une archive, c'est-à-dire exactement quand un épisode change de
+        // machine et qu'on a le moins de moyens de savoir ce qui lui est arrivé.
+        if let Ok(metadonnees) = std::fs::metadata(&cible) {
+            let mut perms = metadonnees.permissions();
+            perms.set_readonly(true);
+            let _ = std::fs::set_permissions(&cible, perms);
+        }
     }
     Ok(verdict)
 }
@@ -687,6 +698,59 @@ mod tests {
         let rechargee = CleHmac::charger_ou_creer(&chemin_cle).expect("cle rechargee");
         let apres = crate::redaction::Redacteur::new(&rechargee).jeton("EMAIL", "jean@exemple.fr");
         assert_eq!(avant, apres, "meme entite, meme jeton, autre machine");
+    }
+
+    #[test]
+    fn un_episode_importe_est_aussi_immuable_qu_un_episode_capture() {
+        // INVARIANT IV. `persister` posait l'attribut lecture seule, l'import ne
+        // le posait pas : le seul garde-fou mecanique de l'immuabilite
+        // disparaissait au passage par une archive — c'est-a-dire exactement
+        // quand un episode change de machine, et qu'on a le moins de moyens de
+        // savoir ce qui lui est arrive en chemin.
+        let r = racine("import-immuable");
+        corpus_de_banc(&r);
+        let dest = r.join("corpus.noe");
+        exporter_banc(&r, &CleHmac::generer().unwrap(), MOT_DE_PASSE, &dest);
+
+        let cible = racine("import-immuable-cible");
+        let chemin_cle = cible.join("cle.bin");
+        importer(&dest, MOT_DE_PASSE, &cible, &chemin_cle).expect("import");
+
+        let mut vus = 0;
+        for entree in walkdir(&cible) {
+            if entree.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            vus += 1;
+            assert!(
+                std::fs::metadata(&entree).unwrap().permissions().readonly(),
+                "{} n est pas en lecture seule",
+                entree.display()
+            );
+            assert!(
+                std::fs::write(&entree, "modifie").is_err(),
+                "{} se reecrit",
+                entree.display()
+            );
+        }
+        assert!(vus > 0, "aucun episode importe : le controle serait vide");
+    }
+
+    /// Tous les fichiers d'un dossier, recursivement.
+    fn walkdir(racine: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut sortie = Vec::new();
+        let Ok(entrees) = std::fs::read_dir(racine) else {
+            return sortie;
+        };
+        for e in entrees.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                sortie.extend(walkdir(&p));
+            } else {
+                sortie.push(p);
+            }
+        }
+        sortie
     }
 
     #[test]

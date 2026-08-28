@@ -1,0 +1,42 @@
+- generic [ref=f8e1]:
+  - generic [ref=f8e3]:
+    - generic [ref=f8e4]:
+      - generic [ref=f8e6]:
+        - generic [ref=f8e7]: Chargement en cours…
+        - progressbar [ref=f8e8]
+      - main [ref=f8e15]:
+        - generic [ref=f8e20]:
+          - heading "Connexion" [level=1] [ref=f8e21]
+          - generic [ref=f8e22]: avec votre compte Google pour accéder à Gmail. Ce compte sera disponible pour d'autres applis Google dans le navigateur.
+        - generic [ref=f8e25]:
+          - generic [ref=f8e30]:
+            - generic [ref=f8e35]:
+              - textbox "Adresse e-mail ou téléphone" [active] [ref=f8e36]
+              - generic: Adresse e-mail ou téléphone
+            - button "Adresse e-mail oubliée ?" [ref=f8e40] [cursor=pointer]
+          - generic [ref=f8e43]:
+            - text: Ce n'est pas votre ordinateur ? Utilisez le mode Invité pour vous connecter en mode privé.
+            - link "En savoir plus sur l'utilisation du mode Invité (externe, s'ouvre dans une nouvelle fenêtre)" [ref=f8e44] [cursor=pointer]:
+              - /url: https://support.google.com/chrome/answer/6130773?hl=fr
+              - text: En savoir plus sur l'utilisation du mode Invité
+        - generic [ref=f8e46]:
+          - button "Suivant" [ref=f8e50]
+          - button "Créer un compte" [ref=f8e59]
+    - contentinfo [ref=f8e66]:
+      - combobox "Changer de langue Français (France)" [ref=f8e70] [cursor=pointer]:
+        - generic: Français (France)
+      - list [ref=f8e72]:
+        - listitem [ref=f8e73]:
+          - link "Ouvrir le centre d'aide Compte Google (externe, s'ouvre dans une nouvelle fenêtre)" [ref=f8e74] [cursor=pointer]:
+            - /url: https://support.google.com/accounts?hl=fr&p=account_iph
+            - text: Aide
+        - listitem [ref=f8e75]:
+          - link "Règles de confidentialité (externe, s'ouvre dans une nouvelle fenêtre)" [ref=f8e76] [cursor=pointer]:
+            - /url: https://accounts.google.com/TOS?loc=FR&hl=fr&privacy=true
+            - text: Confidentialité
+        - listitem [ref=f8e77]:
+          - link "Conditions d'utilisation de Google (lien externe, s'ouvre dans une nouvelle fenêtre)" [ref=f8e78] [cursor=pointer]:
+            - /url: https://accounts.google.com/TOS?loc=FR&hl=fr
+            - text: Conditions
+  - iframe [ref=f8e79]:
+    

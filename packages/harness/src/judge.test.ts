@@ -374,3 +374,48 @@ describe('les champs retires du verdict (spec 003, §7)', () => {
     expect(v.exclusions).toEqual([]);
   });
 });
+
+describe('la normalisation des dates ne depend pas de la machine (R4.1)', () => {
+  it('un horodatage sans fuseau est lu en UTC', () => {
+    // `Date.parse('2026-08-15T00:00:00')` rend un instant en heure LOCALE. Le
+    // meme corpus, juge sur deux postes, donnait deux valeurs normalisees
+    // differentes — et l'empreinte qui en decoule aussi.
+    //
+    // Ce cas ne mord que sur une machine hors UTC : sur le runner d'integration,
+    // qui est en UTC, il passe sans rien prouver. Les deux suivants, eux, mordent
+    // partout — c'est pour ca qu'ils sont la.
+    expect(normalize('2026-08-15T00:00:00')).toBe('2026-08-15T00:00:00.000Z');
+    expect(normalize('2026-08-15T14:30:00')).toBe(normalize('2026-08-15T14:30:00Z'));
+    expect(normalize('2026-08-15 14:30:00')).toBe(normalize('2026-08-15T14:30:00Z'));
+  });
+
+  it('un fuseau explicite est respecte', () => {
+    expect(normalize('2026-08-15T02:00:00+02:00')).toBe('2026-08-15T00:00:00.000Z');
+    expect(normalize('2026-08-14T20:00:00-04:00')).toBe('2026-08-15T00:00:00.000Z');
+  });
+
+  it('une date seule reste UTC, comme la norme le veut', () => {
+    expect(normalize('2026-08-15')).toBe('2026-08-15T00:00:00.000Z');
+  });
+
+  it('une date ambigue reste une chaine', () => {
+    // `15/08/2026` et `08/15/2026` sont LE MEME JOUR ecrit deux fois, et
+    // `Date.parse` n'en lit qu'une : l'autre rend NaN. Deux ecritures du meme
+    // jour ne pouvaient donc jamais etre equivalentes — mieux vaut n'en
+    // convertir aucune que d'en convertir une seule.
+    expect(normalize('15/08/2026')).toBe('15/08/2026');
+    expect(normalize('08/15/2026')).toBe('08/15/2026');
+    expect(equivalent('15/08/2026', '08/15/2026')).toBe(false);
+  });
+
+  it('un libelle de mois reste une chaine', () => {
+    // Sa lecture depend de l'implementation ET du fuseau.
+    expect(normalize('August 15, 2026')).toBe('August 15, 2026');
+  });
+
+  it('ce qui ne ressemble pas a une date n est pas converti', () => {
+    expect(normalize('2026')).toBe(2026);
+    expect(normalize('version 1.2.3')).toBe('version 1.2.3');
+    expect(normalize('75011')).toBe(75011);
+  });
+});

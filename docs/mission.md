@@ -121,14 +121,18 @@ pas.
 ## 4. Tests visuels Playwright — le standard (D21)
 
 **Harness** : `@playwright/test` + `toHaveScreenshot`, baselines **commitées**
-dans `tests/visual/__screenshots__/`, `maxDiffPixelRatio: 0.01`, viewport fixe
-**1280×800**, animations désactivées, fontes embarquées — le déterminisme des
-pixels n'est pas négociable.
+dans `apps/desktop/tests/visuel/__screenshots__/`, `maxDiffPixelRatio: 0.01`,
+viewport fixe **1280×800**, animations désactivées — le déterminisme des pixels
+n'est pas négociable.
 
-**Cible** : l'UI React tourne sous Vite en mode test avec la couche IPC Tauri
-**mockée** (fixtures d'épisodes et de branches réalistes, versionnées). Les tests
-visuels ne dépendent ni de la capture ni du réseau. L'extension : popup et pages
-testées pareil. La landing : idem sur le build statique.
+**Cible** : l'UI tourne sous Vite en mode prévisualisation, sur des **fixtures
+versionnées** d'épisodes — pas sur ceux du poste. Les tests visuels ne dépendent
+ni de la capture ni du réseau.
+
+*Écrit quand l'UI était prévue en React ; elle est en TypeScript sans framework
+(`apps/desktop/src/main.ts`), et l'extension n'a ni popup ni page à tester.
+Corrigé le 2026-08-28, après qu'un audit a montré que ce paragraphe décrivait un
+produit qui n'a jamais existé.*
 
 **Couverture exigée par surface** — une surface = **au minimum 4 baselines** :
 
@@ -137,8 +141,12 @@ testées pareil. La landing : idem sur le build statique.
 3. état d'**erreur** ;
 4. état de **chargement**.
 
-`pnpm test:visual` intégré à la CI. Le runner Linux suffit pour l'UI web ; le
-rendu Tauri natif est vérifié en session de dev, pas en CI.
+`pnpm --filter @noe/desktop exec playwright test`, lancé par le workflow
+`desktop` sur un runner **Windows** — le rendu de la coquille et les polices y
+sont ceux du poste visé, ce qu'un runner Linux ne donnerait pas.
+
+*Il n'y a pas de script `test:visual` : la commande annoncée ici pendant deux
+specs n'existait pas.*
 
 **Un diff visuel = rouge = la tâche n'est pas finie.** Une évolution voulue
 régénère la baseline dans le **même commit** que le changement, jamais
