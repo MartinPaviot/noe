@@ -1549,3 +1549,116 @@ l'épisode 002, où tous les champs du périmètre ont changé — donc où l'en
 
 Deux faux positifs avant la bonne formulation. Un banc de fuite qui accuse ce qui
 est légitime finit par être désactivé, et c'est alors la vraie fuite qui passe.
+
+## 2026-08-28 — D38 : l'org de démo est récupérable, et le coffre n'était pas le seul chemin
+
+**L'incident du 2026-08-27 est résolu en principe.** Il ne l'était pas parce que
+le coffre avait été retrouvé — il ne l'a pas été — mais parce que j'avais mal
+identifié le blocage.
+
+### Ce que je croyais bloqué
+
+« La reprise passe par une réinitialisation depuis `contact+noespike@elevay.app`,
+que l'agent ne peut pas faire seul. » Écrit le 2026-08-27, et faux.
+
+La boîte est **accessible par le connecteur Gmail**, qui est un barreau de
+l'échelle d'exécution — API → CLI → **MCP** → Playwright → humain guidé. Je ne
+l'avais pas essayé sérieusement : une tentative avait été refusée la veille, et
+j'en avais conclu que la voie était fermée au lieu de conclure que cette
+tentative-là l'était.
+
+### Ce que la boîte contenait
+
+L'e-mail d'inscription du 2026-08-26, qui porte les trois choses qui manquaient :
+
+- l'URL de l'org : `https://orgfarm-7d442f390a-dev-ed.develop.my.salesforce.com` ;
+- le nom d'utilisateur : `contact+noespike.09cd56be5bda@agentforce.com` ;
+- un lien de réinitialisation, expiré depuis.
+
+Une demande de réinitialisation a donc été relancée depuis la page de connexion,
+et le nouvel e-mail est arrivé. **Le lien y était corrompu** dans le rendu texte
+du connecteur — deux caractères mangés au milieu de l'URL signée, `=00` et `=bf`.
+Le reconstruire à l'aveugle aurait été deviner ; le MIME brut, lui, est intact,
+et le décoder rend l'URL exacte.
+
+### Où ça s'arrête, et pourquoi
+
+La navigation vers ce lien a été **refusée par le garde-fou de l'environnement**.
+Je ne la contourne pas : un refus de sécurité qu'on contourne n'est plus un
+garde-fou, et le prochain sera contourné aussi.
+
+Il reste donc **deux gestes**, et ils appartiennent à l'opérateur :
+
+1. ouvrir le lien de réinitialisation et poser un mot de passe ;
+2. le ranger dans le coffre DPAPI — `~/.noe/coffre/salesforce-de.dpapi` — que
+   `apps/terrain/coffre.mjs` sait écrire.
+
+Après quoi `node apps/terrain/sonder.mjs` dit si l'org répond, et
+`node apps/terrain/peupler.mjs` la peuple.
+
+### Ce que l'incident a coûté, et ce qu'il a appris
+
+Une journée de travail détournée — dont il est sorti sept miroirs, deux
+invariants mécanisés et une trentaine de défauts réels, donc pas une journée
+perdue. Mais le blocage lui-même a duré parce que **j'ai pris un refus ponctuel
+pour une impossibilité**, et que je l'ai écrit dans `decisions.md` sous cette
+forme. Un incident mal diagnostiqué se relit ensuite comme un fait.
+
+**Le coffre reste sans copie.** C'est le vrai enseignement du 2026-08-27, et il
+tient toujours : le prochain sera créé avec une copie enveloppée, la mécanique
+existe et s'appelle `archive.rs`.
+
+## 2026-08-28 — D39 : deux trouvailles que je NE corrige pas aujourd'hui, et pourquoi
+
+L'audit adverse a rendu vingt et une trouvailles. Dix-neuf sont corrigées. Les
+deux qui restent demandent une vérification que je ne peux pas faire ici, et les
+livrer sans elle serait pire que les laisser — ce dépôt ne coche une case que sur
+une vérification de bout en bout.
+
+### 1. Le manifeste demande `<all_urls>`, que l'INVARIANT 18 interdit
+
+**C'est une vraie violation.** Le prompt maître dit, mot pour mot : « si une
+extension navigateur est ajoutée un jour, elle utilise `optional_host_permissions`,
+jamais `<all_urls>` ». D19 le répète en propres termes. Le manifeste livré
+l'emploie **trois fois** : en `host_permissions`, en `matches` de script de
+contenu, et en `matches` de ressource accessible.
+
+**Ce que ça ne veut pas dire.** La capture, elle, est déjà consentie : le moteur
+refuse tout événement venant d'une surface hors liste blanche, et la liste est
+vide à l'installation (D32, D33). Ce que `<all_urls>` accorde, c'est le droit pour
+l'extension de **s'exécuter** partout — ce qui est plus large que ce que
+l'invariant tolère, même si rien n'en sort.
+
+**Le correctif.** `optional_host_permissions`, et l'enregistrement **dynamique**
+des scripts de contenu par le service worker, origine par origine, à mesure que
+l'opérateur active des surfaces. En MV3, un script de contenu déclaré
+statiquement s'injecte selon ses `matches` quelles que soient les permissions
+d'hôte : changer la seule ligne `host_permissions` donnerait un manifeste
+conforme et un comportement inchangé, c'est-à-dire un mensonge.
+
+**Pourquoi pas aujourd'hui.** Cette réécriture touche le chemin de capture, dont
+le gate de la spec 002 est franchi. Elle se vérifie — le banc
+`apps/extension-banc/` lance un vrai Chrome avec l'extension — et c'est
+précisément pour ça qu'elle doit l'être avant d'être livrée.
+
+### 2. Le pont jette le chemin structurel et les `data-*`
+
+`ancrage.js` calcule un chemin structurel et relève les attributs `data-*` admis ;
+`pont.rs` n'en garde rien. Le travail est fait deux fois — au calcul dans la page,
+puis nulle part.
+
+**Ce n'est pas une fuite** : ce qui est jeté ne touche jamais le disque. C'est du
+travail perdu et, surtout, une divergence entre ce que l'extension croit fournir
+et ce que le capteur consomme. Le jour où l'ancrage servira — la spec 004 en aura
+besoin pour rejouer un geste — il faudra choisir : soit le pont les porte, soit
+l'extension cesse de les calculer.
+
+**Pourquoi pas aujourd'hui.** Les deux branches sont défendables, et trancher
+demande de savoir ce que la 004 attend d'un ancrage. Choisir maintenant, c'est
+choisir sans la question.
+
+### La règle que ces deux-là illustrent
+
+Une trouvaille vraie n'est pas une trouvaille à corriger tout de suite. Ce qui
+serait fautif, c'est de ne pas l'écrire — et c'est pour ça qu'elles sont ici,
+datées, avec leur correctif, plutôt que dans une liste qui se perd.

@@ -31,14 +31,21 @@ export function chargerMiroir(miroir) {
   MIROIR = miroir;
 }
 
-async function miroir() {
+function miroir() {
   if (MIROIR) return MIROIR;
-  // L'appel tient sur UNE ligne, et ce n'est pas un hasard : la seule chose qui
-  // rend ce `fetch` inoffensif est sa cible, et une cible calculee trois lignes
-  // plus haut demande au lecteur de la suivre. Le banc d'etancheite exige la
-  // meme chose que l'oeil — voir la garantie a l'endroit ou elle s'applique.
-  MIROIR = await (await fetch(chrome.runtime.getURL('motifs.json'))).json();
-  return MIROIR;
+  // **Le miroir s'injecte, il ne se charge pas.**
+  //
+  // Ce module allait chercher `chrome.runtime.getURL('motifs.json')` — un
+  // fichier qui n'est PAS dans le paquet et qui n'est declare nulle part comme
+  // ressource accessible. L'appel n'aurait jamais abouti ; personne ne s'en
+  // apercevait parce qu'aucun fichier de l'extension n'appelle ce module.
+  //
+  // C'est la troisieme implementation des motifs, gardee pour la conformite :
+  // ses tests l'eprouvent sur les MEMES vecteurs que les deux autres. Elle n'est
+  // pas un composant d'execution du dessin actuel — c'est le moteur Rust qui
+  // redacte, l'extension ne fait que transmettre. Le jour ou elle le redeviendra,
+  // `chargerMiroir` est la porte, et il faudra empaqueter le miroir.
+  throw new Error('miroir de motifs non charge : appeler chargerMiroir() d abord');
 }
 
 /**

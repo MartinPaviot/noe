@@ -858,12 +858,14 @@ fn gestes_du_clavier(etat: &State<Etat>) -> Vec<RawEvent> {
     //
     // Une seule lecture par battement, quel que soit le nombre de copies : le
     // presse-papiers ne contient qu'une chose.
+    let en_pause = etat.session.lock().expect("session empoisonnee").en_pause();
     if presse_papiers::lecture_autorisee(
         gestes.copies,
         surface_copie.as_deref(),
         &liste,
         u64::from(gestes.sequence_avant_copie),
         presse_papiers::PressePapiers::sequence(&pp),
+        en_pause,
     ) {
         a.copie_observee(&pp);
     }

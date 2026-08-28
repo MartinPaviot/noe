@@ -71,6 +71,11 @@ describe('INVARIANT I — rien ne sort du poste', () => {
   it('chaque fetch de l extension vise une ressource empaquetee', async () => {
     // Un `fetch` vers une URL distante serait une voie d'exfiltration, et il
     // aurait l'air d'un chargement de configuration.
+    //
+    // **Zéro `fetch` est une réponse acceptable**, et c'est le cas depuis que le
+    // seul qui restait — vers un fichier absent du paquet — a été retiré. Le cas
+    // « sait dire non » plus bas garde le motif lui-même, faute de quoi ce
+    // contrôle deviendrait vert par disparition de sa matière.
     const fautes: string[] = [];
     for (const f of await fichiers(EXTENSION, '.js')) {
       const contenu = await readFile(f, 'utf8');

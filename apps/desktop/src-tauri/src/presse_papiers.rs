@@ -149,8 +149,14 @@ pub fn lecture_autorisee(
     liste: &crate::surfaces::ListeBlanche,
     sequence_avant: u64,
     sequence_maintenant: u64,
+    en_pause: bool,
 ) -> bool {
-    copies > 0 && liste.autorise(surface) && sequence_maintenant != sequence_avant
+    // **La pause compte ici.** Elle suspendait le journal et pas la lecture : le
+    // presse-papiers etait ouvert et lu pendant que l'operateur avait demande
+    // qu'on arrete de regarder. Rien n'etait ecrit, ce qui rendait la chose
+    // invisible — mais « rien n'est ecrit » et « rien n'est lu » ne sont pas la
+    // meme promesse, et c'est la seconde que la pause fait.
+    !en_pause && copies > 0 && liste.autorise(surface) && sequence_maintenant != sequence_avant
 }
 
 pub struct PressePapiersWindows;
@@ -251,6 +257,33 @@ mod tests {
             self.lectures.set(self.lectures.get() + 1);
             self.contenu.get().map(str::to_string)
         }
+    }
+
+    #[test]
+    fn en_pause_on_ne_lit_rien_du_tout() {
+        // La pause suspendait le journal et pas la lecture : le presse-papiers
+        // etait ouvert et lu pendant que l'operateur avait demande qu'on arrete
+        // de regarder. Rien n'etait ecrit, ce qui rendait la chose invisible —
+        // mais « rien n'est ecrit » et « rien n'est lu » ne sont pas la meme
+        // promesse, et c'est la seconde que la pause fait.
+        let liste = crate::surfaces::ListeBlanche::depuis(["chrome.exe"]);
+        // Toutes les autres conditions sont reunies : seule la pause tranche.
+        assert!(lecture_autorisee(
+            1,
+            Some("chrome.exe"),
+            &liste,
+            1,
+            2,
+            false
+        ));
+        assert!(!lecture_autorisee(
+            1,
+            Some("chrome.exe"),
+            &liste,
+            1,
+            2,
+            true
+        ));
     }
 
     #[test]
@@ -393,7 +426,8 @@ mod tests {
             Some("chrome.exe"),
             &autorisees(&["chrome.exe"]),
             1,
-            2
+            2,
+            false
         ));
     }
 
@@ -403,8 +437,22 @@ mod tests {
         // pose sur tout le bureau ; il dit qu'une combinaison a ete pressee
         // quelque part, pas qu'elle l'a ete la ou on a le droit de regarder.
         let liste = autorisees(&["chrome.exe"]);
-        assert!(!lecture_autorisee(1, Some("keepass.exe"), &liste, 1, 2));
-        assert!(!lecture_autorisee(1, Some("bitwarden.exe"), &liste, 1, 2));
+        assert!(!lecture_autorisee(
+            1,
+            Some("keepass.exe"),
+            &liste,
+            1,
+            2,
+            false
+        ));
+        assert!(!lecture_autorisee(
+            1,
+            Some("bitwarden.exe"),
+            &liste,
+            1,
+            2,
+            false
+        ));
     }
 
     #[test]
@@ -416,7 +464,8 @@ mod tests {
             None,
             &autorisees(&["chrome.exe"]),
             1,
-            2
+            2,
+            false
         ));
     }
 
@@ -429,7 +478,8 @@ mod tests {
                 surface,
                 &crate::surfaces::ListeBlanche::vide(),
                 1,
-                2
+                2,
+                false
             ));
         }
     }
@@ -440,7 +490,14 @@ mod tests {
         // cette condition, on s'approprie ce qui trainait — le mot de passe
         // copie trente secondes plus tot, ailleurs, avant l'episode.
         let liste = autorisees(&["chrome.exe"]);
-        assert!(!lecture_autorisee(1, Some("chrome.exe"), &liste, 7, 7));
+        assert!(!lecture_autorisee(
+            1,
+            Some("chrome.exe"),
+            &liste,
+            7,
+            7,
+            false
+        ));
     }
 
     #[test]
@@ -448,7 +505,21 @@ mod tests {
         // Le seul cas qui passe, et il faut qu'il passe : sinon l'appariement
         // copier-coller ne mesure rien.
         let liste = autorisees(&["chrome.exe"]);
-        assert!(lecture_autorisee(1, Some("chrome.exe"), &liste, 7, 8));
-        assert!(lecture_autorisee(1, Some("CHROME.EXE"), &liste, 7, 8));
+        assert!(lecture_autorisee(
+            1,
+            Some("chrome.exe"),
+            &liste,
+            7,
+            8,
+            false
+        ));
+        assert!(lecture_autorisee(
+            1,
+            Some("CHROME.EXE"),
+            &liste,
+            7,
+            8,
+            false
+        ));
     }
 }
